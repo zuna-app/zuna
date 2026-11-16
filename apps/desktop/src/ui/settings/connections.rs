@@ -56,6 +56,51 @@ impl SettingsView {
             (None, false) => t("settings.connections.unavailable").to_string(),
         };
         parts.push(Self::row("Telegram", Some(&hint), control, &theme));
+        if linked.is_some() && !self.confirming_unlink {
+            parts.push(self.telegram_calls_row(cx));
+        }
         parts
+    }
+
+    /// "Take Telegram calls on this device": Telegram's own "Accept calls" for this session, so
+    /// it's the same switch wherever it's turned. Off, no Telegram call rings here, and calls can
+    /// still be made from here.
+    fn telegram_calls_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        if self.telegram_calls.is_none() && !self.asking_telegram_calls {
+            self.asking_telegram_calls = true;
+            let call = self.state.read(cx).core.call(Some(SERVER_ID), "takesCalls", vec![]);
+            cx.spawn(async move |view, cx| {
+                let result = call.await;
+                view.update(cx, |view, cx| {
+                    view.asking_telegram_calls = false;
+                    view.telegram_calls = Some(result.ok().and_then(|value| value.as_bool()).unwrap_or(true));
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        let on = self.telegram_calls.unwrap_or(true);
+        let control = switch("telegram-calls", on, cx).when(self.telegram_calls.is_none(), |el| el.opacity(0.55)).on_click(cx.listener(move |view, _, _, cx| {
+            if view.telegram_calls.is_none() {
+                return;
+            }
+            view.telegram_calls = Some(!on);
+            cx.notify();
+            let call = view.state.read(cx).core.call(Some(SERVER_ID), "setTakesCalls", vec![json!(!on)]);
+            cx.spawn(async move |view, cx| {
+                if let Err(error) = call.await {
+                    view.update(cx, |view, cx| {
+                        view.telegram_calls = Some(on);
+                        view.state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            })
+            .detach();
+        }));
+        Self::row(t("settings.connections.telegramCalls"), Some(t("settings.connections.telegramCallsHint")), control, &theme)
     }
 }

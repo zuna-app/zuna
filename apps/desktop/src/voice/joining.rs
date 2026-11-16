@@ -6,6 +6,11 @@ impl Voice {
     /// Comes into a voice channel or a call, asking first if that takes another of this person's devices
     /// out of one. `return_to` is what to open again on leaving a voice channel, if it's said.
     pub fn join(&mut self, server_id: String, channel_id: String, return_to: Option<Option<String>>, how: JoinHow, cx: &mut Context<Self>) {
+        // A Telegram call is joined by answering it.
+        if server_id == telegram::TELEGRAM {
+            self.answer_telegram(channel_id, how.camera, cx);
+            return;
+        }
         // The server keeps only a person's latest device in voice, so coming in here ends it on another of theirs.
         let from = if self.is_in(&server_id, &channel_id) { None } else { self.state.read(cx).servers.get(&server_id).and_then(elsewhere).map(str::to_string) };
         match from {
@@ -60,7 +65,8 @@ impl Voice {
     /// Opens the microphone for the room, off the window's thread, with the source its sound
     /// goes to, which is published.
     pub(super) fn open_room_microphone(&self, settings: &VoiceSettings, cx: &mut Context<Self>) -> Task<Result<(Microphone, livekit::webrtc::audio_source::native::NativeAudioSource), String>> {
-        let source = VoiceRoom::microphone_source();
+        // Opened again, it sends to the same source, which the room or the call already sends.
+        let source = self.mic_source.clone().unwrap_or_else(VoiceRoom::microphone_source);
         let sending = source.clone();
         let opening = open_microphone(settings, self.mic_off(), self.processing.clone(), move |frame| room::send_frame(&sending, frame, 1), cx);
         cx.background_executor().spawn(async move { opening.await.map(|mic| (mic, source)) })
@@ -190,6 +196,13 @@ impl Voice {
                         voice.open = open;
                         cx.notify();
                     }
+                    // A Telegram call has no media server to say who's speaking: the other person is heard here.
+                    if let Some(speaking) = voice.telegram_speaking() {
+                        if speaking != voice.speaking {
+                            voice.speaking = speaking;
+                            cx.notify();
+                        }
+                    }
                     if voice.mic.as_ref().is_some_and(|mic| mic.lost.load(std::sync::atomic::Ordering::Relaxed)) {
                         voice.toast(t("voice.mic.lost"), ToastKind::Info, cx);
                         voice.reopen_mic(Some("default".into()), cx);
@@ -316,6 +329,10 @@ impl Voice {
 
     /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.
     pub fn start_call(&mut self, server_id: String, conversation_key: String, camera: bool, cx: &mut Context<Self>) {
+        if server_id == telegram::TELEGRAM {
+            self.start_telegram(conversation_key, camera, cx);
+            return;
+        }
         let call = self.core(cx).call(Some(&server_id), "prepareCall", vec![json!(conversation_key)]);
         cx.spawn(async move |this, cx| {
             let result = call.await;
@@ -363,6 +380,10 @@ impl Voice {
 
     pub fn leave(&mut self, cx: &mut Context<Self>) {
         if self.status == VoiceStatus::Idle {
+            return;
+        }
+        if self.in_telegram() {
+            self.leave_telegram(true, cx);
             return;
         }
         let (server_id, channel_id) = (self.server_id.clone(), self.channel_id.clone());

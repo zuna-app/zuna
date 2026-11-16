@@ -7,7 +7,7 @@ The desktop app on Windows, Linux and macOS, and the iPhone and iPad app, can li
 - **These chats aren't end-to-end encrypted.** Telegram keeps them on its servers, as it does for its own apps. Each chat says "Telegram" in its header and that it isn't encrypted, so it's never taken for one of Zuna's.
 - **Telegram learns** that you use Zuna, this device's address, or your proxy's if you set one, whether it runs Windows, Linux, macOS or iOS, and when you're online. Not the device's model or the system's version.
 - **Telegram watches accounts that use other apps,** and sometimes limits one by mistake. Link an account you've had for a while.
-- **Channels, calls and secret chats stay in Telegram's own app.** Zuna doesn't list them.
+- **Channels, video chats in groups and secret chats stay in Telegram's own app.** Zuna doesn't list them. Calls with one person are in the desktop app, but not on the iPhone and iPad yet.
 
 ## Linking
 
@@ -26,10 +26,15 @@ Zuna makes no account: a number Telegram doesn't know is sent to sign up in Tele
 - **Stickers:** still ones show as they are, and animated ones as their still picture or their emoji. The picker's Stickers tab has your own sets.
 - **Drafts** are kept on Telegram, so what you start writing in Zuna is there on your phone, and back.
 - **Groups:** making one, adding and removing people, its name and picture, a link to invite people, joining by one, and leaving.
+- **Calls with one person,** in the desktop app, by voice and with the camera, both ways, from the phone and camera buttons in a chat's header, ringing as Zuna's own calls do with "(Telegram)" after the name. Each chat shows Telegram's line for a call: which way, by voice or video, how long, or missed, declined or cancelled.
+  - **The four emoji** on the call's screen are Telegram's check of the call's key, as in its own apps: if the other person sees the same four, nobody in between can listen. Telegram's apps agreed that key between them, and nothing of Zuna's encryption stands behind it.
+  - **Always through Telegram's relays,** never device to device, whatever your account's own setting for that is, so the other person never learns this device's address. Telegram learns it, or your proxy's, as it does in its own apps. With a proxy set, the call goes through it, which has to carry UDP: one that doesn't gets no Telegram call.
+  - **"Take Telegram calls on this device"** in Settings, Connections, is Telegram's own Accept calls for this device, which its apps show under Devices. Off, no Telegram call rings here, and you can still call from here.
+  - When Telegram asks, a card asks how the call was: stars, and under five which of Telegram's problems it had. Nothing else goes with it, and no log of the call is ever sent.
 
 ## What isn't
 
-- Channels, calls and secret chats, which stay in Telegram's app.
+- Channels, video chats in groups and secret chats, which stay in Telegram's app, and calls on the iPhone and iPad, which aren't there yet. A call the other person moves into a group call ends here, saying to open it in Telegram. Sharing your screen into a call isn't there either, though the other person's shared screen shows.
 - Nothing passes between Telegram and Zuna's own chats: nothing is forwarded either way, and no plugin reaches anything of Telegram's.
 - Changing your account: its name, password, sessions, contacts and payments are Telegram's app's.
 

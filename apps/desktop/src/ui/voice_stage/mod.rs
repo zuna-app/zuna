@@ -278,7 +278,13 @@ impl Render for VoiceStage {
         let native_self_share = screen_share.clone();
         let sounds = self.room.call || channel.as_ref().is_some_and(|channel| channel.sounds);
         let chat_unread = conversation.as_ref().is_some_and(|conversation| conversation.unread > 0.);
-        let header = self.header(&title, &topic, call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at), not_here, cx);
+        // A Telegram call's time runs from when the two connected.
+        let started = if self.room.server_id == crate::voice::telegram::TELEGRAM {
+            self.voice.read(cx).telegram_call().filter(|call| call.state == "on").and_then(|call| call.connected_at)
+        } else {
+            call.as_ref().filter(|_| status == VoiceStatus::Connected).map(|call| call.started_at)
+        };
+        let header = self.header(&title, &topic, started, not_here, cx);
 
         self.keep_player(watch.as_ref().filter(|_| watch_focused && watching && status != VoiceStatus::Connecting), window, cx);
         #[cfg(windows)]

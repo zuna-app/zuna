@@ -15,6 +15,7 @@ pub mod screen;
 pub mod settings;
 pub mod sounds;
 pub mod stats;
+pub mod telegram;
 pub mod watch;
 #[cfg(target_os = "linux")]
 pub mod watch_window;
@@ -179,6 +180,17 @@ pub struct Voice {
     /// The settings and volumes waiting to be saved, a moment after the last change.
     save_task: Option<Task<()>>,
     pub(crate) share: screen::ShareHandles,
+    /// The linked Telegram account's call, as the core last said it: ringing here, or the one
+    /// this device is in, whose room is then the Telegram account's (voice/telegram).
+    pub telegram: Option<crate::models::TelegramCallView>,
+    /// Its peer connection, once the core said to make it.
+    telegram_media: Option<Arc<telegram::media::TelegramMedia>>,
+    /// The camera goes on once its peer connection is made.
+    telegram_camera: bool,
+    /// What the core said to do while the peer connection was still being made through the proxy.
+    telegram_waiting: Option<Vec<Value>>,
+    /// A Telegram call that's over, which Telegram asked to have rated.
+    pub telegram_rating: Option<telegram::Rating>,
     /// The push to talk key being watched for, and what hears it.
     ptt_watching: Option<String>,
     ptt_task: Option<Task<()>>,
@@ -250,6 +262,11 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         tick_task: None,
         save_task: None,
         share: screen::ShareHandles::default(),
+        telegram: None,
+        telegram_media: None,
+        telegram_camera: false,
+        telegram_waiting: None,
+        telegram_rating: None,
         ptt_watching: None,
         ptt_task: None,
         mic_test: None,
@@ -526,6 +543,11 @@ impl Voice {
 
     /// Tells everyone on the server what this device is doing, or the conversation's members in a call.
     fn announce(&mut self, cx: &mut Context<Self>) {
+        if self.server_id.as_deref() == Some(telegram::TELEGRAM) {
+            self.say_telegram(cx);
+            self.show_members(cx);
+            return;
+        }
         let (Some(server_id), Some(channel_id)) = (self.server_id.clone(), self.channel_id.clone()) else { return };
         let ring = std::mem::take(&mut self.ring_on_announce);
         let update = json!({ "muted": self.muted || self.no_mic || self.server_muted, "deafened": self.deafened, "camera": self.camera, "screen": self.screen.is_some() });
@@ -553,6 +575,9 @@ impl Voice {
         if let Some(room) = &self.room {
             room.set_volumes(self.volumes_fn());
         }
+        if let (Some(media), Some(call)) = (&self.telegram_media, &self.telegram) {
+            media.set_volume((self.volumes_fn())(&call.user_id, false));
+        }
     }
 
     fn apply_mute(&mut self, cx: &mut Context<Self>) {
@@ -567,14 +592,18 @@ impl Voice {
     }
 
     fn sync_videos(&mut self, cx: &mut Context<Self>) {
-        let Some(room) = self.room.clone() else { return };
-        let videos = room.videos();
+        let videos = if self.telegram_media.is_some() {
+            self.telegram_videos(cx)
+        } else {
+            let Some(room) = self.room.clone() else { return };
+            self.camera = room.camera_on();
+            room.videos()
+        };
         // The video watched together stays on the stage while it's on, as the web's store keeps it.
         let still_there = self.focus.as_ref().is_some_and(|focus| (focus == watch::WATCH_FOCUS && self.watch.is_some()) || videos.iter().any(|video| &video.key == focus));
         // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
         let arrived = if self.settings.screen_focus { videos.iter().find(|video| video.source == VideoSource::Screen && !video.local && !self.videos.iter().any(|other| other.key == video.key)).map(|video| video.key.clone()) } else { None };
         self.focus = if still_there { self.focus.clone() } else { arrived };
-        self.camera = room.camera_on();
         self.videos = videos;
         cx.notify();
     }
@@ -600,6 +629,11 @@ impl Voice {
         if let Some(room) = self.room.take() {
             room.close();
         }
+        if let Some(media) = self.telegram_media.take() {
+            media.close();
+        }
+        self.telegram_camera = false;
+        self.telegram_waiting = None;
         self.mic = None;
         self.mic_source = None;
         self.mic_task = None;
@@ -642,6 +676,15 @@ pub fn on_event(event: &Value, cx: &mut App) {
             voice.update(cx, |voice, cx| voice.on_watch(&server_id, &text("channelId"), watch, cx));
         }
         "signed_out" => voice.update(cx, |voice, cx| voice.on_server_gone(&server_id, cx)),
+        "telegram_call" => {
+            let call = event.get("call").filter(|call| !call.is_null()).cloned().and_then(|call| serde_json::from_value::<crate::models::TelegramCallView>(call).ok());
+            voice.update(cx, |voice, cx| voice.on_telegram_call(call, cx));
+        }
+        "telegram_call_media" => {
+            let id = event.get("callId").and_then(Value::as_i64).unwrap_or(0);
+            let media = event.get("media").cloned().unwrap_or_default();
+            voice.update(cx, |voice, cx| voice.on_telegram_media(id, media, cx));
+        }
         _ => {}
     }
 }

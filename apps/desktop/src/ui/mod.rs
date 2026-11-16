@@ -476,6 +476,7 @@ impl Render for Root {
         }
         self.prompting = prompt.is_some();
         let calls = if matches!(self.state.read(cx).phase, Phase::Ready) && has_servers { voice::incoming_calls(&self.state, &self.voice, cx) } else { None };
+        let rating = if matches!(self.state.read(cx).phase, Phase::Ready) { voice::telegram_rating(&self.voice, cx) } else { None };
         let root = div()
             .size_full()
             .track_focus(&self.focus)
@@ -548,7 +549,8 @@ impl Render for Root {
                     .when_some(settings_closing, |el, closing| el.child(closing))
                     // Rising into place as they fade in, as far as a dialog does.
                     .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings).appear("settings-in", Enter::Rise(16.), 240)))
-                    .when_some(calls, |el, calls| el.child(calls)),
+                    .when_some(calls, |el, calls| el.child(calls))
+                    .when_some(rating, |el, rating| el.child(rating)),
             )
             .when_some(closing, |el, closing| el.child(closing))
             .when_some(overlay, |el, overlay| el.child(overlay))

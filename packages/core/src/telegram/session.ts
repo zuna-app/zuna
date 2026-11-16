@@ -7,6 +7,7 @@ import { t } from "../i18n";
 // on this device. Telegram's servers hold the real one.
 
 import type {
+  CallView,
   ConnectionState,
   ConversationView,
   CoreEvent,
@@ -17,6 +18,7 @@ import type {
   Preferences,
   SearchResult,
   ServerInfo,
+  TelegramCallView,
   TelegramLink,
   UserView,
 } from "../types";
@@ -52,6 +54,7 @@ import {
   waveformToTelegram,
 } from "./map";
 import { fromMarkup, toMarkup } from "./markup";
+import { TelegramCalls } from "./calls/call";
 
 /** A file the person sends: what `sendWithAttachments` takes, as a server's session does. */
 export interface OutgoingFile {
@@ -133,6 +136,8 @@ const HANDLED = new Set([
   "updateChatAction",
   "updateFileGenerationStart",
   "updateFileGenerationStop",
+  "updateCall",
+  "updateNewCallSignalingData",
 ]);
 
 /** What Telegram's errors mean, in the app's words. */
@@ -182,6 +187,8 @@ export interface TelegramSessionOptions {
   onGone: () => void;
   /** How the files the person sends are read, as the host gives them. */
   files?: FileAdapter;
+  /** The app has calls (calls/call.ts). Without it, a call is nobody's here, and Telegram's own apps take it. */
+  calls?: boolean;
 }
 
 export class TelegramSession {
@@ -229,6 +236,8 @@ export class TelegramSession {
    * numbers from before (`renumbered`).
    */
   private sources = new Map<string, TdObject>();
+  /** The account's one call at a time (calls/call.ts). */
+  private readonly calls: TelegramCalls;
 
   constructor(
     private readonly adapter: TelegramAdapter,
@@ -236,6 +245,12 @@ export class TelegramSession {
   ) {
     this.engine = new Engine(adapter, (update) => this.onUpdate(update));
     this.linking = options.linking;
+    this.calls = new TelegramCalls({
+      request: (query) => this.engine.request(query),
+      emit: (event) => this.options.onEvent(event),
+      selfId: () => this.selfId,
+      nameOf: (userId) => this.nameOf(String(userId)),
+    });
   }
 
   // --- Lifecycle ---
@@ -252,11 +267,13 @@ export class TelegramSession {
 
   stop(): void {
     this.ended = true;
+    this.calls.reset();
     this.engine.stop(false);
   }
 
   /** Signs out at Telegram, if it can, and erases everything of the account's here. Says whether it signed out. */
   unlink(): Promise<boolean> {
+    this.calls.reset();
     return new Promise((resolve) => {
       this.unlinking = resolve;
       this.signingOut = true;
@@ -581,6 +598,12 @@ export class TelegramSession {
         if (/^\d+$/.test(generation)) this.stopped.add(generation);
         return;
       }
+      case "updateCall":
+        if (this.options.calls) this.calls.onUpdate(update.call);
+        return;
+      case "updateNewCallSignalingData":
+        if (this.options.calls) this.calls.onSignalingData(update.call_id, update.data);
+        return;
       default:
         return this.patchChat(update);
     }
@@ -632,6 +655,7 @@ export class TelegramSession {
         return;
       }
       case "zunaFailed":
+        this.calls.reset();
         this.engine.failAll(new TelegramError(t("telegram.telegramStopped"), 503));
         this.stalled = true;
         // A broker that goes on trying by itself, as the iPhone's does, is still connecting: only
@@ -641,6 +665,7 @@ export class TelegramSession {
       case "zunaRestarted":
         // A new engine, which says where it stands as it starts: until then it's connecting, and
         // what the one before it said of its connection is nobody's.
+        this.calls.reset();
         this.engine.failAll(new TelegramError(t("telegram.telegramRestarted"), 503));
         this.stalled = false;
         this.setConnection("connecting");
@@ -942,8 +967,9 @@ export class TelegramSession {
   getVoiceMembers(): [] {
     return [];
   }
-  getCalls(): [] {
-    return [];
+  /** The account's call while it's going, as a conversation's call, as a server's are. */
+  getCalls(): CallView[] {
+    return this.calls.callViews();
   }
   getSounds(): [] {
     return [];
@@ -956,6 +982,86 @@ export class TelegramSession {
   }
   getNewDevices(): [] {
     return [];
+  }
+
+  // --- Calls ---
+  // One at a time, with one person, by voice or with the camera (docs/TELEGRAM_CALLS_PLAN.md).
+  // Its media is the interface's, which the core tells what to do (`telegram_call_media`).
+
+  /** The call going on, or the one that just ended, as its screen shows it. */
+  getTelegramCall(): TelegramCallView | null {
+    return this.calls.current();
+  }
+
+  /** Calls the person a private chat is with. Says the call's number. */
+  async startCall(groupId: string, options: { video?: boolean } = {}): Promise<number> {
+    const chat = this.listed(this.chatOf(groupId));
+    const peer = chat && chatKind(chat) === "dm" ? idOf((chat.type as TdObject).user_id) : null;
+    const user = peer ? this.users.get(peer) : undefined;
+    if (!this.options.calls || !peer || peer === this.selfId || kindOf(user?.type) === "userTypeBot") throw new Error(t("telegram.call.cantCallHere"));
+    return this.calls.start(peer, options?.video === true).catch((error) => {
+      throw explain(error);
+    });
+  }
+
+  async answerCall(id: number): Promise<void> {
+    await this.calls.answer(id).catch((error) => {
+      throw explain(error);
+    });
+  }
+
+  /** Declines the call ringing in a chat, as a server's call is declined, by its group. */
+  async declineCall(groupId: string): Promise<void> {
+    const call = this.calls.current();
+    if (call && call.groupId === groupId) await this.calls.decline(call.id);
+  }
+
+  async endCall(id: number): Promise<void> {
+    await this.calls.hangUp(id);
+  }
+
+  /** The peer connection's offer, which gives back what it's to set. */
+  callOffer(id: number, sdp: string): string {
+    return this.calls.offer(id, sdp);
+  }
+
+  callCandidate(id: number, candidate: string): void {
+    this.calls.candidate(id, candidate);
+  }
+
+  callHeard(id: number, text: string): void {
+    this.calls.heard(id, text);
+  }
+
+  callSaid(id: number, state: { muted: boolean; camera: boolean }): void {
+    this.calls.said(id, state);
+  }
+
+  callConnection(id: number, state: string): void {
+    this.calls.connection(id, state);
+  }
+
+  /** How a call was, one to five, and which of Telegram's problems it had (`PROBLEMS` in calls/call.ts). */
+  async rateCall(id: number, stars: number, problems: string[]): Promise<void> {
+    await this.calls.rate(id, stars, problems).catch((error) => {
+      throw explain(error);
+    });
+  }
+
+  /** Whether Telegram rings this device for calls: its own "Accept calls" for this session. */
+  async takesCalls(): Promise<boolean> {
+    const sessions = await this.engine.request({ "@type": "getActiveSessions" }).catch((error) => {
+      throw explain(error);
+    });
+    const current = list(sessions.sessions, 1000).find((session) => isObject(session) && session.is_current === true) as TdObject | undefined;
+    return current?.can_accept_calls !== false;
+  }
+
+  /** Turns that on or off. Off, no call rings here, and calls can still be made from here. */
+  async setTakesCalls(on: boolean): Promise<void> {
+    await this.engine.request({ "@type": "toggleSessionCanAcceptCalls", session_id: 0, can_accept_calls: on === true }).catch((error) => {
+      throw explain(error);
+    });
   }
 
   // --- Files ---

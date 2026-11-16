@@ -301,9 +301,11 @@ describe("Telegram's messages as the app's", () => {
     expect(words({ "@type": "messageContactRegistered" })).toBe(`_Person ${GRACE} joined Telegram_`);
     expect(words({ "@type": "messageChatUpgradeTo" })).toBe("_The group was upgraded_");
     expect(words({ "@type": "messageChatUpgradeFrom" })).toBe("_The group was upgraded_");
-    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonMissed" } })).toBe("_Missed video call, in Telegram's app_");
-    expect(words({ "@type": "messageCall", is_video: true })).toBe("_Video call, in Telegram's app_");
-    expect(words({ "@type": "messageCall" })).toBe("_Voice call, in Telegram's app_");
+    // A call's line, as Telegram's apps write it: from Grace, so to this account.
+    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonMissed" } })).toBe("_Missed video call_");
+    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 61 })).toBe("_Incoming video call, 1:01_");
+    expect(words({ "@type": "messageCall", duration: 5 })).toBe("_Incoming call, 0:05_");
+    expect(words({ "@type": "messageCall" })).toBe("_Missed call_");
     for (const kind of ["messageChatSetTheme", "messageSupergroupSomething", "messageBasicGroupSomething", "messageCustomServiceAction"]) {
       expect(words({ "@type": kind })).toBe("_Something changed in the group_");
     }

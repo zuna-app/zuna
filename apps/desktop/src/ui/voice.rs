@@ -243,6 +243,9 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
         let server = state.read(cx).servers.get(&item.server_id).cloned();
         let caller = server.as_ref().and_then(|server| server.users.get(&item.call.started_by)).map(|user| user.display_name.clone()).unwrap_or_else(|| t("common.someone").into());
         let what = if item.conversation.kind == "dm" { t("notify.callingYou").to_string() } else { tr!("notify.startedCall", name = caller) };
+        // A Telegram call says so after the name, as its notifications do.
+        let title = if item.server_id == crate::voice::telegram::TELEGRAM { tr!("notifications.telegramTitle", title = item.conversation.title) } else { item.conversation.title.clone() };
+        let several = several && item.server_id != crate::voice::telegram::TELEGRAM;
         let image = item.conversation.avatar.clone().and_then(|avatar| {
             let server_id = item.server_id.clone();
             state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
@@ -299,7 +302,7 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                         .flex()
                         .flex_col()
                         .gap(px(1.))
-                        .child(div().one_line().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(item.conversation.title.clone()))
+                        .child(div().one_line().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(title))
                         .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(format!("{what}{}", if several { server.map(|server| format!(" · {}", server.entry.name)).unwrap_or_default() } else { String::new() }))),
                 )
                 .child(round("decline", theme.red, gpui::white(), "phone-off", t("voice.incoming.decline")).on_click(decline))
@@ -310,6 +313,76 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
         );
     }
     Some(column.into_any_element())
+}
+
+/// The card that asks how a Telegram call was, when Telegram asks (`need_rating`): one to five
+/// stars, and under five which of Telegram's problems it had. It can be closed.
+pub fn telegram_rating(voice_entity: &Entity<Voice>, cx: &mut App) -> Option<AnyElement> {
+    let theme = theme(cx);
+    let rating = voice_entity.read(cx).telegram_rating.clone()?;
+    let stars = rating.stars.unwrap_or(0);
+    let mut row = div().flex().items_center().gap(px(2.));
+    for star in 1..=5u8 {
+        let voice = voice_entity.clone();
+        row = row.child(
+            named_div(SharedString::from(format!("rate-{star}")))
+                .p(px(3.))
+                .rounded(RADIUS_S)
+                .cursor_pointer()
+                .hover(move |style| style.bg(theme.hover))
+                .child(icon("star", 22., if star <= stars { theme.amber } else { theme.text3 }))
+                .on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.rate_stars(star, cx))),
+        );
+    }
+    let close = {
+        let voice = voice_entity.clone();
+        icon_button("rate-close", "x", 15., true, false, cx).tip(t("common.close"), Side::Top).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.dismiss_rating(cx)))
+    };
+    let mut card = div()
+        .w(px(380.))
+        .flex()
+        .flex_col()
+        .gap(px(10.))
+        .p(px(12.))
+        .rounded(RADIUS_L)
+        .bg(theme.bg3)
+        .border_1()
+        .border_color(theme.line_strong)
+        .shadow(shadow_l())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().min_w_0().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(tr!("telegram.call.rateTitle", name = rating.name)))
+                .child(close),
+        )
+        .child(row);
+    if stars > 0 && stars < 5 {
+        let mut chips = div().flex().flex_wrap().gap(px(6.));
+        for (problem, key) in crate::voice::telegram::PROBLEMS {
+            let chosen = rating.problems.contains(problem);
+            let voice = voice_entity.clone();
+            chips = chips.child(
+                named_div(SharedString::from(format!("rate-problem-{problem}")))
+                    .px(px(9.))
+                    .py(px(4.))
+                    .rounded(px(99.))
+                    .text_size(px(12.5))
+                    .cursor_pointer()
+                    .bg(if chosen { theme.accent } else { theme.bg2 })
+                    .text_color(if chosen { theme.on_accent } else { theme.text2 })
+                    .child(t(key))
+                    .on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.toggle_problem(problem, cx))),
+            );
+        }
+        let voice = voice_entity.clone();
+        card = card
+            .child(div().text_size(px(12.5)).text_color(theme.text2).child(t("telegram.call.rateWhatWasWrong")))
+            .child(chips)
+            .child(div().flex().justify_end().child(button("rate-send", ButtonKind::Primary, ButtonSize::Small, false, cx).child(t("telegram.call.rateSend")).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.send_rating(cx)))));
+    }
+    Some(div().absolute().bottom(px(16.)).left_0().right_0().flex().justify_center().occlude().child(card.enter("telegram-rating-in", Enter::Rise(5.), 140)).into_any_element())
 }
 
 /// Who's in a conversation's call, each person once.
@@ -336,7 +409,10 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
     let server = app.servers.get(server_id)?;
     let peer_banned = conversation.peer_id.as_ref().and_then(|peer| server.users.get(peer)).is_some_and(|user| user.banned || user.deleted);
     let is_saved = conversation.peer_id.as_deref() == Some(server.self_id());
-    let calls_here = server.info.as_ref().is_some_and(|info| info.calls.is_some_and(|calls| calls > 0.)) && !is_saved && voice::can_call(conversation, server.self_id(), peer_banned);
+    // A Telegram chat with a person can be called, as Telegram says when it's tried.
+    let telegram = server_id == crate::voice::telegram::TELEGRAM;
+    let servers_calls = telegram || server.info.as_ref().is_some_and(|info| info.calls.is_some_and(|calls| calls > 0.));
+    let calls_here = servers_calls && !is_saved && voice::can_call(conversation, server.self_id(), peer_banned) && (!telegram || conversation.kind == "dm");
     let voice = voice_entity.read(cx);
     let in_call = conversation.group_id.is_some() && voice.status != VoiceStatus::Idle && voice.server_id.as_deref() == Some(server_id) && voice.channel_id == conversation.group_id;
     if !calls_here || in_call {

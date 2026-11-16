@@ -479,7 +479,7 @@ describe("what the engine says is checked", () => {
     const joined = messageView({ ...textMessage(GROUP, serverId(3), GRACE, ""), content: { "@type": "messageChatAddMembers", member_user_ids: [BOT, "x"] } }, context)!;
     expect(joined.system).toEqual({ type: "member_added", actorId: String(GRACE), targetIds: [String(BOT)] });
     const call = messageView({ ...textMessage(GRACE, serverId(4), GRACE, ""), content: { "@type": "messageCall", is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 } }, context)!;
-    expect(call.text).toBe("_Missed call, in Telegram's app_");
+    expect(call.text).toBe("_Missed call_");
   });
 });
 

@@ -98,6 +98,10 @@ impl Voice {
     /// A direct message's call that nobody answers ends by itself, as a phone call does.
     pub fn on_call(&mut self, server_id: &str, group_id: &str, call: Option<CallView>, cx: &mut Context<Self>) {
         self.update_ringing(cx);
+        // A Telegram call ends as Telegram says (voice/telegram).
+        if server_id == telegram::TELEGRAM {
+            return;
+        }
         let Some(call) = call else { return };
         if self.server_id.as_deref() != Some(server_id) || self.channel_id.as_deref() != Some(group_id) || self.status == VoiceStatus::Idle {
             return;

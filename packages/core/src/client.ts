@@ -99,6 +99,11 @@ export interface ZunaClientOptions {
    * broker (docs/TELEGRAM_PLAN.md). Without it, as on the web and in zuna-bot, there's no Telegram.
    */
   telegram?: TelegramAdapter;
+  /**
+   * The app has calls on the linked Telegram account (docs/TELEGRAM_CALLS_PLAN.md), so a call
+   * rings in it and can be made from it. One that doesn't hears nothing of them.
+   */
+  telegramCalls?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -479,6 +484,7 @@ export class ZunaClient {
     const adapter = this.options.telegram!;
     const session: TelegramSession = new TelegramSession(adapter, {
       linking,
+      calls: this.options.telegramCalls === true,
       files: this.options.files,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);

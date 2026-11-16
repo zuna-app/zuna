@@ -56,6 +56,7 @@ Every connection has to be found and sent through the proxy, so this is the list
 | Updates, from GitHub | `apps/desktop/src/platform/updates.rs`, `platform/windows/updates.rs` |
 | LiveKit's signalling: a WebSocket to `/livekit/` on the server, and a few requests | LiveKit's `livekit-net` crate |
 | A call's media: UDP to 7882, or TCP to 7881, on the machine LiveKit runs on | libwebrtc, inside LiveKit's SDK |
+| A linked Telegram account's call: UDP to Telegram's TURN servers, at its own addresses | libwebrtc, on a peer connection of the app's own (`apps/desktop/src/voice/telegram/media.rs`), each relay a port on loopback that carries it through the proxy in a UDP association (`media::through`, `Relays` in `voice/proxy.rs`) |
 | YouTube's player | WKWebView on macOS, WebView2 on Windows, `zuna-watch` (`apps/desktop/watch`) on Linux |
 
 ### The iPhone and iPad app
@@ -150,6 +151,10 @@ Everyone behind one proxy shares its address, so they share the server's limits 
 - **Over UDP,** one more hop.
 - **Over TCP,** the same hop, and a lost packet holds up the ones behind it. Voice gets through. A screen share at a high bitrate will stutter on a slow proxy, and through Tor a call may not be worth having. The app says which way a call is going in the stream stats.
 
+### A Telegram call
+
+A call on a linked Telegram account goes through Telegram's TURN servers alone, over UDP, with no media server of Zuna's in it. With a proxy set, each of those servers becomes a port on loopback, as LiveKit's candidates do, which carries what WebRTC sends it to that server in a UDP association, and WebRTC is told the loopback address alone. Telegram's TURN servers aren't known to take TCP, so a proxy that grants no association gets no Telegram call, and the app says so rather than going around it. Not yet run through a proxy: the check of two copies of the app on fake engines, `apps/desktop/test/telegram-call-check.mjs` in `docs/TELEGRAM_CALLS_PLAN.md`, isn't built.
+
 ### What was considered and left
 
 - **A socket factory in the `webrtc-sys` patch.** Stronger on the desktop, as no socket could go around it, but the iPhone can't have it, so there'd be two designs to keep. It stays the fallback for the desktop if loopback relays fail somewhere.
@@ -204,4 +209,5 @@ Beside it, a recorder in front of the test server and the test LiveKit, which wr
 - **A proxy for one server only.**
 - **The web app,** and with it TURN on deployments.
 - **A proxy for the server itself,** such as for what `zuna-web` fetches.
+
 

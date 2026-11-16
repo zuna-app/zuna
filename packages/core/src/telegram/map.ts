@@ -533,6 +533,35 @@ function contentText(content: unknown): { text: string; unshown: string | null; 
   return { text: "", unshown: t("telegram.aMessageZunaCantShow"), attachments: [] };
 }
 
+/** How long a call was, as a call's line says it: 0:42, 12:03, 1:02:03. */
+export function callLength(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = String(seconds % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
+}
+
+/**
+ * Telegram's own line for a call in its chat: which way it went, by voice or with the camera,
+ * and how long, or that it was missed, declined or cancelled.
+ */
+function callLine(content: unknown, outgoing: boolean): string {
+  const reason = kindOf(field(content, "discard_reason"));
+  const video = field(content, "is_video") === true;
+  const seconds = int(field(content, "duration"), 0, 7 * 86400, 0);
+  if (reason === "callDiscardReasonMissed" || (seconds === 0 && reason !== "callDiscardReasonDeclined")) {
+    if (outgoing) return video ? t("telegram.call.line.cancelledVideo") : t("telegram.call.line.cancelled");
+    return video ? t("telegram.call.line.missedVideo") : t("telegram.call.line.missed");
+  }
+  if (reason === "callDiscardReasonDeclined") {
+    if (outgoing) return video ? t("telegram.call.line.declinedByThemVideo") : t("telegram.call.line.declinedByThem");
+    return video ? t("telegram.call.line.declinedVideo") : t("telegram.call.line.declined");
+  }
+  const length = callLength(seconds);
+  if (outgoing) return video ? t("telegram.call.line.outgoingVideo", { length }) : t("telegram.call.line.outgoing", { length });
+  return video ? t("telegram.call.line.incomingVideo", { length }) : t("telegram.call.line.incoming", { length });
+}
+
 /** A line about a group, as the app's own system lines, or words where it has none. */
 function serviceLine(content: unknown, senderId: string, context: MessageContext): { system: SystemEvent | null; text: string } | null {
   const kind = kindOf(content);
@@ -568,11 +597,8 @@ function serviceLine(content: unknown, senderId: string, context: MessageContext
     case "messageChatUpgradeTo":
     case "messageChatUpgradeFrom":
       return { system: null, text: `_${t("telegram.theGroupWasUpgraded")}_` };
-    case "messageCall": {
-      const missed = kindOf(field(content, "discard_reason")) === "callDiscardReasonMissed";
-      const video = field(content, "is_video") === true;
-      return { system: null, text: `_${missed ? (video ? t("telegram.missedVideoCallInTelegrams") : t("telegram.missedCallInTelegramsApp")) : video ? t("telegram.videoCallInTelegramsApp") : t("telegram.voiceCallInTelegramsApp")}_` };
-    }
+    case "messageCall":
+      return { system: null, text: `_${callLine(content, !!senderId && senderId === String(context.selfId))}_` };
     default:
       return kind.startsWith("messageChat") || kind.startsWith("messageSupergroup") || kind.startsWith("messageBasicGroup") || kind === "messageCustomServiceAction"
         ? { system: null, text: `_${t("telegram.somethingChangedInTheGroup")}_` }

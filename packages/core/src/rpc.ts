@@ -59,7 +59,9 @@ const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
 };
 // What a linked Telegram account answers, under the server ID `telegram` (docs/TELEGRAM_PLAN.md).
 const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
-  addMembers: true, createGroup: true, createInvite: true, deleteChoices: true, deleteMessage: true, deleteMessages: true, downloadFile: true, editMessage: true,
+  addMembers: true, answerCall: true, callCandidate: true, callConnection: true, callHeard: true, callOffer: true, callSaid: true, declineCall: true, endCall: true,
+  getTelegramCall: true, rateCall: true, setTakesCalls: true, startCall: true, takesCalls: true,
+  createGroup: true, createInvite: true, deleteChoices: true, deleteMessage: true, deleteMessages: true, downloadFile: true, editMessage: true,
   emotesIn: true, enterCode: true, enterPassword: true, flushOutbox: true, forwardMessages: true, getCalls: true, getChannels: true, getConnectionState: true,
   getConversations: true, getDraft: true, getEmotes: true, getInfo: true, getLink: true, getNewDevices: true, getPreferences: true, getSelf: true, getSounds: true,
   getStickerSets: true, getStickers: true, getUsers: true, getVoiceMembers: true, isActiveElsewhere: true, joinByLink: true, leaveGroup: true, linkWithPhone: true,

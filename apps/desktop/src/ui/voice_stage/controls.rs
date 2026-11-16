@@ -10,7 +10,7 @@ impl VoiceStage {
         let (deafened, camera, sharing, open, server_muted, no_mic) = (voice.deafened, voice.camera, voice.screen.is_some(), voice.open, voice.server_muted, voice.no_mic);
         let control = |id: &'static str, icon_name: &'static str, color: gpui::Hsla, bg: gpui::Hsla, label: String, disabled: bool| {
             let key = format!("control-{id}");
-            crate::ui::motion::track_hover(div().id(id), key.clone())
+            crate::ui::motion::track_hover(named_div(id), key.clone())
                 .relative()
                 .size(px(44.))
                 .flex_none()
@@ -87,9 +87,12 @@ impl VoiceStage {
             .pb(px(if self.room.call { 10. } else { 14. }))
             .child(mic_group)
             .child(deafen_group);
-        bar = bar
-            .child(control("camera-control", if camera { "camera" } else { "camera-off" }, if camera { theme.on_accent } else { theme.text1 }, if camera { theme.accent } else { theme.bg3 }, if camera { t("voice.controls.cameraOff").into() } else { t("voice.controls.cameraOn").into() }, false).on_click(move |_, _, cx| cam.update(cx, |voice, cx| voice.toggle_camera(cx))))
-            .child(
+        // A Telegram call has the camera, and nothing Telegram's calls haven't: no screen of this
+        // device's shared, no soundboard, nothing watched together.
+        let telegram = self.room.server_id == crate::voice::telegram::TELEGRAM;
+        bar = bar.child(control("camera-control", if camera { "camera" } else { "camera-off" }, if camera { theme.on_accent } else { theme.text1 }, if camera { theme.accent } else { theme.bg3 }, if camera { t("voice.controls.cameraOff").into() } else { t("voice.controls.cameraOn").into() }, false).on_click(move |_, _, cx| cam.update(cx, |voice, cx| voice.toggle_camera(cx))));
+        if !telegram {
+            bar = bar.child(
                 control("share-control", if sharing { "monitor-off" } else { "monitor-up" }, if sharing { theme.on_accent } else { theme.text1 }, if sharing { theme.accent } else { theme.bg3 }, if sharing { t("voice.controls.stopSharing").into() } else { share_refusal.unwrap_or(t("voice.controls.shareScreen")).into() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
                     if sharing {
                         share.update(cx, |voice, cx| voice.stop_screen(cx));
@@ -99,19 +102,20 @@ impl VoiceStage {
                 }),
             )
             .child(crate::ui::soundboard::soundboard_button(&self.state, &self.voice, sounds, cx));
-        // A video to watch together, from a link, once this device may contact YouTube.
-        let (watch_on, allowed) = { let voice = self.voice.read(cx); (voice.watch.is_some(), voice.watch_allowed(cx)) };
-        let watch_label = if !allowed { t("voice.watch.off") } else if watch_on { t("voice.watch.another") } else { t("voice.watch.title") };
-        let watch_state = self.state.clone();
-        bar = bar.child(
-            control("watch-control", "clapperboard", if watch_on { theme.on_accent } else { theme.text1 }, if watch_on { theme.accent } else { theme.bg3 }, watch_label.into(), !allowed).on_click(move |_, _, cx| {
-                if !allowed {
-                    return;
-                }
-                let overlay = if watch_state.read(cx).settings.play_youtube { Overlay::WatchLink } else { Overlay::WatchConsent { then_link: true } };
-                watch_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx));
-            }),
-        );
+            // A video to watch together, from a link, once this device may contact YouTube.
+            let (watch_on, allowed) = { let voice = self.voice.read(cx); (voice.watch.is_some(), voice.watch_allowed(cx)) };
+            let watch_label = if !allowed { t("voice.watch.off") } else if watch_on { t("voice.watch.another") } else { t("voice.watch.title") };
+            let watch_state = self.state.clone();
+            bar = bar.child(
+                control("watch-control", "clapperboard", if watch_on { theme.on_accent } else { theme.text1 }, if watch_on { theme.accent } else { theme.bg3 }, watch_label.into(), !allowed).on_click(move |_, _, cx| {
+                    if !allowed {
+                        return;
+                    }
+                    let overlay = if watch_state.read(cx).settings.play_youtube { Overlay::WatchLink } else { Overlay::WatchConsent { then_link: true } };
+                    watch_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx));
+                }),
+            );
+        }
         if !self.room.call {
             let chat_open = self.chat_open;
             bar = bar.child(
@@ -124,7 +128,7 @@ impl VoiceStage {
             );
         }
         bar.child(
-            crate::ui::motion::track_hover(div().id("leave-control"), "leave-control".into())
+            crate::ui::motion::track_hover(named_div("leave-control"), "leave-control".into())
                 .relative()
                 .w(px(56.))
                 .h(px(44.))
@@ -172,6 +176,30 @@ impl VoiceStage {
         if self.room.call {
             let voice = self.voice.clone();
             let expanded = self.expanded;
+            // A Telegram call is Telegram's, never said to be Zuna's end-to-end encryption: its key
+            // is checked by the four emoji, as in Telegram's own apps, and by nothing of Zuna's.
+            let telegram = self.room.server_id == crate::voice::telegram::TELEGRAM;
+            let emoji = self.voice.read(cx).telegram_call().map(|call| (call.emoji.join(" "), call.user_id.clone())).filter(|(emoji, _)| !emoji.is_empty());
+            let label = if telegram {
+                let name = emoji.as_ref().and_then(|(_, user)| self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(user)).map(|user| user.display_name.clone())).unwrap_or_else(|| t("common.someone").into());
+                let hint = tr!("telegram.call.emojiHint", name = name);
+                named_div("telegram-call-label")
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .py(px(3.))
+                    .rounded(px(99.))
+                    .bg(theme.bg2)
+                    .text_size(px(12.))
+                    .text_color(theme.text2)
+                    .when(emoji.is_some(), |el| el.tip(hint, Side::Bottom))
+                    .child(t("telegram.call.label"))
+                    .when_some(emoji.map(|(emoji, _)| emoji), |el, emoji| el.child(div().text_size(px(14.)).child(emoji)))
+                    .into_any_element()
+            } else {
+                encrypted(t("voice.stage.encryptedCall")).into_any_element()
+            };
             return div()
                 .flex_none()
                 .flex()
@@ -179,7 +207,7 @@ impl VoiceStage {
                 .gap(px(6.))
                 .px(px(10.))
                 .h(px(40.))
-                .child(encrypted(t("voice.stage.encryptedCall")))
+                .child(label)
                 .when_some(call_started, |el, started| {
                     let seconds = ((crate::format::now_ms() - started) / 1000.).max(0.) as u64;
                     let (hours, minutes, seconds) = (seconds / 3600, (seconds % 3600) / 60, seconds % 60);

@@ -1,6 +1,6 @@
 # Telegram calls in Zuna: plan
 
-Someone with a linked Telegram account ([TELEGRAM_PLAN.md](TELEGRAM_PLAN.md)) calls a person on Telegram from Zuna, by voice or with the camera, and is called, while the other side uses any of Telegram's own apps and sees nothing different. One to one only. On every platform that has the linked account: the native desktop app on Windows, Linux and macOS, and the iPhone and iPad app. This page is what was found on 2026-11-16, what was decided, the design, and the order to build it in. Nothing of it is built.
+Someone with a linked Telegram account ([TELEGRAM_PLAN.md](TELEGRAM_PLAN.md)) calls a person on Telegram from Zuna, by voice or with the camera, and is called, while the other side uses any of Telegram's own apps and sees nothing different. One to one only. On every platform that has the linked account: the native desktop app on Windows, Linux and macOS, and the iPhone and iPad app. This page is what was found on 2026-11-16, what was decided, the design, and the order to build it in. Steps 2 to 6 are built for the desktop app, on 2026-11-16, as "Where it stands" says; nothing of it has been run against Telegram.
 
 ```
 the interface: the call's screen, ringing, the microphone, camera and speakers
@@ -281,6 +281,15 @@ In the commit that makes each true:
 5. **If step 1 finds calls without TURN:** build the shim to Telegram's relays first, or let those calls fail?
 6. **The card that asks how the call was.** Telegram's page on calls says a client must ask when told to. Assumed: a small card that can be closed.
 7. **The words for the emoji.** Assumed: "If [name] sees the same four, nobody in between can listen."
+
+## Where it stands
+
+On 2026-11-16, built on Linux, steps 2 to 6 for the desktop app, without step 1:
+
+- **Built:** `aes256Ctr` on every host; in the core, sealing (`seal.ts`), gzip with an inflater of its own (`gzip.ts`), the SCTP association (`sctp.ts`), the four messages (`signal.ts`), descriptions both ways (`sdp.ts`) and the call's state (`call.ts`), behind `telegramCalls`, which only the desktop's host sets; the broker's list; the desktop's peer connection (`voice/telegram/media.rs`), ringing, the call's screen with the emoji, the camera, the header's buttons, the chat's line, the rating card, the switch, and the relays through the proxy.
+- **Tested:** the core's calls on the fake engine, a call each way, declining, giving up, busy, the camera, every refusal, signalling that comes early (`telegram-calls.test.ts`); SCTP against itself through loss, duplicates, reordering, collisions and restarts, and dcsctp's packets built by hand (`telegram-call-sctp.test.ts`); sealing against a second implementation (`telegram-call-seal.test.ts`); the native app's WebRTC taking the core's offers and answers, from offers it made (`voice/telegram/media/tests.rs`); the app ringing, answering, drawing and ending a call on the tests' stand-in core (`voice/telegram/tests.rs`).
+- **What changed from the design:** `declineCall` takes the chat's group, as a server's does, so the ringing banner declines either; `rateCall` sends Telegram's own problems and no words; the switch reads `can_accept_calls` from `getActiveSessions`, as TDLib has no option for it, which put `getActiveSessions` on the broker's list; the callee's data channel is `data` on stream 0 too, negotiated, so its offers have the section for it; SCTP packets are held to 1191 bytes, dcsctp's MTU in WebRTC; and an offer is made with `offer_to_receive_*` set, without which libwebrtc offers a section that only takes as inactive.
+- **Not done:** step 1, so nothing here is known to work against Telegram, above all whether it gives a TURN server at its addresses; `telegram-call-check.mjs`, so no media has gone between two peer connections, and nothing through a proxy; Windows and macOS not built; a click on a call's line to call back; steps 7 and 8, the iPhone.
 
 ## What was read
 

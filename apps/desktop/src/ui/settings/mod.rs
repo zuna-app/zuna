@@ -57,6 +57,9 @@ pub struct SettingsView {
     confirming_keep: bool,
     /// Asking before the Telegram account is unlinked.
     confirming_unlink: bool,
+    /// Whether Telegram rings this device for calls, once it's been asked, and while it's being asked.
+    telegram_calls: Option<bool>,
+    asking_telegram_calls: bool,
     busy: bool,
     /// Holds focus while nothing in it does, so Escape closes it.
     focus: gpui::FocusHandle,
@@ -130,6 +133,8 @@ impl SettingsView {
             strength: (0, String::new()),
             confirming_keep: false,
             confirming_unlink: false,
+            telegram_calls: None,
+            asking_telegram_calls: false,
             busy: false,
             focus,
             voice_page: None,

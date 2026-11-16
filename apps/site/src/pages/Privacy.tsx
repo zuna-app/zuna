@@ -37,7 +37,8 @@ export function Privacy() {
           <li>
             Telegram, from the Windows, Linux, macOS, iPhone and iPad apps, only on a device where you link your own Telegram account, which it uses through Telegram's API. Those chats
             aren't end-to-end encrypted: Telegram keeps them under <a href="https://telegram.org/privacy">its privacy policy</a>, and sees your IP address and
-            when you're online. The project's servers and yours never see them.
+            when you're online. The project's servers and yours never see them. A call you make or take on it from the Windows, Linux or macOS app goes through Telegram's
+            relays, which see your IP address, or your proxy's, and who called whom and when, as in Telegram's own apps; the other person never sees your address.
           </li>
         </ul>
 

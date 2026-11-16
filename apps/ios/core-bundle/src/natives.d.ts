@@ -6,6 +6,8 @@ declare const __zunaHost: {
   testHooks?: boolean;
   /** True where the app lists bots in a section of their own, which the native desktop app does. One that doesn't is given no chat with a bot nobody has written to yet. */
   listsBots?: boolean;
+  /** True where the app has calls on a linked Telegram account, which the native desktop app does. One that doesn't hears nothing of them, and Telegram's own app takes them. */
+  telegramCalls?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;

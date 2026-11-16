@@ -30,6 +30,12 @@ use frame::{Frame, read_frame, write_data, write_json};
 /// The server ID the linked account goes by in the core and the interface (`TELEGRAM_ID` in types.ts).
 pub const SERVER_ID: &str = "telegram";
 
+/// Whether an address is one of Telegram's, as the ranges it publishes say: what a call's relays
+/// are held to, as the engine's door is.
+pub fn is_telegrams(ip: std::net::IpAddr) -> bool {
+    door::telegrams(ip)
+}
+
 /// What goes to the engine.
 pub enum Outgoing {
     Json(String),

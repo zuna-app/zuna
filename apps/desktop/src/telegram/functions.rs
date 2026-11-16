@@ -69,4 +69,27 @@ mod tests {
         assert!(refusal(&json!({ "@type": "setOption", "name": "use_storage_optimizer" })).is_some());
         assert!(refusal(&json!({ "@type": "setOption" })).is_some());
     }
+
+    #[test]
+    fn a_call_speaks_the_one_protocol_and_touches_this_session_alone() {
+        let protocol = json!({ "@type": "callProtocol", "udp_p2p": true, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["13.0.0"] });
+        assert_eq!(refusal(&json!({ "@type": "createCall", "user_id": 5, "protocol": protocol, "is_video": false })), None);
+        assert_eq!(refusal(&json!({ "@type": "acceptCall", "call_id": 1, "protocol": protocol })), None);
+        for other in [
+            json!({ "@type": "callProtocol", "udp_p2p": true, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["13.0.0", "11.0.0"] }),
+            json!({ "@type": "callProtocol", "udp_p2p": true, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["4.0.0"] }),
+            json!({ "@type": "callProtocol", "udp_p2p": false, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["13.0.0"] }),
+            json!(null),
+        ] {
+            assert!(refusal(&json!({ "@type": "createCall", "user_id": 5, "protocol": other, "is_video": false })).is_some(), "{other} was let through");
+            assert!(refusal(&json!({ "@type": "acceptCall", "call_id": 1, "protocol": other })).is_some());
+        }
+        assert!(refusal(&json!({ "@type": "createCall", "user_id": 5 })).is_some());
+        assert_eq!(refusal(&json!({ "@type": "toggleSessionCanAcceptCalls", "session_id": 0, "can_accept_calls": false })), None);
+        assert!(refusal(&json!({ "@type": "toggleSessionCanAcceptCalls", "session_id": 77, "can_accept_calls": false })).is_some());
+        assert!(refusal(&json!({ "@type": "toggleSessionCanAcceptCalls", "can_accept_calls": false })).is_some());
+        for kind in ["sendCallDebugInformation", "sendCallLog", "toggleSessionCanAcceptSecretChats", "terminateSession"] {
+            assert!(refusal(&json!({ "@type": kind })).is_some(), "{kind} was let through");
+        }
+    }
 }

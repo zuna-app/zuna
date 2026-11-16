@@ -35,6 +35,10 @@ impl Voice {
     }
 
     pub fn toggle_camera(&mut self, cx: &mut Context<Self>) {
+        if self.in_telegram() {
+            self.toggle_telegram_camera(cx);
+            return;
+        }
         let Some(room) = self.room.clone() else { return };
         let on = !self.camera;
         let device = self.settings.camera_device.clone();

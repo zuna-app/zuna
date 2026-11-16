@@ -723,6 +723,88 @@ export type TelegramLink =
   /** Unlinked, here or by a session ended from another device, and whether Telegram was told. */
   | { step: "unlinked"; signedOut: boolean };
 
+/** Where a call on the linked Telegram account stands, as its screen shows it. */
+export type TelegramCallState = "calling" | "ringing" | "connecting" | "on" | "over";
+
+/** Why a call on the linked Telegram account ended. */
+export type TelegramCallEnd =
+  /** Declined by the other person, or by this person on any of their devices. */
+  | "declined"
+  /** Never answered: rung out, or given up on by whoever called. */
+  | "missed"
+  | "hungUp"
+  /** Answered on another of this person's devices. */
+  | "elsewhere"
+  /** The two lost each other partway through. */
+  | "disconnected"
+  /** It couldn't connect at all. */
+  | "failed"
+  /** The other person's app speaks a version or a way of carrying calls Zuna doesn't. */
+  | "unsupported"
+  /** Telegram gave it no relay Zuna will use. */
+  | "noRelay"
+  /** It was moved into a group call, which only Telegram's own apps join. */
+  | "groupCall"
+  /** The device's proxy carries no UDP, which a call needs. */
+  | "proxy";
+
+/**
+ * A call on the linked Telegram account: one at a time, with one person, by voice or with the
+ * camera (docs/TELEGRAM_CALLS_PLAN.md). Its media runs in the interface, which the core tells
+ * what to do in `telegram_call_media` events.
+ */
+export interface TelegramCallView {
+  /** TDLib's number for it. */
+  id: number;
+  /** The private chat's group ID, which is the chat's own. */
+  groupId: string;
+  userId: string;
+  outgoing: boolean;
+  video: boolean;
+  state: TelegramCallState;
+  /** The other person's app is ringing, as Telegram says. */
+  received: boolean;
+  /** When the two first connected (ms), for how long it's been. */
+  connectedAt: number | null;
+  /**
+   * The four emoji the call's key comes to, once the two apps agreed it: if the other person
+   * sees the same four, nobody in between can listen.
+   */
+  emoji: string[];
+  /** What the other person's app says of itself. */
+  remote: { muted: boolean; camera: boolean; screen: boolean; lowBattery: boolean };
+  ended: TelegramCallEnd | null;
+  /** Why it ended, in words, once it has. */
+  endedText: string;
+  /** Telegram asks how the call was, which is asked once it's over (`rateCall`). */
+  rate: boolean;
+}
+
+/** A relay for a Telegram call: TURN, at one of Telegram's addresses, which the host checks. */
+export interface TelegramCallServer {
+  urls: string[];
+  username: string;
+  password: string;
+}
+
+/**
+ * What a Telegram call's peer connection is to do, in order. The interface does each, one after
+ * the other, and tells the core what comes of them.
+ */
+export type TelegramCallMedia =
+  /** Makes the peer connection, relaying through these servers alone. The caller opens the data channel. */
+  | { do: "open"; servers: TelegramCallServer[]; caller: boolean }
+  /** Makes an offer with at least this many transceivers taking each kind, and hands it to `callOffer`, then sets what that gives back. */
+  | { do: "offer"; receive: { audio: number; video: number } }
+  /** Sets the other side's answer to the offer. `tracks` says what each section it sends is, by MID. */
+  | { do: "answer"; sdp: string; tracks: Record<string, "audio" | "video"> }
+  /** Adds one of the other side's candidates. */
+  | { do: "candidate"; candidate: string; mid: string; index: number }
+  /** Sends this over the data channel. */
+  | { do: "send"; text: string }
+  /** Closes everything of the call's. */
+  | { do: "close" };
+
 /** The server ID a linked Telegram account goes by, everywhere a server's does. */
 export const TELEGRAM_ID = "telegram";
 
@@ -819,4 +901,8 @@ export type CoreEvent =
    */
   | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string; inUse: boolean }
   /** Where linking the Telegram account stands changed. */
-  | { type: "telegram"; serverId: string; link: TelegramLink };
+  | { type: "telegram"; serverId: string; link: TelegramLink }
+  /** The linked Telegram account's call changed, or there's none any more (null). One that ended comes once more, as over, first. */
+  | { type: "telegram_call"; serverId: string; call: TelegramCallView | null }
+  /** What the Telegram call's peer connection is to do next. */
+  | { type: "telegram_call_media"; serverId: string; callId: number; media: TelegramCallMedia };

@@ -1,5 +1,5 @@
 {
-  "about": "The TDLib functions the core may ask of a linked Telegram account's engine (docs/TELEGRAM_PLAN.md, The broker). The desktop app's broker is built from this file (apps/desktop/src/telegram/functions.rs), and nothing changes it while the app runs. A function maps to true, or to the values each named field may have. Anything not here is refused: deleting the account, its password, number or login email, ending other sessions, payments, contacts from an address book, proxies, raw queries. The broker itself signs out and closes the engine.",
+  "about": "The TDLib functions the core may ask of a linked Telegram account's engine (docs/TELEGRAM_PLAN.md, The broker). The desktop app's broker is built from this file (apps/desktop/src/telegram/functions.rs), and nothing changes it while the app runs. A function maps to true, or to the values each named field may have. Anything not here is refused: deleting the account, its password, number or login email, ending other sessions, payments, contacts from an address book, proxies, raw queries, a call's debug information or log. A call is held to the one protocol the core speaks (calls/call.ts, PROTOCOL), and whether this device takes calls to this session alone. The broker itself signs out and closes the engine.",
   "functions": {
     "getAuthorizationState": true,
     "requestQrCodeAuthentication": true,
@@ -80,6 +80,14 @@
     "finishFileGeneration": true,
 
     "getInstalledStickerSets": true,
-    "getStickerSet": true
+    "getStickerSet": true,
+
+    "createCall": { "protocol": [{ "@type": "callProtocol", "udp_p2p": true, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["13.0.0"] }] },
+    "acceptCall": { "protocol": [{ "@type": "callProtocol", "udp_p2p": true, "udp_reflector": true, "min_layer": 65, "max_layer": 92, "library_versions": ["13.0.0"] }] },
+    "discardCall": true,
+    "sendCallSignalingData": true,
+    "sendCallRating": true,
+    "getActiveSessions": true,
+    "toggleSessionCanAcceptCalls": { "session_id": [0] }
   }
 }

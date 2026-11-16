@@ -122,7 +122,7 @@ pub struct Frame {
 
 impl Frame {
     /// A picture from BGRA pixels, top row first, which it keeps without copying.
-    fn of(width: u32, height: u32, bgra: Vec<u8>, serial: u64) -> Frame {
+    pub(crate) fn of(width: u32, height: u32, bgra: Vec<u8>, serial: u64) -> Frame {
         let image = image::RgbaImage::from_raw(width, height, bgra).map(|buffer| Arc::new(gpui::RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)])));
         Frame { width, height, image, serial, #[cfg(target_os = "macos")] surface: None }
     }
@@ -131,7 +131,7 @@ impl Frame {
 /// A picture sent turned, as an iPhone sharing its screen from ReplayKit sends it while lying on
 /// its side, turned upright: by `rotation` clockwise, as libwebrtc's own renderers turn it. BGRA,
 /// top row first, as it is and with its size.
-fn upright(width: u32, height: u32, bgra: Vec<u8>, rotation: VideoRotation) -> (u32, u32, Vec<u8>) {
+pub(crate) fn upright(width: u32, height: u32, bgra: Vec<u8>, rotation: VideoRotation) -> (u32, u32, Vec<u8>) {
     let (w, h) = (width as usize, height as usize);
     if rotation == VideoRotation::VideoRotation0 || w == 0 || h == 0 || bgra.len() != w * h * 4 {
         return (width, height, bgra);
@@ -167,7 +167,7 @@ pub type Feed = Arc<Mutex<Option<Frame>>>;
 static PICTURES: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> = std::sync::LazyLock::new(|| tokio::sync::watch::Sender::new(0));
 
 /// Puts a video's new picture in its feed, and rings for it.
-fn show(feed: &Feed, frame: Frame) {
+pub(crate) fn show(feed: &Feed, frame: Frame) {
     *feed.lock() = Some(frame);
     PICTURES.send_modify(|count| *count = count.wrapping_add(1));
 }

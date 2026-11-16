@@ -588,6 +588,33 @@ public struct VoiceMember: Codable, Sendable, Equatable {
     }
 }
 
+/// A call on the linked Telegram account (`TelegramCallView` in types.ts), which the iPhone app
+/// doesn't have yet (docs/TELEGRAM_CALLS_PLAN.md, step 7).
+public struct TelegramCallView: Codable, Sendable, Equatable {
+    public struct Remote: Codable, Sendable, Equatable {
+        public var muted: Bool
+        public var camera: Bool
+        public var screen: Bool
+        public var lowBattery: Bool
+    }
+
+    public var id: Int
+    public var groupId: String
+    public var userId: String
+    public var outgoing: Bool
+    public var video: Bool
+    /// "calling", "ringing", "connecting", "on" or "over".
+    public var state: String
+    public var received: Bool
+    /// When the two first connected (ms).
+    public var connectedAt: Int?
+    public var emoji: [String]
+    public var remote: Remote
+    public var ended: String?
+    public var endedText: String
+    public var rate: Bool
+}
+
 /// A call in a direct message or a group, from when someone comes into it until the last one
 /// leaves. Who's in it are the voice members with its conversation's group ID.
 public struct CallView: Codable, Sendable, Equatable {

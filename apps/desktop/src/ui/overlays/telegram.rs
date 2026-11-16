@@ -114,7 +114,8 @@ impl Dialog {
             body.push(point(t("telegram.link.notEncryptedTitle"), t("telegram.link.notEncryptedText")));
             body.push(point(t("telegram.link.seesTitle"), t("telegram.link.seesText")));
             body.push(point(t("telegram.link.monitorsTitle"), t("telegram.link.monitorsText")));
-            body.push(point(t("telegram.link.elsewhereTitle"), t("telegram.link.elsewhereText")));
+            // Calls with one person are here: what stays in Telegram's own app is its group video chats.
+            body.push(point(t("telegram.link.elsewhereTitleGroupCalls"), t("telegram.link.elsewhereText")));
             footer.push(cancel(t("common.cancel"), cx));
             footer.push(
                 button("tg-continue", ButtonKind::Primary, ButtonSize::Normal, false, cx)

@@ -85,6 +85,18 @@ function generatedIn(value: unknown, found: Td[] = []): Td[] {
   return found;
 }
 
+/** A relay as Telegram names one for a call: TURN at one of its addresses. */
+export const RELAY = { "@type": "callServer", id: "1", ip_address: "149.154.167.51", ipv6_address: "2001:67c:4e8:f002::a", port: 1400, type: { "@type": "callServerTypeWebrtc", username: "user", password: "pass", supports_turn: true, supports_stun: true } };
+
+/** A call as the fake engine keeps it, from its own account's side. */
+interface FakeCall {
+  id: number;
+  user: number;
+  outgoing: boolean;
+  video: boolean;
+  state: "pending" | "ready" | "over";
+}
+
 export class FakeTdlib implements TelegramAdapter {
   /** Every request the adapter made, in order. */
   readonly asked: Td[] = [];
@@ -104,6 +116,18 @@ export class FakeTdlib implements TelegramAdapter {
   /** TDLib stops asking for a file once this much of it is written. */
   stopAfterBytes: number | null = null;
   private nextFile = 500;
+  /** The engine of whoever this account calls, and is called by: Telegram between the two. */
+  peer: FakeTdlib | null = null;
+  /** Who this account is to its peer, and the peer to it. */
+  callsAs = GRACE;
+  calls = new Map<number, FakeCall>();
+  /** What Telegram says of a call when it's ready: its versions, parameters and servers. */
+  ready = { versions: ["13.0.0"], parameters: "{}", servers: [RELAY] as Td[], key: "" };
+  takesCalls = true;
+  /** Signalling going to the peer is held here, and let through by the test, rather than delivered at once. */
+  holdSignalling = false;
+  held: { call: number; data: string }[] = [];
+  private static nextCall = 70;
   private listener: ((json: string) => void) | null = null;
   private nextTemporary = 1;
   private loaded = false;
@@ -310,6 +334,77 @@ export class FakeTdlib implements TelegramAdapter {
         return this.emit({ "@type": "updateChatDraftMessage", chat_id: request.chat_id, draft_message: request.draft_message, positions: [] });
       case "forwardMessages":
         return answer({ "@type": "messages", total_count: 0, messages: [] });
+      case "getUserFullInfo":
+        return answer({ "@type": "userFullInfo", can_be_called: request.user_id !== BOT, supports_video_calls: true, has_private_calls: false });
+      case "getActiveSessions":
+        return answer({ "@type": "sessions", sessions: [{ "@type": "session", id: "0", is_current: true, can_accept_calls: this.takesCalls }, { "@type": "session", id: "77", is_current: false, can_accept_calls: true }], inactive_session_ttl_days: 180 });
+      case "toggleSessionCanAcceptCalls":
+        if (request.session_id !== 0) return fail(400, "Wrong session");
+        this.takesCalls = request.can_accept_calls;
+        return ok();
+      case "createCall": {
+        const id = FakeTdlib.nextCall++;
+        answer({ "@type": "callId", id });
+        const call: FakeCall = { id, user: request.user_id, outgoing: true, video: request.is_video, state: "pending" };
+        this.calls.set(id, call);
+        setTimeout(() => {
+          this.callUpdate(call, { "@type": "callStatePending", is_created: true, is_received: false });
+          const peer = this.peer;
+          if (!peer?.takesCalls) return;
+          const theirs: FakeCall = { id, user: this.callsAs, outgoing: false, video: request.is_video, state: "pending" };
+          peer.calls.set(id, theirs);
+          peer.callUpdate(theirs, { "@type": "callStatePending", is_created: true, is_received: true });
+          this.callUpdate(call, { "@type": "callStatePending", is_created: true, is_received: true });
+        }, 1);
+        return;
+      }
+      case "acceptCall": {
+        const call = this.calls.get(request.call_id);
+        const theirs = this.peer?.calls.get(request.call_id);
+        if (!call || call.outgoing || call.state !== "pending" || !theirs) return fail(400, "CALL_ALREADY_DECLINED");
+        ok();
+        const key = this.ready.key || btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(256))));
+        setTimeout(() => {
+          for (const [engine, each] of [[this, call], [this.peer!, theirs]] as const) {
+            engine.callUpdate(each, { "@type": "callStateExchangingKeys" });
+            each.state = "ready";
+            engine.callUpdate(each, {
+              "@type": "callStateReady",
+              protocol: { "@type": "callProtocol", udp_p2p: true, udp_reflector: true, min_layer: 65, max_layer: 92, library_versions: this.ready.versions },
+              servers: this.ready.servers,
+              config: "{}",
+              encryption_key: key,
+              emojis: ["🐶", "🚗", "🌵", "🎻"],
+              allow_p2p: true,
+              is_group_call_supported: false,
+              custom_parameters: this.ready.parameters,
+            });
+          }
+        }, 1);
+        return;
+      }
+      case "discardCall": {
+        const call = this.calls.get(request.call_id);
+        if (!call || call.state === "over") return ok();
+        ok();
+        const reason = call.state === "pending" ? (call.outgoing ? "callDiscardReasonMissed" : "callDiscardReasonDeclined") : request.is_disconnected ? "callDiscardReasonDisconnected" : "callDiscardReasonHungUp";
+        const theirs = this.peer?.calls.get(request.call_id);
+        setTimeout(() => {
+          for (const [engine, each] of [[this, call], [this.peer, theirs]] as const) {
+            if (!engine || !each || each.state === "over") continue;
+            const rated = each.state === "ready";
+            each.state = "over";
+            engine.callUpdate(each, { "@type": "callStateDiscarded", reason: { "@type": reason }, need_rating: rated, need_debug_information: false, need_log: false });
+          }
+        }, 1);
+        return;
+      }
+      case "sendCallSignalingData": {
+        ok();
+        if (this.holdSignalling) this.held.push({ call: request.call_id, data: request.data });
+        else this.deliver(request.call_id, request.data);
+        return;
+      }
       default:
         return ok();
     }
@@ -340,6 +435,26 @@ export class FakeTdlib implements TelegramAdapter {
       this.generated.set(file.original_path, { data: "", finished: false, error: null });
       setTimeout(() => this.emit({ "@type": "updateFileGenerationStart", generation_id: generation, original_path: file.original_path, destination_path: `C:/tmp/${generation}`, conversion: file.conversion }), 0);
     }
+  }
+
+  /** What a call looks like to this account now. */
+  callUpdate(call: FakeCall, state: Td): void {
+    this.emit({ "@type": "updateCall", call: { "@type": "call", id: call.id, unique_id: "5", user_id: call.user, is_outgoing: call.outgoing, is_video: call.video, state } });
+  }
+
+  /** One signalling datum, at the peer a moment later, as Telegram hands it on. */
+  deliver(call: number, data: string): void {
+    const peer = this.peer;
+    setTimeout(() => peer?.emit({ "@type": "updateNewCallSignalingData", call_id: call, data }), 1);
+  }
+
+  /** The other person is calling this account. */
+  ringFrom(user: number, video = false): number {
+    const id = FakeTdlib.nextCall++;
+    const call: FakeCall = { id, user, outgoing: false, video, state: "pending" };
+    this.calls.set(id, call);
+    this.callUpdate(call, { "@type": "callStatePending", is_created: true, is_received: true });
+    return id;
   }
 
   /** TDLib asks for a file nobody sent. */

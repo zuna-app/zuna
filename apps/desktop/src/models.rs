@@ -448,6 +448,36 @@ pub struct CallView {
     pub declined: Vec<String>,
 }
 
+/// What the other person's app says of itself in a Telegram call.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TelegramCallRemote {
+    pub muted: bool,
+    pub camera: bool,
+    pub screen: bool,
+    pub low_battery: bool,
+}
+
+/// A call on the linked Telegram account (`TelegramCallView` in types.ts).
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TelegramCallView {
+    pub id: i64,
+    pub group_id: String,
+    pub user_id: String,
+    pub outgoing: bool,
+    pub video: bool,
+    /// "calling", "ringing", "connecting", "on" or "over".
+    pub state: String,
+    pub received: bool,
+    pub connected_at: Option<f64>,
+    pub emoji: Vec<String>,
+    pub remote: TelegramCallRemote,
+    pub ended: Option<String>,
+    pub ended_text: String,
+    pub rate: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
 #[serde(default)]
 pub struct Emote {

@@ -94,8 +94,8 @@ impl ChatView {
         }
         let toggle = |panel_kind: Panel, state: Entity<AppState>| move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| state.update(cx, |state, cx| state.toggle_panel(panel_kind, cx));
         let has_group = conversation.group_id.is_some();
-        // Telegram's calls ring in Telegram's own app, and no plugin reaches its chats.
-        let call_buttons = if telegram { Vec::new() } else { crate::ui::voice::call_buttons(&self.state, &self.server_id, conversation, cx).into_iter().collect() };
+        // A Telegram chat with a person can be called on Telegram (voice/telegram), and no plugin reaches its chats.
+        let call_buttons: Vec<_> = crate::ui::voice::call_buttons(&self.state, &self.server_id, conversation, cx).into_iter().collect();
         let plugin_buttons = if telegram { Vec::new() } else { crate::ui::plugins::header_buttons(cx).into_iter().collect() };
         div()
             .flex()

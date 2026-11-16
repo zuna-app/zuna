@@ -230,6 +230,8 @@ export const EVENTS: Record<CoreEvent["type"], Rule> = {
   new_devices: "never",
   button: "never",
   telegram: "never",
+  telegram_call: "never",
+  telegram_call_media: "never",
 };
 
 /**
@@ -240,7 +242,9 @@ export const EVENTS: Record<CoreEvent["type"], Rule> = {
  * events, by its server ID.
  */
 export const TELEGRAM: Record<MethodName<TelegramSession>, "never"> = {
-  addMembers: "never", createGroup: "never", createInvite: "never", deleteChoices: "never", deleteMessage: "never", deleteMessages: "never", downloadFile: "never",
+  addMembers: "never", answerCall: "never", callCandidate: "never", callConnection: "never", callHeard: "never", callOffer: "never", callSaid: "never",
+  declineCall: "never", endCall: "never", getTelegramCall: "never", rateCall: "never", setTakesCalls: "never", startCall: "never", takesCalls: "never",
+  createGroup: "never", createInvite: "never", deleteChoices: "never", deleteMessage: "never", deleteMessages: "never", downloadFile: "never",
   editMessage: "never", emotesIn: "never", enterCode: "never", enterPassword: "never", flushOutbox: "never", forwardMessages: "never", getCalls: "never",
   getChannels: "never", getConnectionState: "never", getConversations: "never", getDraft: "never", getEmotes: "never", getInfo: "never", getLink: "never",
   getNewDevices: "never", getPreferences: "never", getSelf: "never", getSounds: "never", getStickerSets: "never", getStickers: "never", getUsers: "never",

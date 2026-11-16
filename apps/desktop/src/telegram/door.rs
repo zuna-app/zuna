@@ -45,10 +45,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Whether the door lets a connection to this address and port through.
 pub fn allowed(address: SocketAddr) -> bool {
-    if !PORTS.contains(&address.port()) {
-        return false;
-    }
-    match address.ip() {
+    PORTS.contains(&address.port()) && telegrams(address.ip())
+}
+
+/// Whether an address is in the ranges Telegram publishes, at any port: the door's, and a
+/// Telegram call's relays (voice/telegram).
+pub fn telegrams(ip: IpAddr) -> bool {
+    match ip {
         IpAddr::V4(ip) => RANGES_V4.iter().any(|&(network, bits)| {
             let mask = u32::MAX.checked_shl(32 - u32::from(bits)).unwrap_or(0);
             u32::from(ip) & mask == u32::from(network) & mask
@@ -56,7 +59,7 @@ pub fn allowed(address: SocketAddr) -> bool {
         IpAddr::V6(ip) => {
             // An IPv4 address written as IPv6 is judged as itself.
             if let Some(v4) = ip.to_ipv4_mapped() {
-                return allowed(SocketAddr::new(IpAddr::V4(v4), address.port()));
+                return telegrams(IpAddr::V4(v4));
             }
             RANGES_V6.iter().any(|&(network, bits)| {
                 let mask = u128::MAX.checked_shl(128 - u32::from(bits)).unwrap_or(0);
