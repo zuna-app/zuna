@@ -1,3 +1,4 @@
+import * as wasm from "@zuna/crypto";
 import { t } from "../../i18n";
 // A call on the linked Telegram account (docs/TELEGRAM_CALLS_PLAN.md): its state, from TDLib's
 // updates and what the interface says, and Telegram's signalling for it. TDLib rings, agrees the
@@ -128,10 +129,10 @@ export function relaysOf(servers: unknown): TelegramCallServer[] {
   return relays.slice(0, 16);
 }
 
+// From the crypto core, as the native app's QuickJS and the iPhone's JavaScriptCore have no Web Crypto.
 const randomId = (): number => {
-  const bytes = new Uint32Array(1);
-  crypto.getRandomValues(bytes);
-  return bytes[0]! || 1;
+  const bytes = wasm.randomBytes(4);
+  return new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0) || 1;
 };
 
 /** The words for how a call ended, for a toast or its screen. */
