@@ -1,6 +1,8 @@
 # Coverage is shown, never enforced: nothing here fails a push. The Coverage workflow
 # (.github/workflows/coverage.yml) uploads one report per suite, flagged with its name.
 coverage:
+  # The badge's and the site's colors: red at 70% and below, green from 85%.
+  range: "70...85"
   status:
     project:
       default:
