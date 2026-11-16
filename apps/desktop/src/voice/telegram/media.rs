@@ -192,30 +192,6 @@ pub fn relays(servers: &Value) -> Vec<IceServer> {
     out
 }
 
-/// For the log: the relays `relays` turned down, by address, which are Telegram's, or someone's it
-/// named, and never this device's. Their user names and passwords stay out of it.
-pub fn refused(servers: &Value) -> String {
-    let refused: Vec<&str> = servers
-        .as_array()
-        .into_iter()
-        .flatten()
-        .take(16)
-        .filter_map(|server| server.get("urls").and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|url| !relay_address(url).is_some_and(allowed_relay))
-        .collect();
-    if refused.is_empty() { String::new() } else { format!(", refused: {}", refused.join(", ")) }
-}
-
-/// What a candidate's line is, for the log: its kind and protocol, never its address.
-fn candidate_kind(line: &str) -> String {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    let protocol = parts.get(2).copied().unwrap_or("?");
-    let kind = parts.iter().position(|part| *part == "typ").and_then(|at| parts.get(at + 1)).copied().unwrap_or("?");
-    format!("{kind} {protocol}")
-}
-
 /// The relays as WebRTC is to reach them through the device's proxy: each one a port on this
 /// device that carries what's sent to it through the proxy to that relay, in a UDP association
 /// (voice/proxy.rs). WebRTC is told the port on loopback alone.
@@ -323,20 +299,11 @@ impl TelegramMedia {
 
         let candidates = shared.clone();
         pc.on_ice_candidate(Some(Box::new(move |candidate: IceCandidate| {
-            log::info!("telegram call: gathered a {} candidate", candidate_kind(&candidate.candidate()));
             // The core sends only a relay's, but the line goes to it whole.
             candidates.tell_and_forget("callCandidate", vec![json!(candidate.candidate())]);
         })));
-        // Why a relay gave no candidate: the TURN server's answer, by its URL, never this device's address.
-        pc.on_ice_candidate_error(Some(Box::new(|error| {
-            log::warn!("telegram call: {} gave no candidate: {} {}", error.url, error.error_code, error.error_text);
-        })));
-        pc.on_ice_gathering_state_change(Some(Box::new(|state| log::info!("telegram call: ICE gathering {state:?}"))));
-        pc.on_ice_connection_state_change(Some(Box::new(|state| log::info!("telegram call: ICE {state:?}"))));
-        pc.on_signaling_state_change(Some(Box::new(|state| log::info!("telegram call: signalling state {state:?}"))));
         let states = shared.clone();
         pc.on_connection_state_change(Some(Box::new(move |state: PeerConnectionState| {
-            log::info!("telegram call: peer connection {state:?}");
             let word = match state {
                 PeerConnectionState::Connected => "connected",
                 PeerConnectionState::Disconnected => "disconnected",
@@ -354,7 +321,6 @@ impl TelegramMedia {
             if !arriving.tracks.lock().contains_key(&mid) {
                 return;
             }
-            log::info!("telegram call: the other side's {} arrived", if matches!(event.track, MediaStreamTrack::Audio(_)) { "sound" } else { "picture" });
             arriving.arrived(mid, event.track);
         })));
         let channels = shared.clone();
@@ -386,7 +352,6 @@ impl TelegramMedia {
     fn watch_channel(shared: &Arc<Shared>, channel: &DataChannel) {
         let opened = shared.clone();
         channel.on_state_change(Some(Box::new(move |state| {
-            log::info!("telegram call: data channel {state:?}");
             if state == DataChannelState::Open && !opened.closed.load(Ordering::Relaxed) {
                 opened.tell_and_forget("callConnection", vec![json!("data")]);
             }
@@ -414,7 +379,6 @@ impl TelegramMedia {
                 let prepared = prepared.as_str().ok_or("the core gave no offer")?;
                 let description = SessionDescription::parse(prepared, SdpType::Offer).map_err(|error| error.to_string())?;
                 self.pc.set_local_description(description).await.map_err(|error| error.to_string())?;
-                log::info!("telegram call: this side's offer is set");
             }
             "answer" => {
                 let sdp = command.get("sdp").and_then(Value::as_str).unwrap_or_default();
@@ -426,7 +390,6 @@ impl TelegramMedia {
                 }
                 let description = SessionDescription::parse(sdp, SdpType::Answer).map_err(|error| error.to_string())?;
                 self.pc.set_remote_description(description).await.map_err(|error| error.to_string())?;
-                log::info!("telegram call: the answer is set");
                 // What the other side sends where nothing was before: a track that came before the
                 // answer said what it was is taken up now.
                 for transceiver in self.pc.transceivers() {

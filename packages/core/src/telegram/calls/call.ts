@@ -41,49 +41,6 @@ const LOST_MS = 20_000;
 const MOST_MESSAGE = 2 * 1024 * 1024;
 /** How many packets for a call that isn't ready yet are held for it, as the other app may be ready first. */
 const MOST_EARLY = 64;
-/** How many of the other side's packets that wouldn't open are noted in the log, past which they're only counted. */
-const MOST_NOTED = 8;
-
-/**
- * One line of a call's course in the app's log, as the person can send it when a call won't
- * connect: what TDLib says, which servers, what's said each way and by which message, and how the
- * peer connection does. Never a key, a password, a name, an ICE name or password, or an address
- * of this device's.
- */
-function note(line: string): void {
-  console.info(`[zuna] Telegram call: ${line}`);
-}
-
-/** What a server Telegram gave is, for the log: its kind, what it does, where it is, never its user name or password. */
-function describeServer(server: unknown): string {
-  if (!isObject(server)) return "?";
-  const type: TdObject = isObject(server.type) ? server.type : { "@type": "" };
-  const kind = kindOf(type) === "callServerTypeWebrtc" ? `webrtc${type.supports_turn === true ? " turn" : ""}${type.supports_stun === true ? " stun" : ""}` : kindOf(type) === "callServerTypeTelegramReflector" ? `reflector${type.is_tcp === true ? " tcp" : ""}` : "unknown";
-  const v4 = str(server.ip_address, 64);
-  const v6 = str(server.ipv6_address, 64);
-  return `${kind} at ${[v4, v6 && `[${v6}]`].filter(Boolean).join(" ") || "no address"}:${int(server.port, 0, 65535, 0)}`;
-}
-
-/** What a message says, for the log: its kind, and what it carries, never ICE's name or password or a fingerprint. */
-function describeSignal(signal: Signal): string {
-  switch (signal.kind) {
-    case "InitialSetup":
-      return `InitialSetup, DTLS ${signal.fingerprints.map((each) => `${each.hash} ${each.setup}`).join(", ")}`;
-    case "NegotiateChannels":
-      return `NegotiateChannels ${signal.exchangeId}: ${signal.contents.map((content) => `${content.type} in ${content.payloadTypes.map((payload) => payload.name).join("/") || "nothing"}`).join(", ") || "no streams"}`;
-    case "Candidates":
-      return `Candidates: ${signal.candidates.map(describeCandidate).join(", ") || "none"}`;
-    case "MediaState":
-      return `MediaState: ${signal.muted ? "muted" : "speaking"}, camera ${signal.videoState}, screen ${signal.screencastState}`;
-  }
-}
-
-/** What a candidate line is, for the log: its kind and protocol, never its address. */
-function describeCandidate(line: string): string {
-  const candidate = readCandidateLine(line);
-  if (!candidate) return "unreadable";
-  return `${candidate.type} ${candidate.protocol}${candidate.component === 1 ? "" : ` component ${candidate.component}`}${isLiteralAddress(candidate.address) ? "" : " at a name"}`;
-}
 
 export interface CallHost {
   request(query: TdObject): Promise<TdObject>;
@@ -138,8 +95,6 @@ interface Live {
   sent: Set<string>;
   timers: ReturnType<typeof setTimeout>[];
   lostTimer: ReturnType<typeof setTimeout> | null;
-  /** For the log: packets each way, the other side's that didn't open, and whether the association came up. */
-  log: { in: number; out: number; unopened: number; up: boolean };
 }
 
 /** Whether the parameters Telegram gave a call ask for something only its own apps do. */
@@ -311,10 +266,7 @@ export class TelegramCalls {
     if (!live) return;
     if (typeof line !== "string" || line.length > 512 || /[\r\n]/.test(line)) return;
     const candidate = readCandidateLine(line);
-    if (!candidate || candidate.type !== "relay" || candidate.protocol !== "udp" || candidate.component !== 1 || !isLiteralAddress(candidate.address)) {
-      note(`this device's candidate isn't sent: ${describeCandidate(line)}`);
-      return;
-    }
+    if (!candidate || candidate.type !== "relay" || candidate.protocol !== "udp" || candidate.component !== 1 || !isLiteralAddress(candidate.address)) return;
     const bare = line.replace(/^a=/, "");
     if (live.view.state === "over" || live.sent.has(bare) || live.sent.size >= 64) return;
     live.sent.add(bare);
@@ -344,7 +296,6 @@ export class TelegramCalls {
     // What a peer connection says after its call ended is nobody's.
     const live = this.live?.view.id === id ? this.live : null;
     if (!live || live.view.state === "over") return;
-    if (typeof state === "string" && /^[a-z]{1,16}$/.test(state)) note(`the peer connection says ${state}`);
     switch (state) {
       case "connected":
         if (live.lostTimer) clearTimeout(live.lostTimer);
@@ -424,7 +375,6 @@ export class TelegramCalls {
     }
     const live = this.live!;
     live.view.video ||= raw.is_video === true;
-    note(`TDLib says ${kind || "nothing it knows"}${kind === "callStatePending" ? (state!.is_received === true ? ", received" : state!.is_created === true ? ", created" : "") : ""}${kind === "callStateDiscarded" ? `, ${kindOf(state!.reason) || "no reason"}` : ""}${kind === "callStateError" ? `, ${int((state!.error as TdObject | undefined)?.code, -1e9, 1e9, 0)} ${str((state!.error as TdObject | undefined)?.message, 128)}` : ""}`);
     switch (kind) {
       case "callStatePending":
         live.view.received = state!.is_received === true;
@@ -528,9 +478,7 @@ export class TelegramCalls {
       sent: new Set(),
       timers: [],
       lostTimer: null,
-      log: { in: 0, out: 0, unopened: 0, up: false },
     };
-    note(`call ${id}, ${outgoing ? "outgoing" : "incoming"}${video ? ", with the camera" : ""}`);
   }
 
   private mine(id: number): Live {
@@ -544,11 +492,8 @@ export class TelegramCalls {
     const protocol = isObject(state.protocol) ? state.protocol : null;
     const versions = list(protocol?.library_versions, 32);
     const parameters = parametersOf(str(state.custom_parameters, 65_536));
-    const servers = list(state.servers, 64);
-    note(`ready: versions ${versions.map((each) => str(each, 16)).join(", ") || "none"}${parameters.mtproto ? ", MTProto for media" : ""}${parameters.nosctp ? ", signalling without SCTP" : ""}, ${servers.length} servers: ${servers.map(describeServer).join("; ")}`);
     if (versions[0] !== VERSION || parameters.mtproto) return this.end("unsupported", true);
     const relays = relaysOf(state.servers);
-    note(`${relays.length} of them TURN at an address, for the peer connection`);
     if (relays.length === 0) return this.end("noRelay", true);
     let key: Uint8Array;
     try {
@@ -571,16 +516,13 @@ export class TelegramCalls {
     }
     live.timers.push(
       setTimeout(() => {
-        if (this.live !== live || live.view.connectedAt !== null) return;
-        note(`not connected in ${CONNECT_MS / 1000} seconds: the association ${live.log.up ? "is up" : "never came up"}, ${live.log.out} packets sent, ${live.log.in} came, ${live.log.unopened} didn't open; the other side's ICE ${live.remoteSetup ? "is known" : "never came"}, ${live.answers} answers set`);
-        this.end("failed", true);
+        if (this.live === live && live.view.connectedAt === null) this.end("failed", true);
       }, CONNECT_MS),
     );
     this.changed();
     live.opened = true;
     this.media(live, { do: "open", servers: relays, caller: live.view.outgoing });
     this.askOffer(live);
-    if (live.early.length) note(`${live.early.length} packets came before it was ready`);
     for (const packet of live.early.splice(0)) this.packet(live, packet);
   }
 
@@ -598,7 +540,6 @@ export class TelegramCalls {
   /** It's over: the interface is told why, once, and nothing of it is kept but whether it may be rated. */
   private over(live: Live, end: TelegramCallEnd, rate: boolean): void {
     if (live.view.state !== "over") {
-      note(`over: ${end}${live.view.connectedAt === null ? ", never connected" : ""}`);
       live.view.state = "over";
       live.view.ended = end;
       live.view.endedText = endText(end, this.host.nameOf(Number(live.view.userId)), live.view.outgoing);
@@ -632,7 +573,6 @@ export class TelegramCalls {
   }
 
   private media(live: Live, media: TelegramCallMedia): void {
-    if (media.do !== "candidate" && media.do !== "send") note(`the peer connection is told to ${media.do}${media.do === "answer" ? ` (answer ${live.answers})` : ""}`);
     this.host.emit({ type: "telegram_call_media", serverId: TELEGRAM_ID, callId: live.view.id, media });
   }
 
@@ -643,51 +583,35 @@ export class TelegramCalls {
     const live = this.live;
     if (!live?.seal || live.view.state === "over") return;
     const sealed = live.seal.seal(gzip(utf8(writeSignal(signal))));
-    note(`sends ${describeSignal(signal)}${live.sctp && !live.sctp.established ? ", once the association is up" : ""}`);
     if (live.sctp) live.sctp.send(sealed);
     else this.transmit(live, sealed);
   }
 
   private transmit(live: Live, data: Uint8Array): void {
     if (this.live !== live || live.view.state === "over") return;
-    if (live.log.out++ === 0) note("the first packet goes to the other side");
-    void this.host.request({ "@type": "sendCallSignalingData", call_id: live.view.id, data: toBase64(data) }).catch((error) => note(`TDLib took no packet: ${error instanceof Error ? error.message : String(error)}`));
+    void this.host.request({ "@type": "sendCallSignalingData", call_id: live.view.id, data: toBase64(data) }).catch(() => undefined);
   }
 
   private packet(live: Live, bytes: Uint8Array): void {
-    if (live.log.in++ === 0) note(`the first packet came from the other side, ${bytes.length} bytes`);
-    if (live.sctp) {
-      live.sctp.receive(bytes);
-      if (!live.log.up && live.sctp.established) {
-        live.log.up = true;
-        note("the signalling's association is up");
-      }
-    } else this.sealed(live, bytes);
+    if (live.sctp) live.sctp.receive(bytes);
+    else this.sealed(live, bytes);
   }
 
   /** One sealed message from the other app: opened, inflated and read, or dropped. */
   private sealed(live: Live, bytes: Uint8Array): void {
     if (this.live !== live || !live.seal) return;
-    const dropped = (why: string) => {
-      if (live.log.unopened++ < MOST_NOTED) note(`a message of ${bytes.length} bytes was dropped: ${why}`);
-    };
     const opened = live.seal.open(bytes);
-    if (!opened) return dropped("it didn't open under the call's key, or came twice");
+    if (!opened) return;
     const plain = isGzip(opened) ? gunzip(opened, MOST_MESSAGE) : opened;
-    if (!plain) return dropped("it didn't inflate");
+    if (!plain) return;
     let text: string;
     try {
       text = fromUtf8(plain);
     } catch {
-      return dropped("it isn't text");
+      return;
     }
     const signal = readSignal(text);
-    if (!signal) {
-      const type = /"@type"\s*:\s*"([A-Za-z]{1,32})"/.exec(text)?.[1];
-      return dropped(type ? `a ${type} that doesn't read as one should` : "it's no message of the four");
-    }
-    note(`heard ${describeSignal(signal)}`);
-    this.onSignal(signal);
+    if (signal) this.onSignal(signal);
   }
 
   private onSignal(signal: Signal): void {
@@ -735,7 +659,6 @@ export class TelegramCalls {
   private onChannels(live: Live, exchangeId: number, contents: MediaContent[]): void {
     const pending = live.pending;
     if (pending && pending.exchangeId === exchangeId) {
-      note(`that answers this side's offer, taking ${contents.length} of ${pending.contents.length} streams`);
       live.pending = null;
       for (const offered of pending.contents) {
         const answer = contents.find((content) => content.ssrc === offered.ssrc) ?? contents.filter((content) => content.type === offered.type)[pending.contents.filter((each) => each.type === offered.type).indexOf(offered)];
@@ -745,16 +668,10 @@ export class TelegramCalls {
       }
       return this.writeAnswer();
     }
-    if (pending && live.view.outgoing) {
-      note("an offer while this side's waits for its answer: the caller's stands");
-      return;
-    }
+    if (pending && live.view.outgoing) return;
     // Its own streams: anything naming one of this side's is a late answer, not an offer.
     const ours = new Set([...live.told.keys(), ...(pending?.contents ?? []).map((content) => content.ssrc)]);
-    if (contents.some((content) => ours.has(content.ssrc))) {
-      note("a late answer to an older offer, dropped");
-      return;
-    }
+    if (contents.some((content) => ours.has(content.ssrc))) return;
     const accepted = contents.map(acceptContent);
     this.send({ kind: "NegotiateChannels", exchangeId, contents: accepted });
     live.remoteContents = accepted;
