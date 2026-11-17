@@ -110,7 +110,7 @@ impl VoiceStage {
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
         });
         let content = match camera {
-            Some(tile) => self.video(tile, false),
+            Some(tile) => self.video(tile, false, size.0 / size.1),
             None => avatar(AvatarProps { name: name.clone(), seed: member.user_id.clone(), image, size: 84., online: false, rounded: false, dot_border: theme.bg2 }, cx).into_any_element(),
         };
         let user_id = member.user_id.clone();
@@ -208,11 +208,11 @@ impl VoiceStage {
             surface
         } else if full {
             match self.picture(tile, false) {
-                Some(image) => img(image).size_full().object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                Some(image) => img(image).size_full().aspect_ratio(size.0 / size.1).object_fit(gpui::ObjectFit::Contain).into_any_element(),
                 None => div().size_full().into_any_element(),
             }
         } else {
-            self.video(tile, true)
+            self.video(tile, true, size.0 / size.1)
         };
         let key = tile.key.clone();
         let user_id = tile.user_id.clone();

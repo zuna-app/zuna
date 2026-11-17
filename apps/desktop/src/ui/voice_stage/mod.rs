@@ -163,13 +163,17 @@ impl VoiceStage {
         Some(gpui::surface(picture.0).size_full().object_fit(fit).rounded(radius).into_any_element())
     }
 
-    fn video(&mut self, tile: &VideoTile, contain: bool) -> AnyElement {
+    /// A video in a box of `shape`, its width over its height, which the image is given as its
+    /// own: GPUI otherwise lays an image out in its picture's shape, so a picture of another
+    /// shape than its box, as a phone's screen in a tile kept wide enough for its buttons, or in
+    /// a full screen, came out as wide as the box and cut off below it.
+    fn video(&mut self, tile: &VideoTile, contain: bool, shape: f32) -> AnyElement {
         #[cfg(target_os = "macos")]
         if let Some(surface) = Self::surface(tile, if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Cover }, RADIUS_L) {
             return surface;
         }
         match self.picture(tile, !contain) {
-            Some(image) => img(image).size_full().object_fit(if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Fill }).rounded(RADIUS_L).into_any_element(),
+            Some(image) => img(image).size_full().aspect_ratio(shape).object_fit(if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Fill }).rounded(RADIUS_L).into_any_element(),
             None => div().size_full().bg(gpui::black()).into_any_element(),
         }
     }
@@ -381,7 +385,7 @@ impl Render for VoiceStage {
                     self.screen_tile(focused, true, fit_screen(focused, focus_size.0, focus_size.1), false, cx)
                 } else {
                     let voice = self.voice.clone();
-                    let video = self.video(focused, true);
+                    let video = self.video(focused, true, focus_size.0 / focus_size.1);
                     named_div("focused-camera").size_full().rounded(RADIUS_L).overflow_hidden().bg(gpui::black()).cursor_pointer().on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.set_focus(None, cx))).child(video).into_any_element()
                 };
                 grid_area = grid_area.child(
