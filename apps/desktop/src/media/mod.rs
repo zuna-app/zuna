@@ -20,10 +20,52 @@ mod apple;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use image::ImageDecoder;
+use image::metadata::Orientation;
+
+fn decoder(bytes: &[u8]) -> Option<impl image::ImageDecoder + '_> {
+    image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_decoder().ok()
+}
+
+/// A picture turned the way up its Exif says it's seen, as GPUI draws it, and browsers and
+/// iOS show it: a phone's camera writes its pixels as the sensor lay and says how to turn them,
+/// which the core keeps when it takes the rest of a photo's metadata out.
+pub fn decode_upright(bytes: &[u8]) -> Option<image::DynamicImage> {
+    let mut decoder = decoder(bytes)?;
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
+    image.apply_orientation(orientation);
+    Some(image)
+}
+
+/// A picture's width and height the way up it's seen, read from its header alone.
+pub fn upright_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut decoder = decoder(bytes)?;
+    let (width, height) = decoder.dimensions();
+    let turned = matches!(decoder.orientation(), Ok(Orientation::Rotate90 | Orientation::Rotate270 | Orientation::Rotate90FlipH | Orientation::Rotate270FlipH));
+    Some(if turned { (height, width) } else { (width, height) })
+}
+
+/// A photo as a phone's camera writes one: its pixels `width` by `height` as the sensor lay,
+/// red on the left half and blue on the right, and Exif saying how to turn it to be seen.
+#[cfg(test)]
+pub fn turned_jpeg(width: u32, height: u32, orientation: u8) -> Vec<u8> {
+    let pixels = image::RgbImage::from_fn(width, height, |x, _| if x < width / 2 { image::Rgb([220, 20, 20]) } else { image::Rgb([20, 20, 220]) });
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95).encode_image(&pixels).unwrap();
+    // After the start of the image, an APP1 with Exif whose one entry is the orientation.
+    let tiff = [0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0, 0, 0, 0, 0];
+    let mut app1 = vec![0xff, 0xe1, 0, (2 + 6 + tiff.len()) as u8];
+    app1.extend_from_slice(b"Exif\0\0");
+    app1.extend_from_slice(&tiff);
+    jpeg.splice(2..2, app1);
+    jpeg
+}
+
 /// The middle square of an image, 256 pixels across, as the web's `prepareAvatar`
 /// makes a profile or group picture, written where the core can read it.
 pub fn prepare_avatar(path: &Path) -> Option<PathBuf> {
-    let image = image::load_from_memory(&std::fs::read(path).ok()?).ok()?;
+    let image = decode_upright(&std::fs::read(path).ok()?)?;
     let side = image.width().min(image.height());
     let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
     let mut out = Vec::new();
@@ -37,7 +79,7 @@ pub fn prepare_avatar(path: &Path) -> Option<PathBuf> {
 /// A picture made ready as an icon in the rail: its middle square, 128 px a side, as a PNG, so a
 /// logo keeps its transparency.
 pub fn prepare_icon(path: &Path) -> Option<Vec<u8>> {
-    let image = image::load_from_memory(&std::fs::read(path).ok()?).ok()?;
+    let image = decode_upright(&std::fs::read(path).ok()?)?;
     let side = image.width().min(image.height());
     let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(128, 128, image::imageops::FilterType::Lanczos3);
     let mut out = Vec::new();
@@ -196,6 +238,27 @@ mod tests {
             assert!((pitch(&fast) - 220.).abs() < 5., "{speed}x is at {} Hz", pitch(&fast));
         }
         assert_eq!(faster(&clip, 1.).samples.len(), clip.samples.len());
+    }
+
+    #[test]
+    fn a_photo_is_turned_as_its_exif_says() {
+        // 6 is how an iPhone held upright writes one: its pixels lying on their side, to be
+        // turned a quarter clockwise, which brings the left edge to the top.
+        let jpeg = super::turned_jpeg(40, 30, 6);
+        assert_eq!(super::upright_size(&jpeg), Some((30, 40)));
+        let upright = super::decode_upright(&jpeg).unwrap().to_rgb8();
+        assert_eq!(upright.dimensions(), (30, 40));
+        let (top, bottom) = (upright.get_pixel(15, 5).0, upright.get_pixel(15, 35).0);
+        assert!(top[0] > 150 && top[2] < 100, "the top is {top:?}, not red");
+        assert!(bottom[2] > 150 && bottom[0] < 100, "the bottom is {bottom:?}, not blue");
+        // Upside down it's as wide as it was, the red now on the right.
+        let jpeg = super::turned_jpeg(40, 30, 3);
+        assert_eq!(super::upright_size(&jpeg), Some((40, 30)));
+        assert!(super::decode_upright(&jpeg).unwrap().to_rgb8().get_pixel(35, 15).0[0] > 150);
+        // With no turn, or none it understands, it's as written.
+        assert_eq!(super::upright_size(&super::turned_jpeg(40, 30, 1)), Some((40, 30)));
+        assert_eq!(super::upright_size(&super::turned_jpeg(40, 30, 0)), Some((40, 30)));
+        assert_eq!(super::decode_upright(b"not a picture").map(|image| image.width()), None);
     }
 
     #[test]

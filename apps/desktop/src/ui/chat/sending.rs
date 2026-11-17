@@ -12,7 +12,7 @@ pub(super) fn stage_file(path: &std::path::Path) -> StagedFile {
     let preview = (mime.starts_with("image/") && mime != "image/svg+xml")
         .then(|| std::fs::read(path).ok())
         .flatten()
-        .and_then(|bytes| image::load_from_memory(&bytes).ok())
+        .and_then(|bytes| crate::media::decode_upright(&bytes))
         .and_then(|picture| {
             let mut png = Vec::new();
             picture.thumbnail(72, 72).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
@@ -68,9 +68,9 @@ pub(super) fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
     // Dimensions and a tiny blurred preview, as the web's prepareFile makes them.
     if mime.starts_with("image/") {
         if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(image) = image::load_from_memory(&bytes) {
-                file["width"] = json!(image.width());
-                file["height"] = json!(image.height());
+            if let Some((width, height)) = crate::media::upright_size(&bytes) {
+                file["width"] = json!(width);
+                file["height"] = json!(height);
                 if let Some((thumb, _, _)) = crate::host::shrink_image(&bytes, 48) {
                     file["thumb"] = json!(thumb);
                 }

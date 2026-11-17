@@ -141,7 +141,7 @@ pub(super) fn crop_to(image: &Image, shape: f32, longest: u32) -> Crop {
     if image.format() == gpui::ImageFormat::Gif {
         return Crop::AsItIs;
     }
-    let Ok(decoded) = image::load_from_memory(image.bytes()) else { return Crop::AsItIs };
+    let Some(decoded) = crate::media::decode_upright(image.bytes()) else { return Crop::AsItIs };
     let (width, height) = (decoded.width(), decoded.height());
     if width == 0 || height == 0 {
         return Crop::AsItIs;
@@ -194,6 +194,21 @@ mod tests {
         assert_eq!(size(crop_to(&photo(4032, 3024), 4032. / 3024., 1200)), Some((1200, 900)));
         // Of another shape, it's cropped to the box's, then scaled down.
         assert_eq!(size(crop_to(&photo(4032, 3024), 1., 418)), Some((418, 418)));
+    }
+
+    #[test]
+    fn a_phone_s_photo_is_cropped_the_way_up_it_s_seen() {
+        // Written lying on its side and told to be turned, as an iPhone's are, in the upright
+        // box its message gives: GPUI draws it turned, so it's already the box's shape.
+        let photo = || Image::from_bytes(ImageFormat::Jpeg, crate::media::turned_jpeg(400, 300, 6));
+        assert!(matches!(crop_to(&photo(), 300. / 400., 1200), Crop::AsItIs));
+        // Scaled down, it's upright too, with what was its left edge at the top.
+        let Crop::Ready(small) = crop_to(&photo(), 300. / 400., 40) else { panic!("not scaled down") };
+        assert_eq!((small.size(0).width.0, small.size(0).height.0), (30, 40));
+        let bgra = small.as_bytes(0).unwrap();
+        let at = |x: usize, y: usize| &bgra[(y * 30 + x) * 4..][..3];
+        assert!(at(15, 3)[2] > 150 && at(15, 3)[0] < 100, "the top is {:?}, not red", at(15, 3));
+        assert!(at(15, 36)[0] > 150 && at(15, 36)[2] < 100, "the bottom is {:?}, not blue", at(15, 36));
     }
 
     #[test]

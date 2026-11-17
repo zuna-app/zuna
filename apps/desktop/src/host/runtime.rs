@@ -721,7 +721,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// A picture shrunk to fit within `max` pixels, as a JPEG data URL.
 pub fn shrink_image(bytes: &[u8], max: u32) -> Option<(String, u32, u32)> {
-    let image = image::load_from_memory(bytes).ok()?;
+    let image = crate::media::decode_upright(bytes)?;
     let image = if image.width() > max || image.height() > max { image.thumbnail(max, max) } else { image };
     let rgb = image.to_rgb8();
     let mut out = Vec::new();

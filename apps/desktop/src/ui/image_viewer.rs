@@ -496,7 +496,7 @@ impl Render for ImageViewer {
         let theme = theme(cx);
         let image = self.image.clone();
         if let Some(image) = image.as_ref().filter(|image| self.natural.map(|(id, _, _)| id) != Some(image.id())) {
-            let size = image::ImageReader::new(std::io::Cursor::new(image.bytes())).with_guessed_format().ok().and_then(|reader| reader.into_dimensions().ok());
+            let size = crate::media::upright_size(image.bytes());
             self.natural = size.map(|(width, height)| (image.id(), width.max(1) as f32, height.max(1) as f32));
         }
         // A video's shape from its pictures once one is decoded, and from its message until then.
@@ -1088,6 +1088,23 @@ mod tests {
         let handle = cx.update(|cx| cx.global::<Open>().0);
         assert!(handle.update(cx, |_, _, _| ()).is_ok() && cx.read(|cx| player.read(cx).is_full()));
         assert_eq!(cx.read(|cx| player.read(cx).is_playing()), before);
+        VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
+    }
+
+    #[gpui::test]
+    fn a_phone_s_photo_is_fitted_the_way_up_it_s_seen(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let app = Running::open(cx, &World::new("turned-photo"));
+        // Written 400 by 300 lying on its side, as an iPhone held upright writes one, and told
+        // to be turned: GPUI draws it 300 by 400, so it's fitted as that, not cut off.
+        let photo = Arc::new(Image::from_bytes(gpui::ImageFormat::Jpeg, crate::media::turned_jpeg(400, 300, 6)));
+        app.window.update(cx, |_, window, cx| open(Gallery::new(crate::testing::fixtures::SERVER, vec![Item::of(&picture("turned"))], 0, Some(photo)), window, cx)).unwrap();
+        app.run(cx);
+        let handle = cx.update(|cx| cx.global::<Open>().0);
+        assert_eq!(viewer(handle, cx, |viewer| viewer.natural.map(|(_, width, height)| (width, height))), Some((300., 400.)));
+        VisualTestContext::from_window(handle.into(), cx).run_until_parked();
+        let drawn = bounds_of(handle, cx, "image-viewer-picture");
+        assert!((f32::from(drawn.size.width) / f32::from(drawn.size.height) - 3. / 4.).abs() < 0.01, "drawn {:?}", drawn.size);
         VisualTestContext::from_window(handle.into(), cx).simulate_keystrokes("escape");
     }
 

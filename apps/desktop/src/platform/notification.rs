@@ -48,7 +48,7 @@ pub fn drawn(picture: Option<&Picture>) -> Option<RgbaImage> {
             picture
                 .image
                 .as_ref()
-                .and_then(|image| image::load_from_memory(image.bytes()).ok())
+                .and_then(|image| crate::media::decode_upright(image.bytes()))
                 .map(|image| round(image.resize_to_fill(PICTURE, PICTURE, image::imageops::FilterType::Lanczos3).to_rgba8()))
                 .or_else(|| initials(picture))
         })
