@@ -67,6 +67,9 @@ public final class CoreRuntime: @unchecked Sendable {
     let queue = DispatchQueue(label: "chat.zuna.core", qos: .userInitiated)
     private let logger = Logger(subsystem: "chat.zuna", category: "core")
     private var context: JSContext!
+    /// The language last given (`setLanguage`), for each context loaded after it: `start()` loads
+    /// the core anew, which would otherwise word everything in English.
+    private var language: (tag: String, catalog: String?)?
     private let crypto = CryptoBridge()
     private let database: DatabaseBridge
     private var network: NetworkBridge!
@@ -247,6 +250,7 @@ public final class CoreRuntime: @unchecked Sendable {
         if context.objectForKeyedSubscript("__zunaBoot")?.isUndefined ?? true {
             throw CoreError(description: "The core bundle didn't load.")
         }
+        if let language { call("__zunaLanguage", [language.tag, language.catalog as Any? ?? NSNull()]) }
     }
 
     private func installHost() {
@@ -505,11 +509,12 @@ public final class CoreRuntime: @unchecked Sendable {
     }
 
     /// The language the app shows, for what the core words itself, a push's preview included
-    /// (`ZunaI18n`): a tag, and its catalog's JSON, or nil for English.
+    /// (`ZunaI18n`): a tag, and its catalog's JSON, or nil for English. Kept for the core loaded
+    /// later, as before `start()`.
     public func setLanguage(_ tag: String, catalog: String?) {
         queue.async { [self] in
-            if context == nil { try? load() }
-            call("__zunaLanguage", [tag, catalog as Any? ?? NSNull()])
+            language = (tag, catalog)
+            if context != nil { call("__zunaLanguage", [tag, catalog as Any? ?? NSNull()]) }
         }
     }
 

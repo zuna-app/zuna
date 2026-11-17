@@ -145,7 +145,9 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
 // The language the app shows, for what the core words itself, a push's preview included: a tag,
 // and its catalog's JSON, or null for English. The notification extension sets it too.
 g.__zunaLanguage = (tag: string, catalog: string | null) => {
-  useCatalog(tag, catalog);
+  // Once open, the client also has the interface read its lists again in the new language.
+  if (client) client.setLanguage(tag, catalog);
+  else useCatalog(tag, catalog);
 };
 
 g.__zunaPreviewCall = (deviceKey: Uint8Array, serverId: string, groupId: string, callerId: string, done: (error: string | null, json: string | null) => void) => {
