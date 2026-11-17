@@ -76,6 +76,10 @@ public final class CoreRuntime: @unchecked Sendable {
     private var telegramPushToken: String?
     /// Whether the app is out of sight, for a bridge made while it is.
     private var telegramOutOfSight = false
+    /// The VoIP token for Telegram's calls, while this device takes them, kept until the bridge is made.
+    private var telegramVoipToken: String?
+    /// Calls' pushes that came before the bridge was made.
+    private var telegramCallPushes: [(payload: String, done: @Sendable (Bool) -> Void)] = []
     private var timers: [Int: DispatchSourceTimer] = [:]
     private var channels: [Int: Channel] = [:]
     private var nextChannel = 1
@@ -388,7 +392,10 @@ public final class CoreRuntime: @unchecked Sendable {
                 queue.async { self.call("__zunaTelegram", [json]) }
             }
             made.setPushToken(telegramPushToken)
+            made.setVoipToken(telegramVoipToken)
             if telegramOutOfSight { made.sleep() }
+            for push in telegramCallPushes { made.callPushed(push.payload, done: push.done) }
+            telegramCallPushes.removeAll()
             telegram = made
             return made
         }
@@ -433,6 +440,26 @@ public final class CoreRuntime: @unchecked Sendable {
         queue.async { [self] in
             telegramPushToken = token
             telegram?.setPushToken(token)
+        }
+    }
+
+    /// The app's VoIP token, for Telegram's calls, while this device takes them; nil takes it back.
+    public func setTelegramVoipToken(_ token: String?) {
+        queue.async { [self] in
+            telegramVoipToken = token
+            telegram?.setVoipToken(token)
+        }
+    }
+
+    /// A call's push of Telegram's woke the app: TDLib is started for it, out of sight, once the core
+    /// asks for it, and `done` is told whether it was a call (`TelegramBridge.callPushed`).
+    public func telegramCallPushed(_ payload: String, done: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [self] in
+            if let telegram {
+                telegram.callPushed(payload, done: done)
+            } else {
+                telegramCallPushes.append((payload, done))
+            }
         }
     }
 

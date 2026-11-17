@@ -153,7 +153,7 @@ Everyone behind one proxy shares its address, so they share the server's limits 
 
 ### A Telegram call
 
-A call on a linked Telegram account goes through Telegram's TURN servers alone, over UDP, with no media server of Zuna's in it. With a proxy set, each of those servers becomes a port on loopback, as LiveKit's candidates do, which carries what WebRTC sends it to that server in a UDP association, and WebRTC is told the loopback address alone. Telegram's TURN servers aren't known to take TCP, so a proxy that grants no association gets no Telegram call, and the app says so rather than going around it. Not yet run through a proxy: the check of two copies of the app on fake engines, `apps/desktop/test/telegram-call-check.mjs` in `docs/TELEGRAM_CALLS_PLAN.md`, isn't built.
+A call on a linked Telegram account goes through Telegram's TURN servers alone, over UDP, with no media server of Zuna's in it. With a proxy set, each of those servers becomes a port on loopback, as LiveKit's candidates do, which carries what WebRTC sends it to that server in a UDP association (`Relays` in the desktop's `voice/proxy.rs`, `CallProxy.relays` on the iPhone), and WebRTC is told the loopback address alone. Telegram's TURN servers aren't known to take TCP, so a proxy that grants no association gets no Telegram call, and the app says so rather than going around it. Not yet run through a proxy: the check of two copies of the app on fake engines, `apps/desktop/test/telegram-call-check.mjs` in `docs/TELEGRAM_CALLS_PLAN.md`, isn't built.
 
 ### What was considered and left
 

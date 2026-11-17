@@ -152,6 +152,16 @@ public final class TelegramBridge: @unchecked Sendable {
     private var filled = Date()
     /// The app's push token from Apple, as hex, which Telegram pushes the account's messages to.
     private var pushToken: String?
+    /// The app's VoIP token from PushKit, as hex, which Telegram pushes the account's calls to while
+    /// this device takes them (docs/TELEGRAM_CALLS_PLAN.md, An iPhone ringing with Zuna closed).
+    private var voipToken: String?
+    /// A call's push woke the app: TDLib starts out of sight for it, as the call the system holds
+    /// keeps the app running.
+    private var forCall = false
+    /// Pushes for calls waiting for TDLib to be signed in, each with who's told whether it was a call.
+    private var callPushes: [(payload: String, done: @Sendable (Bool) -> Void)] = []
+    private var nextCallPush = 0
+    private var callPushesAsked: [Int: @Sendable (Bool) -> Void] = [:]
 
     public init(configuration: Configuration, dataDirectory: URL, deviceKey: Data, deliver: @escaping @Sendable (String) -> Void) {
         self.configuration = configuration
@@ -224,7 +234,7 @@ public final class TelegramBridge: @unchecked Sendable {
         queue.sync {
             wanted = true
             self.linked = linked
-            if run != nil || asleep || stopping > 0 { return nil }
+            if run != nil || (asleep && !forCall) || stopping > 0 { return nil }
             return begin(afterWipe: false)
         }
     }
@@ -245,6 +255,7 @@ public final class TelegramBridge: @unchecked Sendable {
         queue.async { [self] in
             guard asleep else { return }
             asleep = false
+            forCall = false
             if let run {
                 run.door.look { [weak self, run] in
                     guard let self else { return }
@@ -373,7 +384,72 @@ public final class TelegramBridge: @unchecked Sendable {
         }
     }
 
+    /// The app's VoIP token, given to Telegram encrypted, so that Apple reads nothing of a call's
+    /// push, each time TDLib starts, while this device takes calls; nil takes it back, as when the
+    /// switch goes off. Telegram's pushes then carry the ID it answers with, which is kept beside
+    /// TDLib's database for a push to be known by before TDLib runs (`isCallPush`).
+    public func setVoipToken(_ token: String?) {
+        queue.async { [self] in
+            guard token != voipToken else { return }
+            voipToken = token
+            if let run, run.ready { registerVoip(run) }
+        }
+    }
+
+    private func registerVoip(_ run: Run) {
+        guard let client = run.client else { return }
+        let token = voipToken ?? ""
+        // Nothing to take back that was never given.
+        if token.isEmpty, !FileManager.default.fileExists(atPath: callReceiverFile(folder).path) { return }
+        client.send(Self.encode([
+            "@type": "registerDevice",
+            "device_token": ["@type": "deviceTokenApplePushVoIP", "device_token": token, "is_app_sandbox": configuration.pushSandbox, "encrypt": true],
+            "other_user_ids": [Int](),
+            "@extra": token.isEmpty ? "zuna:voip-gone" : "zuna:voip",
+        ]))
+    }
+
+    /// Where the ID Telegram's calls' pushes carry is kept.
+    private func callReceiverFile(_ folder: URL) -> URL { folder.appendingPathComponent("call-push-receiver") }
+
+    /// Whether a VoIP push is Telegram's for the account linked here, as far as can be told before
+    /// TDLib runs: its encrypted field, and the ID TDLib reads from it, which needs no client, against
+    /// the one kept. Nil where nothing is kept to tell by, or it can't be read yet, as before the
+    /// phone's first unlock: it may be.
+    public static func isCallPush(_ payload: [AnyHashable: Any], engine: any TelegramEngine, folder: URL) -> Bool? {
+        guard payload["p"] is String else { return false }
+        guard let kept = try? String(contentsOf: folder.standardizedFileURL.appendingPathComponent("call-push-receiver"), encoding: .utf8) else { return nil }
+        let fields = Dictionary(uniqueKeysWithValues: payload.compactMap { key, value in (key as? String).map { ($0, value) } })
+        guard JSONSerialization.isValidJSONObject(fields), let data = try? JSONSerialization.data(withJSONObject: fields),
+              let answer = engine.execute(encode(["@type": "getPushReceiverId", "payload": String(decoding: data, as: UTF8.self)])),
+              let read = (try? JSONSerialization.jsonObject(with: Data(answer.utf8))) as? [String: Any], read["@type"] as? String == "pushReceiverId" else { return false }
+        return "\(read["id"] ?? "")" == kept.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A call's push came: TDLib starts, out of sight if it must, and is asked what it was
+    /// (`processPushNotification`). `done` is told whether it was a call: TDLib answers a call's
+    /// with error 406, as it leaves calls to come as `updateCall`, and anything else means it wasn't.
+    public func callPushed(_ payload: String, done: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [self] in
+            forCall = true
+            callPushes.append((payload, done))
+            if let run, run.ready { askAboutPushes(run) } else { resume() }
+        }
+    }
+
+    private func askAboutPushes(_ run: Run) {
+        guard let client = run.client else { return }
+        for (payload, done) in callPushes {
+            nextCallPush += 1
+            callPushesAsked[nextCallPush] = done
+            client.send(Self.encode(["@type": "processPushNotification", "payload": payload, "@extra": "zuna:call-push:\(nextCallPush)"]))
+        }
+        callPushes.removeAll()
+    }
+
     private func register(_ run: Run) {
+        registerVoip(run)
+        askAboutPushes(run)
         guard let token = pushToken, !token.isEmpty, let client = run.client else { return }
         client.send(Self.encode([
             "@type": "registerDevice",
@@ -496,7 +572,7 @@ public final class TelegramBridge: @unchecked Sendable {
 
     /// Starts a client that's owed, once nothing stands in its way.
     private func resume() {
-        guard wanted, run == nil, stopping == 0, !asleep else { return }
+        guard wanted, run == nil, stopping == 0, !asleep || forCall else { return }
         if let why = begin(afterWipe: false) { _ = refuse(why) }
     }
 
@@ -528,6 +604,22 @@ public final class TelegramBridge: @unchecked Sendable {
             } else {
                 logger.info("Telegram took the push token")
             }
+            return
+        case "zuna:voip":
+            if value["@type"] as? String == "pushReceiverId" {
+                // What its calls' pushes will carry, for one to be known by before TDLib runs.
+                try? "\(value["id"] ?? "")".write(to: callReceiverFile(folder), atomically: true, encoding: .utf8)
+                logger.info("Telegram took the VoIP token")
+            } else {
+                logger.warning("Telegram didn't take the VoIP token: \(value["message"] as? String ?? "", privacy: .public)")
+            }
+            return
+        case "zuna:voip-gone":
+            try? FileManager.default.removeItem(at: callReceiverFile(folder))
+            return
+        case let extra? where extra.hasPrefix("zuna:call-push:"):
+            guard let number = Int(extra.dropFirst("zuna:call-push:".count)), let done = callPushesAsked.removeValue(forKey: number) else { return }
+            done(value["@type"] as? String == "error" && value["code"] as? Int == 406)
             return
         // The broker's own requests, whose answers are nobody else's.
         case let extra? where extra.hasPrefix("zuna:"):

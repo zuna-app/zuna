@@ -619,6 +619,7 @@ final class AppModel {
         case let .connection(serverId, state):
             servers[serverId]?.connection = state
             if state == .online {
+                if serverId == ServerEntry.telegram { voice.telegramOnline() }
                 checkCaughtUp(serverId)
                 proxyTrouble = nil
             } else {

@@ -207,6 +207,53 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertEqual(launch.heard.count("zunaFailed"), 0)
     }
 
+    func testTheVoipTokenGoesEncryptedOnceSignedInAndWhatItsPushesCarryIsKept() throws {
+        let launch = try Launch(state: "authorizationStateReady")
+        defer { launch.clean() }
+        launch.bridge.setVoipToken("abcd")
+        XCTAssertNil(launch.bridge.start())
+        let client = launch.engine.client(1)
+        client.waitFor("registerDevice")
+        let given = try XCTUnwrap(client.sent.first { ($0["device_token"] as? [String: Any])?["@type"] as? String == "deviceTokenApplePushVoIP" })
+        let token = try XCTUnwrap(given["device_token"] as? [String: Any])
+        XCTAssertEqual(token["device_token"] as? String, "abcd")
+        XCTAssertEqual(token["encrypt"] as? Bool, true, "Apple reads nothing of a call's push")
+        // What its pushes carry, kept for a push to be known by before TDLib runs.
+        try waitUntil { FileManager.default.fileExists(atPath: launch.folder.appendingPathComponent("call-push-receiver").path) }
+        XCTAssertEqual(TelegramBridge.isCallPush(["p": "sealed"], engine: launch.engine, folder: launch.folder), true)
+        XCTAssertEqual(TelegramBridge.isCallPush(["aps": ["alert": "hi"]], engine: launch.engine, folder: launch.folder), false, "a push without Telegram's field isn't one")
+        // The switch off takes it back, and nothing is kept to know a push by.
+        launch.bridge.setVoipToken(nil)
+        try waitUntil { client.sent.contains { (($0["device_token"] as? [String: Any])?["device_token"] as? String) == "" } }
+        try waitUntil { !FileManager.default.fileExists(atPath: launch.folder.appendingPathComponent("call-push-receiver").path) }
+        XCTAssertNil(TelegramBridge.isCallPush(["p": "sealed"], engine: launch.engine, folder: launch.folder))
+    }
+
+    func testACallsPushStartsTDLibOutOfSightAndSaysWhetherItWasACall() throws {
+        let launch = try Launch(state: "authorizationStateReady")
+        defer { launch.clean() }
+        launch.bridge.sleep()
+        XCTAssertNil(launch.bridge.start())
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launch.engine.made, 0, "nothing starts out of sight for a message's push")
+        let call = Box<Bool?>(nil), other = Box<Bool?>(nil)
+        launch.bridge.callPushed(#"{"p":"call"}"#) { call.value = $0 }
+        launch.bridge.callPushed(#"{"p":"message"}"#) { other.value = $0 }
+        // A call the system holds keeps the app running, so TDLib starts for it.
+        launch.engine.client(1).waitFor("processPushNotification")
+        try waitUntil { call.value != nil && other.value != nil }
+        XCTAssertEqual(call.value, true)
+        XCTAssertEqual(other.value, false, "anything but 406 wasn't a call")
+    }
+
+    private func waitUntil(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+        let deadline = Date().addingTimeInterval(5)
+        while !condition() {
+            guard Date() < deadline else { return XCTFail("waited in vain", file: file, line: line) }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+    }
+
     func testWakingHasTheDoorLookAndTDLibConnectAgainAtOnce() throws {
         let launch = try Launch()
         defer { launch.clean() }
@@ -567,7 +614,10 @@ final class TelegramBridgeTests: XCTestCase {
             return client
         }
 
-        func execute(_ json: String) -> String? { nil }
+        /// TDLib's synchronous requests: the ID a push carries, for any push, as it's always this account's here.
+        func execute(_ json: String) -> String? {
+            json.contains("getPushReceiverId") ? #"{"@type":"pushReceiverId","id":"77"}"# : nil
+        }
 
         func onLastWords(_ said: @escaping @Sendable (String) -> Void) {
             condition.withLock { self.said = said }
@@ -677,6 +727,12 @@ final class TelegramBridgeTests: XCTestCase {
                 }
             case "addProxy":
                 say(#"{"@type":"proxy","id":1\#(extra)}"#)
+            case "registerDevice":
+                say(#"{"@type":"pushReceiverId","id":"77"\#(extra)}"#)
+            case "processPushNotification":
+                // TDLib leaves a call's push to come as `updateCall`, and says so with 406.
+                let payload = request["payload"] as? String ?? ""
+                say(payload.contains("call") ? #"{"@type":"error","code":406,"message":"Call push"\#(extra)}"# : #"{"@type":"ok"\#(extra)}"#)
             default:
                 say(#"{"@type":"ok"\#(extra)}"#)
             }

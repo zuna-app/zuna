@@ -48,6 +48,29 @@ enum TelegramSetup {
     }
 }
 
+/// A VoIP push of Telegram's, for a call on the linked account (docs/TELEGRAM_CALLS_PLAN.md, An
+/// iPhone ringing with Zuna closed). It comes to the same handler as a server's, as an app has one
+/// VoIP token, and is told from one by its shape: Telegram's encrypted field, for the ID kept.
+enum TelegramCallPush {
+    /// Whether a push that isn't a server's is Telegram's for this account. One whose ID can't be
+    /// checked yet, as before the phone's first unlock, is taken for Telegram's.
+    @MainActor static func isOurs(_ payload: [AnyHashable: Any]) -> Bool {
+        #if ZUNA_TELEGRAM
+        guard let folder = TelegramSetup.configuration()?.folder else { return false }
+        return TelegramBridge.isCallPush(payload, engine: TDLibEngine.shared, folder: folder) ?? (payload["p"] is String)
+        #else
+        return false
+        #endif
+    }
+
+    /// The push as TDLib reads it.
+    static func json(_ payload: [AnyHashable: Any]) -> String {
+        let fields = Dictionary(uniqueKeysWithValues: payload.compactMap { key, value in (key as? String).map { ($0, value) } })
+        guard JSONSerialization.isValidJSONObject(fields), let data = try? JSONSerialization.data(withJSONObject: fields) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 #if ZUNA_TELEGRAM
 /// TDLib's JSON interface (`td/telegram/td_json_client.h`), linked statically from what
 /// `scripts/tdlib.mjs --ios` builds. Every client's answers and updates come from one call,

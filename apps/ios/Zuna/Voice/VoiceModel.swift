@@ -74,10 +74,13 @@ struct IncomingCall: Identifiable, Equatable {
     let kind: GroupKind
     /// The conversation is muted, so it rings without a sound.
     let quiet: Bool
+    /// A Telegram call a VoIP push rang for before the app knew of it, which the system knows by
+    /// the ID it was rung with then.
+    var pushedId: UUID?
 
     var id: String { "\(serverId)|\(groupId)|\(startedAt)" }
     /// What the system knows it by.
-    var systemId: UUID { SystemCall.callId(serverId: serverId, groupId: groupId, startedAt: startedAt) }
+    var systemId: UUID { pushedId ?? SystemCall.callId(serverId: serverId, groupId: groupId, startedAt: startedAt) }
 }
 
 /// A room this person asked to come into here, while another of their devices is in one on its server.
@@ -166,6 +169,7 @@ final class VoiceModel {
     static let takesCallsKey = "zuna-telegram-takes-calls"
     /// Called when that changes, for the VoIP token Telegram is given (`CallPushes`).
     @ObservationIgnored var onTelegramTakesCalls: ((Bool) -> Void)?
+    @ObservationIgnored private var takesCallsRead = false
     /// What the room watches together, as the core holds it, or nil when nothing's on.
     private(set) var watch: WatchView?
     /// The session this device's person pressed Watch for, which plays here until it ends or they stop it.
@@ -237,6 +241,11 @@ final class VoiceModel {
     @ObservationIgnored private var callsKnown: Set<String> = []
     /// The VoIP token, for the push relay, once PushKit has one.
     @ObservationIgnored var onCallPushToken: ((String?) -> Void)?
+    /// A VoIP push of Telegram's rang, for TDLib to be started for and asked what it was: whether a call.
+    @ObservationIgnored var onTelegramCallPush: ((String, @escaping @Sendable (Bool) -> Void) -> Void)?
+    /// The Telegram call a VoIP push rang for, by the ID the system has it under, until the call has
+    /// come or it's let go: which ringing call it became, and whether it was declined meanwhile.
+    @ObservationIgnored private var telegramPushed: (id: UUID, call: String?, declined: Bool)?
 
     private static let reconnectAttempts = 3
     private static let reconnectWait: Duration = .seconds(2)
@@ -263,7 +272,7 @@ final class VoiceModel {
     /// as `rangByPush` says, and is let go after a minute if the app never does.
     func listenForCalls() {
         callPushes.onToken = { [weak self] token in self?.callPushTokenChanged(token) }
-        callPushes.onRing = { [weak self] push in self?.rangByPush(push) }
+        callPushes.onRing = { [weak self] push, raw in self?.rangByPush(push, raw: raw) }
         if SystemCall.mayBeAllowed { callPushes.start() }
     }
 
@@ -285,7 +294,7 @@ final class VoiceModel {
     var inCall: Bool { status != .idle }
 
     /// In a call, or one is ringing here: the core stays connected while the app is out of sight.
-    var keepsCoreAwake: Bool { inCall || !rung.isEmpty || !pushed.isEmpty }
+    var keepsCoreAwake: Bool { inCall || !rung.isEmpty || !pushed.isEmpty || telegramPushed != nil }
 
     /// Sound is going out from here, as far as this device can tell.
     var micOff: Bool { muted || deafened || serverMuted || noMic }
@@ -677,8 +686,9 @@ final class VoiceModel {
 
     /// A VoIP push says a call is ringing here. It goes to CallKit at once, as PushKit insists, called what the app
     /// knows so far, and is answered or let go once the app has caught up with its server.
-    private func rangByPush(_ push: PushStore.Message?) {
+    private func rangByPush(_ push: PushStore.Message?, raw: [AnyHashable: Any] = [:]) {
         onPushed?()
+        if push == nil, TelegramCallPush.isOurs(raw) { return rangByTelegramPush(raw) }
         guard let push, push.kind == .call, let startedAt = push.startedAt, let callerId = push.callerId else {
             systemCall.ringUnreadable()
             return
@@ -814,7 +824,7 @@ final class VoiceModel {
                       !server.isBlocked(call.startedBy) else { continue }
                 // A Telegram call says it's Telegram's, as its notifications do, and rings in a muted chat, as in Telegram's apps.
                 let telegram = serverId == ServerEntry.telegram
-                next.append(IncomingCall(
+                var ringing = IncomingCall(
                     serverId: serverId,
                     groupId: call.groupId,
                     startedAt: call.startedAt,
@@ -823,14 +833,26 @@ final class VoiceModel {
                     title: telegram ? t("notifications.telegramTitle", ["title": conversation.title]) : conversation.title,
                     kind: conversation.kind,
                     quiet: telegram ? false : conversation.muted
-                ))
+                )
+                // The Telegram call a push rang for already, under the ID the system has it by.
+                if telegram, let pushed = telegramPushed, pushed.call == nil || pushed.call == ringing.id {
+                    telegramPushed?.call = ringing.id
+                    ringing.pushedId = pushed.id
+                }
+                next.append(ringing)
             }
         }
         next.sort { $0.startedAt < $1.startedAt }
         let before = rung
         rung = Dictionary(next.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if incoming != next { incoming = next }
-        for call in next where before[call.id] == nil { startRinging(call) }
+        for call in next where before[call.id] == nil {
+            startRinging(call)
+            // Rung as "Telegram" by its push, it's called what its chat is now.
+            if call.pushedId != nil { systemCall.retitle(call.systemId, call.title) }
+            // A Telegram call that was declined from the system's screen before it came.
+            if call.pushedId != nil, telegramPushed?.declined == true { decline(call) }
+        }
         for (id, call) in before where rung[id] == nil { stoppedRinging(call) }
         if !before.isEmpty, !keepsCoreAwake { onEnded?() }
         if let pending = pendingAnswer, let call = next.first(where: { $0.systemId == pending }) {
@@ -857,6 +879,7 @@ final class VoiceModel {
     /// The system's screen answered a call: it's the system's call already, so the room comes to it.
     private func answeredBySystem(_ call: IncomingCall) {
         pushed[call.systemId] = nil
+        if telegramPushed?.id == call.systemId { telegramPushed = nil }
         // Out of whatever room this device was in, whose call the system has ended by now.
         if status != .idle { leave(keepingSystemCall: true) }
         app?.selectServer(call.serverId)
@@ -866,6 +889,7 @@ final class VoiceModel {
 
     /// A call stopped ringing here: answered on this device or another, declined, ended, or rung long enough.
     private func stoppedRinging(_ call: IncomingCall) {
+        if telegramPushed?.id == call.systemId { telegramPushed = nil }
         let server = app?.servers[call.serverId]
         let me = server?.me?.userId ?? ""
         let here = serverId == call.serverId && channelId == call.groupId && status != .idle
@@ -1646,7 +1670,82 @@ extension VoiceModel {
         app?.servers[ServerEntry.telegram]?.users[userId]?.displayName ?? t("notify.someone")
     }
 
+    // MARK: Pushes
+
+    #if DEBUG
+    /// As PushKit hands the app a VoIP push of Telegram's, for tests: the simulator has no PushKit.
+    func ringByTelegramPush(_ raw: [AnyHashable: Any]) {
+        onPushed?()
+        rangByTelegramPush(raw)
+    }
+    #endif
+
+    /// A VoIP push of Telegram's: a call on the linked account, it seems, which goes to CallKit at once,
+    /// as PushKit insists, called "Telegram", as nothing in it can be read. TDLib starts out of sight
+    /// and is asked what it was; the call comes as `updateCall`, and takes the caller's name. One that
+    /// wasn't a call ends at once, and one that hasn't come in 10 seconds ends as missed.
+    fileprivate func rangByTelegramPush(_ raw: [AnyHashable: Any]) {
+        let id = UUID()
+        let nothing = SystemCall.Ringing(answer: {}, decline: {}, telegram: true)
+        // A Telegram call already here, or one a push rang for: the system still has to hear of
+        // this one, which ends at once.
+        if telegramPushed != nil || telegram.map({ $0.state != "over" }) == true {
+            systemCall.ringNow(id, title: "Telegram", actions: nothing)
+            systemCall.stopRinging(id, reason: .answeredElsewhere)
+            return
+        }
+        telegramPushed = (id, nil, false)
+        systemCall.ringNow(id, title: "Telegram", actions: SystemCall.Ringing(
+            answer: { [weak self] in self?.answeredTelegramPush(id) },
+            decline: { [weak self] in self?.declinedTelegramPush(id) },
+            telegram: true
+        ))
+        onTelegramCallPush?(TelegramCallPush.json(raw)) { [weak self] isCall in
+            Task { @MainActor in if !isCall { self?.letTelegramPushGo(id, reason: .failed) } }
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.letTelegramPushGo(id, reason: .unanswered)
+        }
+    }
+
+    /// Answered from the system's screen: straight in if the call has come, or as soon as it does.
+    private func answeredTelegramPush(_ id: UUID) {
+        if let call = incoming.first(where: { $0.systemId == id }) {
+            answeredBySystem(call)
+        } else {
+            pendingAnswer = id
+        }
+    }
+
+    /// Declined from the system's screen: only a call TDLib still has ringing is declined, so that one
+    /// another app took isn't ended from here.
+    private func declinedTelegramPush(_ id: UUID) {
+        if let call = incoming.first(where: { $0.systemId == id }) {
+            decline(call)
+        } else if telegramPushed?.id == id {
+            telegramPushed?.declined = true
+        }
+    }
+
+    /// A push whose call never came, or wasn't a call: the system's call ends.
+    private func letTelegramPushGo(_ id: UUID, reason: CXCallEndedReason) {
+        guard let pushed = telegramPushed, pushed.id == id, pushed.call == nil else { return }
+        telegramPushed = nil
+        if pendingAnswer == id { pendingAnswer = nil }
+        systemCall.stopRinging(id, reason: reason)
+        if systemCall.isCurrent(id), status == .idle { systemCall.ended(failed: reason == .failed) }
+        if !keepsCoreAwake { onEnded?() }
+    }
+
     // MARK: The switch
+
+    /// The linked account is online: whether it takes calls here is read once a launch, for the VoIP token.
+    func telegramOnline() {
+        guard !takesCallsRead else { return }
+        takesCallsRead = true
+        Task { await readTelegramTakesCalls() }
+    }
 
     /// Reads whether Telegram rings this device for calls.
     func readTelegramTakesCalls() async {

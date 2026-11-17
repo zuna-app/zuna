@@ -82,7 +82,23 @@ final class CoreController {
     /// Hands VoIP pushes to CallKit from launch, before the core is running or has been unlocked.
     func listenForCalls() {
         voice.onPushed = { [weak self] in self?.callPushed() }
+        voice.onTelegramCallPush = { [weak self] payload, done in self?.telegramCallPushed(payload, done) }
+        voice.onTelegramTakesCalls = { [weak self] _ in self?.giveTelegramVoipToken() }
         voice.listenForCalls()
+    }
+
+    /// Telegram's calls' pushes that came before the core was running, as before the app was unlocked.
+    private var telegramCallPushes: [(payload: String, done: @Sendable (Bool) -> Void)] = []
+
+    private func telegramCallPushed(_ payload: String, _ done: @escaping @Sendable (Bool) -> Void) {
+        guard let runtime else { return telegramCallPushes.append((payload, done)) }
+        runtime.telegramCallPushed(payload, done: done)
+    }
+
+    /// The VoIP token Telegram pushes the linked account's calls to, while this device takes them, and only
+    /// where CallKit is allowed, as a VoIP push has to ring through it (docs/TELEGRAM_CALLS_PLAN.md).
+    private func giveTelegramVoipToken() {
+        runtime?.setTelegramVoipToken(voice.telegramTakesCalls == false ? nil : voice.callPushToken)
     }
 
     func start() async {
@@ -192,6 +208,9 @@ final class CoreController {
         // Unless the time ran out while it started, and the lock went (`lockLost`).
         awake = lock.isHeld
         self.runtime = runtime
+        giveTelegramVoipToken()
+        for push in telegramCallPushes { runtime.telegramCallPushed(push.payload, done: push.done) }
+        telegramCallPushes.removeAll()
         // Whatever the app did while the core started, which nothing told it of.
         runtime.setTelegramOutOfSight(UIApplication.shared.applicationState == .background)
         #if DEBUG
@@ -219,7 +238,10 @@ final class CoreController {
         let notifications = Notifications(model: model)
         if let pushToken { notifications.token = pushToken }
         notifications.callToken = model.voice.callPushToken
-        model.voice.onCallPushToken = { notifications.callToken = $0 }
+        model.voice.onCallPushToken = { [weak self] token in
+            notifications.callToken = token
+            self?.giveTelegramVoipToken()
+        }
         notifications.preview = { serverId, groupId, messageId in
             try await runtime.pushPreview(serverId: serverId, groupId: groupId, messageId: messageId, pictures: true)
         }
@@ -611,6 +633,11 @@ final class CoreController {
             let calls = model?.voice.incoming.map { ["groupId": $0.groupId, "startedBy": $0.startedBy, "title": $0.title] } ?? []
             let data = (try? JSONSerialization.data(withJSONObject: calls, options: [.sortedKeys])) ?? Data("[]".utf8)
             return String(decoding: data, as: UTF8.self)
+        case "telegramVoipPush":
+            // A VoIP push of Telegram's, its JSON in `path`, as PushKit hands one to the app, which the simulator can't.
+            guard let path, let info = (try? JSONSerialization.jsonObject(with: Data(path.utf8))) as? [AnyHashable: Any] else { return "unreadable" }
+            voice.ringByTelegramPush(info)
+            return "rung"
         case "voipPush":
             // A call ringing by a VoIP push, as PushKit hands it to the app, which the simulator can't.
             guard let model, let channel, let caller, let startedAt, let serverId = model.activeServerId else { return "no-server" }

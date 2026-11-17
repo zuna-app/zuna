@@ -14,8 +14,9 @@ final class CallPushes: NSObject {
         didSet { if token != oldValue { onToken?(token) } }
     }
     var onToken: ((String?) -> Void)?
-    /// A push that rings: the call has to be with CallKit by the time this returns.
-    var onRing: ((PushStore.Message?) -> Void)?
+    /// A push that rings: the call has to be with CallKit by the time this returns. The second
+    /// argument is the push as it came, for one of Telegram's, which isn't a server's (`TelegramCallPush`).
+    var onRing: ((PushStore.Message?, [AnyHashable: Any]) -> Void)?
 
     func start() {
         registry.delegate = self
@@ -34,8 +35,10 @@ extension CallPushes: PKPushRegistryDelegate {
     }
 
     nonisolated func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
-        let push = PushStore.open(payload.dictionaryPayload)
-        MainActor.assumeIsolated { onRing?(push) }
+        // Read on this thread, the main one, where the handler runs as it's handed over.
+        nonisolated(unsafe) let raw = payload.dictionaryPayload
+        let push = PushStore.open(raw)
+        MainActor.assumeIsolated { onRing?(push, raw) }
         completion()
     }
 }
