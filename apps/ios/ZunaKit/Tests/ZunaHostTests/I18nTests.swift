@@ -93,6 +93,67 @@ final class I18nTests: XCTestCase {
         }
     }
 
+    /// A Polish phone gives the app, which only has English's localization, en_PL as
+    /// `Locale.current`, while the Polish catalog is shown: dates are written in Polish, the
+    /// region's way, with the clock and first weekday the person has.
+    func testDatesAreWrittenInTheLanguageShownTheSystemsWay() throws {
+        let date = try XCTUnwrap(Calendar.current.date(from: DateComponents(year: 2025, month: 11, day: 15, hour: 14, minute: 32)))
+        let polish = I18n.locale(showing: "pl", system: Locale(identifier: "en_PL"))
+        XCTAssertEqual(polish.language.languageCode?.identifier, "pl")
+        XCTAssertEqual(polish.region?.identifier, "PL")
+        XCTAssertEqual(date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(polish)), "sobota, 15 listopada")
+        XCTAssertEqual(date.formatted(.dateTime.weekday(.abbreviated).locale(polish)), "sob.")
+        XCTAssertEqual(date.formatted(Date.FormatStyle(date: .numeric, time: .shortened, locale: polish)), "15.11.2025, 14:32")
+
+        let american = I18n.locale(showing: "pl", system: Locale(identifier: "en_US"))
+        XCTAssertEqual(american.region?.identifier, "US")
+        XCTAssertEqual(date.formatted(Date.FormatStyle(date: .numeric, time: .omitted, locale: american)), "11/15/2025")
+        XCTAssertEqual(date.formatted(.dateTime.month(.wide).year().locale(american)), "listopad 2025")
+
+        let twelve = I18n.locale(showing: "pl", system: Locale(identifier: "en_PL@hours=h12;fw=sun"))
+        XCTAssertEqual(twelve.hourCycle, .oneToTwelve)
+        XCTAssertEqual(twelve.firstDayOfWeek, .sunday)
+        XCTAssertTrue(date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: twelve)).hasSuffix("PM"))
+
+        let chinese = I18n.locale(showing: "zh-Hans", system: Locale(identifier: "zh_Hant_TW"))
+        XCTAssertEqual(chinese.language.script?.identifier, "Hans")
+        XCTAssertEqual(chinese.region?.identifier, "TW")
+
+        // In the language shown already, the system's is kept as it is.
+        let british = Locale(identifier: "en_GB@calendar=buddhist")
+        XCTAssertEqual(I18n.locale(showing: "en", system: british), british)
+        XCTAssertEqual(I18n.locale(showing: "pl", system: Locale(identifier: "pl_PL")), Locale(identifier: "pl_PL"))
+    }
+
+    /// Following the system or choosing a language in Settings, dates are in the catalog shown
+    /// with the rest of the system's locale.
+    func testTheLocaleFollowsTheCatalogShown() {
+        let saved = I18n.defaults
+        let shown = I18n.tag
+        let suite = "zuna-i18n-\(UUID().uuidString)"
+        I18n.defaults = UserDefaults(suiteName: suite)!
+        defer {
+            // The language shown before, as the tests after this one expect it, kept in the
+            // throwaway defaults alone.
+            I18n.choose(shown)
+            I18n.defaults.removePersistentDomain(forName: suite)
+            I18n.defaults = saved
+        }
+        func language(_ locale: Locale) -> String {
+            locale.language.languageCode?.identifier ?? ""
+        }
+        I18n.choose(nil)
+        XCTAssertEqual(language(I18n.locale), language(Locale(identifier: I18n.tag)))
+        XCTAssertEqual(I18n.locale.region, Locale.current.region)
+        XCTAssertEqual(I18n.locale.hourCycle, Locale.current.hourCycle)
+        for tag in ["pl", "de", "en"] {
+            XCTAssertEqual(I18n.choose(tag), tag)
+            XCTAssertEqual(language(I18n.locale), tag)
+            XCTAssertEqual(I18n.locale.region, Locale.current.region, tag)
+            XCTAssertEqual(I18n.locale.hourCycle, Locale.current.hourCycle, tag)
+        }
+    }
+
     func testEveryCatalogThatCameWithTheAppReads() throws {
         XCTAssertNotNil(I18n.files["en"])
         for (tag, url) in I18n.files {

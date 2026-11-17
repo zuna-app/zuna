@@ -285,9 +285,30 @@ public enum I18n {
     /// The language shown, by its tag.
     public static var tag: String { current?.tag ?? "en" }
 
-    /// The locale dates and numbers are written for: the system's while the language follows it,
-    /// as it knows the person's region, or the chosen language's.
-    public static var locale: Locale { choice == nil ? .current : Locale(identifier: tag) }
+    /// The locale dates and numbers are written for: the language shown, with everything else the
+    /// system's (`locale(showing:system:)`).
+    public static var locale: Locale { locale(showing: tag, system: .current) }
+
+    /// The system's locale in the language shown, so that a date's words are the catalog's while
+    /// the region's order of day and month, the 12 or 24 hours set in Settings, the first day of
+    /// the week and the calendar stay the person's. `Locale.current` can't be taken as it is even
+    /// while the language follows the system: iOS gives it the language of the app's own
+    /// localizations, and the app only has English's, so a Polish phone's is en_PL. When the
+    /// system's is in the language shown already, it's kept whole, with any date formats chosen
+    /// in Settings, which a locale made anew loses.
+    static func locale(showing tag: String, system: Locale) -> Locale {
+        func base(_ language: Locale.Language) -> (String?, String?) {
+            let full = Locale.Language(identifier: language.maximalIdentifier)
+            return (full.languageCode?.identifier, full.script?.identifier)
+        }
+        let shown = Locale.Language.Components(identifier: tag)
+        if base(system.language) == base(Locale.Language(components: shown)) { return system }
+        var components = Locale.Components(locale: system)
+        var language = shown
+        if language.region == nil { language.region = system.language.region }
+        components.languageComponents = language
+        return Locale(components: components)
+    }
 
     /// What the core is told of the language shown (`CoreRuntime.setLanguage`): its tag and
     /// catalog's JSON, or nil for English.

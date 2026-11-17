@@ -126,7 +126,7 @@ struct InviteSheet: View {
             return limited ? t("invites.row.usedOf", ["used": invite.uses, "max": invite.maxUses]) : t("invites.row.used", ["used": invite.uses])
         }
         let date = Date(milliseconds: expires)
-        let when = Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened) : date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        let when = Calendar.current.isDateInToday(date) ? date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: I18n.locale)) : date.formatted(.dateTime.month(.abbreviated).day().hour().minute().locale(I18n.locale))
         return limited
             ? t("invites.row.usedOfExpires", ["used": invite.uses, "max": invite.maxUses, "when": when])
             : t("invites.row.usedExpires", ["used": invite.uses, "when": when])

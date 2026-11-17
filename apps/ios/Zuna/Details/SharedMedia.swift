@@ -261,7 +261,7 @@ private struct SharedMessages: View {
     private func months(_ messages: [MessageView]) -> [Month] {
         var months: [Month] = []
         for message in messages {
-            let title = Date(milliseconds: message.createdAt).formatted(.dateTime.month(.wide).year())
+            let title = Date(milliseconds: message.createdAt).formatted(.dateTime.month(.wide).year().locale(I18n.locale))
             if months.last?.title == title {
                 months[months.count - 1].messages.append(message)
             } else {
