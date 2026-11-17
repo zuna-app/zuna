@@ -178,6 +178,7 @@ enum A11y {
         static func voice(_ id: String) -> String { "chat.voice.\(id)" }
         static func voiceSpeed(_ id: String) -> String { "chat.voiceSpeed.\(id)" }
         static func round(_ id: String) -> String { "chat.round.\(id)" }
+        static func sticker(_ id: String) -> String { "chat.sticker.\(id)" }
         static func linkPreview(_ id: String) -> String { "chat.linkPreview.\(id)" }
         static func quickReaction(_ emoji: String) -> String { "chat.quickReaction.\(emoji)" }
         static func result(_ id: String) -> String { "chat.result.\(id)" }

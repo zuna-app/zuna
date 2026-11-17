@@ -187,6 +187,13 @@ enum Format {
         return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, rest) : String(format: "%d:%02d", minutes, rest)
     }
 
+    /// A message with no words, in a line that names it, as above the box when answering it: by
+    /// its first file's name, or as a sticker, whose file's name says nothing.
+    static func attachmentName(_ attachment: Attachment?) -> String {
+        guard let attachment else { return t("message.reply.attachment") }
+        return attachment.sticker == true ? t("conversations.preview.sticker") : attachment.name
+    }
+
     /// The preview under a conversation's title, as the desktop builds it.
     static func preview(_ message: MessageView?, users: [String: UserView], selfId: String, kind: GroupKind) -> (author: String?, body: String) {
         guard let message else { return (nil, "") }
@@ -212,6 +219,7 @@ enum Format {
             body = t("conversations.preview.location")
         } else if let attachment = message.attachments.first {
             body = attachment.voice == true ? t("conversations.preview.voiceMessage") : attachment.round == true ? t("conversations.preview.videoMessage")
+                : attachment.sticker == true ? t("conversations.preview.sticker")
                 : attachment.mime.hasPrefix("image/") ? t("conversations.preview.photo") : attachment.mime.hasPrefix("video/") ? t("conversations.preview.video") : attachment.name
         } else {
             body = ""

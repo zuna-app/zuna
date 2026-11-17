@@ -42,4 +42,51 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(try attachment("audio/mpeg").mediaKind, .audio)
         XCTAssertEqual(try attachment("application/pdf").mediaKind, .file)
     }
+
+    /// A sticker, or a custom emoji sent alone, as `attachmentsOf` in the core's `telegram/map.ts` gives one.
+    private func sticker(width: Double? = 512, height: Double? = 512, mime: String = "image/webp") -> [String: Any] {
+        var fields: [String: Any] = ["fileId": "tg:1:2", "key": "", "prefix": "", "chunks": 0, "name": "sticker.webp", "mime": mime, "size": 4000, "sticker": true]
+        if let width { fields["width"] = width }
+        if let height { fields["height"] = height }
+        return fields
+    }
+
+    private func message(_ changes: [String: Any] = [:]) throws -> MessageView {
+        var fields: [String: Any] = [
+            "id": "m1", "groupId": "g", "seq": 3, "senderId": "u", "createdAt": 1, "status": "sent", "text": "",
+            "emotes": [String: Any](), "attachments": [sticker()], "mentions": [String](), "reactions": [Any](),
+        ]
+        fields.merge(changes) { $1 }
+        return try JSONDecoder().decode(MessageView.self, from: JSONSerialization.data(withJSONObject: fields))
+    }
+
+    func testSizesAStickerAsTheDesktopDoes() throws {
+        func size(_ width: Double?, _ height: Double?) throws -> CGSize {
+            try JSONDecoder().decode(Attachment.self, from: JSONSerialization.data(withJSONObject: sticker(width: width, height: height))).stickerSize
+        }
+        XCTAssertEqual(try size(512, 512), CGSize(width: 160, height: 160))
+        // A custom emoji's picture is smaller, and shows as large as a sticker.
+        XCTAssertEqual(try size(100, 100), CGSize(width: 160, height: 160))
+        XCTAssertEqual(try size(512, 256), CGSize(width: 160, height: 80))
+        XCTAssertEqual(try size(300, 600), CGSize(width: 80, height: 160))
+        XCTAssertEqual(try size(nil, nil), CGSize(width: 160, height: 160))
+    }
+
+    func testShowsAStickerAloneWithoutABubble() throws {
+        XCTAssertEqual(try message().loneSticker?.fileId, "tg:1:2")
+        XCTAssertNotNil(try message(["reactions": [["key": "👍", "userIds": ["u"]]]]).loneSticker)
+        XCTAssertNotNil(try message(["status": "sending"]).loneSticker)
+        // Anything with it keeps the bubble: words, another file, what it answers or where it's from.
+        XCTAssertNil(try message(["text": "hi"]).loneSticker)
+        XCTAssertNil(try message(["attachments": [sticker(), sticker()]]).loneSticker)
+        XCTAssertNil(try message(["reply": ["id": "m0", "senderId": "v", "text": "", "hasAttachment": true, "deleted": false]]).loneSticker)
+        XCTAssertNil(try message(["forwarded": ["userId": "v"]]).loneSticker)
+        // A picture that isn't a sticker is a picture, and a sticker that isn't a picture can't show as one.
+        var photo = sticker()
+        photo["sticker"] = nil
+        XCTAssertNil(try message(["attachments": [photo]]).loneSticker)
+        XCTAssertNil(try message(["attachments": [sticker(mime: "application/x-tgsticker")]]).loneSticker)
+        XCTAssertNil(try message(["deletedAt": 2]).loneSticker)
+        XCTAssertNil(try message(["status": "unverified"]).loneSticker)
+    }
 }

@@ -16,7 +16,7 @@ private struct ResultRow<Action: View>: View {
                     Text(sender?.displayName ?? t("chat.unknown")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.nameColor(message.senderId))
                     Text(Format.listTime(message.createdAt)).font(.caption).foregroundStyle(Theme.text3)
                 }
-                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? t("message.reply.attachment") : plainText(message.text))
+                Text(plainText(message.text).isEmpty ? Format.attachmentName(message.attachments.first) : plainText(message.text))
                     .font(.subheadline)
                     .foregroundStyle(Theme.text1)
                     .lineLimit(3)

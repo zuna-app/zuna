@@ -498,7 +498,7 @@ struct Composer: View {
                 Text(editing ? t("composer.editing") : own ? t("composer.replyingToYourself") : t("composer.replyingTo", ["name": sender]))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(model.settings.accent.text)
-                Text(plainText(message.text).isEmpty ? message.attachments.first?.name ?? t("message.reply.attachment") : plainText(message.text))
+                Text(plainText(message.text).isEmpty ? Format.attachmentName(message.attachments.first) : plainText(message.text))
                     .font(.footnote)
                     .foregroundStyle(Theme.text2)
                     .lineLimit(1)

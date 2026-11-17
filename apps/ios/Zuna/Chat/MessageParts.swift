@@ -55,6 +55,38 @@ extension Attachment {
     var loadsByItself: Bool { size <= 20 << 20 && chunks <= 21 }
 }
 
+/// A Telegram sticker alone, or a custom emoji sent alone: its picture on nothing, at its own
+/// size (`stickerSize`), as the desktop's `sticker` in `ui/message/media.rs`. It always loads by
+/// itself, being small, and a tap opens nothing, as there's no more of it to see: a long press
+/// has the message's menu.
+struct StickerView: View {
+    @Environment(ImageStore.self) private var images
+    let attachment: Attachment
+    let serverId: String
+    let messageId: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        let size = attachment.stickerSize
+        Group {
+            if let image = image ?? images.cachedAttachment(attachment) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .accessibilityElement()
+        .accessibilityLabel(t("telegram.sticker"))
+        .accessibilityAddTraits(.isImage)
+        .accessibilityIdentifier(A11y.Chat.sticker(messageId))
+        .task(id: attachment.cacheId) {
+            guard !attachment.fileId.isEmpty, image == nil else { return }
+            image = await images.attachment(attachment, serverId: serverId, size: max(size.width, size.height))
+        }
+    }
+}
+
 /// A video with its picture straight away, as on the desktop: the frame the
 /// sender's device took, or, for one small enough, a frame taken here once it's
 /// decrypted. A tap plays it.

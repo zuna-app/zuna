@@ -366,8 +366,12 @@ private struct MessageItem: View {
         message.text.isEmpty && message.attachments.count == 1 && message.attachments[0].round == true && message.reply == nil && message.forwarded == nil
     }
 
+    /// A Telegram sticker alone, or a custom emoji sent alone, which goes without a bubble too, at
+    /// its own size rather than as a picture, and opens nothing when tapped, as on the desktop.
+    private var sticker: Attachment? { message.loneSticker }
+
     private var onlyMedia: Bool {
-        message.text.isEmpty && !media.isEmpty && media.count == message.attachments.count && message.reactions.isEmpty
+        sticker == nil && message.text.isEmpty && !media.isEmpty && media.count == message.attachments.count && message.reactions.isEmpty
     }
 
     var body: some View {
@@ -433,12 +437,15 @@ private struct MessageItem: View {
 
     private var bubble: some View {
         let accent = model.settings.accent
-        let bare = jumbo > 0 || onlyRound
+        let bare = jumbo > 0 || onlyRound || sticker != nil
+        // Nothing around it: large emoji, a video message or a sticker on nothing, or pictures to the bubble's edges.
+        let flush = bare || onlyMedia
         // Not on pictures alone, which fill the bubble to its corner, nor under a failed one's outline.
         let shape = BubbleShape(own: own, grouped: context.grouped, tail: context.lastInGroup && !bare && !onlyMedia && message.status != .failed)
         return VStack(alignment: .leading, spacing: 4) {
-            // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name.
-            if !own, context.isGroup, !context.grouped, jumbo == 0, !message.senderId.isEmpty {
+            // Whoever wrote one that hasn't opened isn't known yet, so it's shown under no name. Large
+            // emoji and a sticker go under none, as on the desktop: their sender's picture says who.
+            if !own, context.isGroup, !context.grouped, jumbo == 0, sticker == nil, !message.senderId.isEmpty {
                 HStack(spacing: 5) {
                     Text(server.users[message.senderId]?.displayName ?? t("chat.unknown"))
                         .font(.subheadline.weight(.semibold))
@@ -457,9 +464,9 @@ private struct MessageItem: View {
         .overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextLine)) {
             if metaInText && jumbo == 0 { meta.offset(y: 2) }
         }
-        .padding(.horizontal, jumbo > 0 || onlyMedia || onlyRound ? 0 : 12)
-        .padding(.top, jumbo > 0 || onlyMedia || onlyRound ? 0 : 6)
-        .padding(.bottom, jumbo > 0 || onlyMedia || onlyRound ? 0 : 7)
+        .padding(.horizontal, flush ? 0 : 12)
+        .padding(.top, flush ? 0 : 6)
+        .padding(.bottom, flush ? 0 : 7)
         .frame(minWidth: bare ? 0 : 64, alignment: .leading)
         // Before the bubble is drawn behind it, whose tail reaches out past this.
         .clipShape(onlyMedia ? AnyShape(shape) : AnyShape(Rectangle()))
@@ -502,7 +509,14 @@ private struct MessageItem: View {
             if let reply = message.reply {
                 ReplyQuote(reply: reply, own: own, server: server) { actions.jump(reply.id) }
             }
-            if onlyRound {
+            if let sticker {
+                // A sticker has the time below it, at its right edge, as large emoji do.
+                VStack(alignment: .trailing, spacing: 3) {
+                    StickerView(attachment: sticker, serverId: server.entry.id, messageId: message.id)
+                    if message.reactions.isEmpty { meta }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            } else if onlyRound {
                 // A video message has the time below it, at its right edge, as large emoji do.
                 VStack(alignment: .trailing, spacing: 2) {
                     AttachmentsView(message: message, serverId: server.entry.id, flush: false, own: own, open: { actions.open($0, message) })
@@ -540,7 +554,7 @@ private struct MessageItem: View {
                 ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }) {
                     meta
                 }
-            } else if !metaInText && !onlyMedia && !onlyRound {
+            } else if !metaInText && !onlyMedia && !onlyRound && sticker == nil {
                 meta.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
