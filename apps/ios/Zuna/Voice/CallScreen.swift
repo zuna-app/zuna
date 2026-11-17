@@ -66,10 +66,15 @@ struct CallScreen: View {
         .fullScreenCover(item: Binding(get: { watching.map(Watching.init) }, set: { watching = $0?.id })) { item in
             VideoViewer(tileId: item.id)
         }
-        .alert(t("voice.encrypted.title"), isPresented: $explaining) {
+        .alert(voice.isTelegram ? t("telegram.call.label") : t("voice.encrypted.title"), isPresented: $explaining) {
             Button(t("common.ok"), role: .cancel) {}
         } message: {
-            Text(voice.isCall ? t("voice.encrypted.call") : t("voice.encrypted.channel"))
+            if let call = voice.telegramCall {
+                // What the four emoji check, and what they don't: nothing of Zuna's encryption stands behind them.
+                Text(t("telegram.call.emojiHint", ["name": server?.users[call.userId]?.displayName ?? title]))
+            } else {
+                Text(voice.isCall ? t("voice.encrypted.call") : t("voice.encrypted.channel"))
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Voice.stage)
@@ -102,8 +107,18 @@ struct CallScreen: View {
                     explaining = true
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "lock.fill").font(.system(size: 10))
-                        Text(subtitle).lineLimit(1)
+                        if let call = voice.telegramCall {
+                            // A Telegram call isn't Zuna's end-to-end encryption: it says whose it is, and its key's four emoji once there are some.
+                            Text(t("telegram.call.label")).lineLimit(1)
+                            if !call.emoji.isEmpty {
+                                Text(call.emoji.joined(separator: " "))
+                                    .font(.footnote)
+                                    .accessibilityIdentifier(A11y.Voice.telegramEmoji)
+                            }
+                        } else {
+                            Image(systemName: "lock.fill").font(.system(size: 10))
+                            Text(subtitle).lineLimit(1)
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(Theme.text2)
@@ -124,16 +139,19 @@ struct CallScreen: View {
                 .accessibilityLabel(t("voice.stage.ringAgain"))
                 .accessibilityIdentifier(A11y.Voice.ringAgain)
             }
-            Button {
-                showingStats = true
-            } label: {
-                QualityIcon()
-                    .frame(width: 40, height: 40)
-                    .background(Theme.bg3, in: .circle)
+            // A Telegram call has no media server to say how it's connected to.
+            if !voice.isTelegram {
+                Button {
+                    showingStats = true
+                } label: {
+                    QualityIcon()
+                        .frame(width: 40, height: 40)
+                        .background(Theme.bg3, in: .circle)
+                }
+                .accessibilityLabel(t("voice.statsPanel.title"))
+                .accessibilityValue(QualityIcon.describe(voice.quality).words)
+                .accessibilityIdentifier(A11y.Voice.stats)
             }
-            .accessibilityLabel(t("voice.statsPanel.title"))
-            .accessibilityValue(QualityIcon.describe(voice.quality).words)
-            .accessibilityIdentifier(A11y.Voice.stats)
         }
         .foregroundStyle(Theme.text1)
         .padding(.horizontal, 16)
@@ -399,7 +417,7 @@ private struct PersonTile: View {
         let name = user?.displayName ?? t("notify.someone")
         ZStack(alignment: .bottomLeading) {
             if let camera {
-                SwiftUIVideoView(camera.track, layoutMode: .fill, mirrorMode: camera.local && voice.cameraFront ? .mirror : .off)
+                CallVideoView(video: camera, fill: true, mirror: camera.local && voice.cameraFront)
             } else {
                 Theme.avatarColor(member.userId).opacity(0.16)
                     .background(Theme.bg2)
@@ -466,7 +484,7 @@ private struct ScreenTile: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black
-            SwiftUIVideoView(video.track, layoutMode: .fit)
+            CallVideoView(video: video)
             HStack(spacing: 8) {
                 HStack(spacing: 5) {
                     Image(systemName: "display")
@@ -542,9 +560,9 @@ private struct CallControls: View {
         }
     }
 
-    /// The server's soundboard plays in its voice channels and calls.
+    /// The server's soundboard plays in its voice channels and calls, and Telegram's calls have none.
     private var hasSoundboard: Bool {
-        voice.serverId != nil
+        voice.serverId != nil && !voice.isTelegram
     }
 
     private func buttons(size: CGFloat, spacing: CGFloat) -> some View {
@@ -563,7 +581,8 @@ private struct CallControls: View {
             control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? t("voice.controls.cameraOff") : t("voice.controls.cameraOn"), on: voice.camera, size: size, id: A11y.Voice.camera) {
                 Task { await voice.toggleCamera() }
             }
-            if voice.canShareScreen {
+            // The iPhone shares no screen into a Telegram call yet (docs/TELEGRAM_CALLS_PLAN.md, step 10).
+            if voice.canShareScreen, !voice.isTelegram {
                 let sharing = voice.screen || voice.screenStarting
                 // Tapping it while the server says no says why, as the desktop's tooltip does.
                 control(sharing ? "rectangle.fill.on.rectangle.fill" : "rectangle.on.rectangle", label: sharing ? t("voice.controls.stopSharing") : t("voice.controls.shareScreen"), on: sharing, size: size, id: A11y.Voice.shareScreen) {
@@ -575,11 +594,14 @@ private struct CallControls: View {
             if hasSoundboard {
                 control("waveform", label: t("voice.soundboard.title"), size: size, id: A11y.Voice.soundboardButton) { soundboard = true }
             }
-            control("play.rectangle", label: voice.watchAllowed ? (voice.watch == nil ? t("voice.watch.title") : t("voice.watch.another")) : t("voice.watch.off"), on: voice.watch != nil, size: size, id: A11y.Voice.watchButton) {
-                watchStep = voice.playYouTube ? .link : .consent
+            // Watching together is Zuna's, which a Telegram call hasn't got.
+            if !voice.isTelegram {
+                control("play.rectangle", label: voice.watchAllowed ? (voice.watch == nil ? t("voice.watch.title") : t("voice.watch.another")) : t("voice.watch.off"), on: voice.watch != nil, size: size, id: A11y.Voice.watchButton) {
+                    watchStep = voice.playYouTube ? .link : .consent
+                }
+                .disabled(!voice.watchAllowed)
+                .opacity(voice.watchAllowed ? 1 : 0.45)
             }
-            .disabled(!voice.watchAllowed)
-            .opacity(voice.watchAllowed ? 1 : 0.45)
             SwiftUIAudioRoutePickerButton()
                 .frame(width: size, height: size)
                 .background(Theme.bg3, in: .circle)

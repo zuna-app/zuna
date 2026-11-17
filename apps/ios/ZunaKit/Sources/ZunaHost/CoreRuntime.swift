@@ -51,6 +51,9 @@ public final class CoreRuntime: @unchecked Sendable {
         /// A linked Telegram account's engine, TDLib in the app's own process (docs/TELEGRAM_PLAN.md),
         /// where the app has one: in a build given Telegram's api_id. Without it, no Telegram.
         public var telegram: TelegramBridge.Configuration?
+        /// The app has calls on the linked Telegram account, whose media it runs itself
+        /// (docs/TELEGRAM_CALLS_PLAN.md). Without it, Telegram's own apps take them.
+        public var telegramCalls = false
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -321,6 +324,9 @@ public final class CoreRuntime: @unchecked Sendable {
         web.install(into: host)
         if options.listsBots {
             host.setObject(true, forKeyedSubscript: "listsBots" as NSString)
+        }
+        if options.telegramCalls {
+            host.setObject(true, forKeyedSubscript: "telegramCalls" as NSString)
         }
         #if DEBUG
         // Turns on the bundle's test hooks (a movable clock, access to the client). Release builds leave them off.

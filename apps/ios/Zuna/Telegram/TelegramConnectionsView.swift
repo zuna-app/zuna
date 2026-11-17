@@ -5,6 +5,7 @@ import ZunaModels
 /// what that means (docs/TELEGRAM_PLAN.md, Linking an account).
 struct TelegramConnectionsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
     @State private var unlinking = false
 
     var body: some View {
@@ -42,7 +43,21 @@ struct TelegramConnectionsView: View {
                 Text(t("telegram.connections.hint"))
             }
             .listRowBackground(Theme.bg2)
+            // Telegram's own "Accept calls" for this device (docs/TELEGRAM_CALLS_PLAN.md, The switch).
+            if model.telegram != nil {
+                Section {
+                    Toggle(t("settings.connections.telegramCalls"), isOn: Binding(get: { voice.telegramTakesCalls ?? true }, set: { on in
+                        Task { await voice.setTelegramTakesCalls(on) }
+                    }))
+                    .disabled(voice.telegramTakesCalls == nil)
+                    .accessibilityIdentifier(A11y.Telegram.takesCalls)
+                } footer: {
+                    Text(t("settings.connections.telegramCallsHint"))
+                }
+                .listRowBackground(Theme.bg2)
+            }
         }
+        .task { await voice.readTelegramTakesCalls() }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
         .navigationTitle(t("settings.connections.title"))

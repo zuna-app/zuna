@@ -54,6 +54,7 @@
     "test:ios:ui": "vite-node tests/e2e/src/ui-run.ts --",
     "test:ios:voice": "vite-node tests/e2e/src/voice-run.ts --",
     "test:ios:notify": "vite-node tests/e2e/src/notify-run.ts --",
+    "test:ios:telegram-calls": "vite-node tests/e2e/src/telegram-call-run.ts --",
     "test:ios:release": "node scripts/check-ios-release.mjs",
     "test:ios:check": "node scripts/check-ios.mjs",
     "test:ios:all": "npm test && npm run test:ios:check && npm run test:ios && npm run test:ios:sim && npm run test:ios:ui && npm run test:ios:release"

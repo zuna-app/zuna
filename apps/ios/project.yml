@@ -42,6 +42,12 @@ packages:
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
     exactVersion: 2.19.0
+  # LiveKit's own WebRTC, which a Telegram call's peer connection is made with directly, as the SDK
+  # keeps its own to itself (docs/TELEGRAM_CALLS_PLAN.md, The media). Always the version LiveKit's
+  # Package.swift pins, or two WebRTCs would be linked.
+  LiveKitWebRTC:
+    url: https://github.com/livekit/webrtc-xcframework
+    exactVersion: 150.7871.04
 
 targets:
   Zuna:
@@ -56,6 +62,8 @@ targets:
         product: ZunaModels
       - package: LiveKit
         product: LiveKit
+      - package: LiveKitWebRTC
+        product: LiveKitWebRTC
       # Only started in Debug builds, by a launch argument; see CoreController.
       - package: ZunaKit
         product: ZunaControl

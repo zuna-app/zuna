@@ -2570,7 +2570,7 @@
   "telegram.link.phoneIntro": "Telegram はログイン済みの別端末かメールアドレスにコードを送ります。Zuna などのアプリは Telegram のコードを SMS で受け取れません。",
   "telegram.link.phoneLead": "Telegram は、このスマートフォンか別の端末の Telegram アプリ、またはメールアドレスにコードを送ります。Zuna などのアプリは Telegram のコードを SMS で受け取れません。",
   "telegram.link.phoneTitle": "自分の電話番号",
-  "telegram.link.pointChannels": "**チャンネル、通話、シークレットチャット**は Telegram アプリでのみ利用できます。",
+  "telegram.link.pointChannelsGroupCalls": "**チャンネル、グループのビデオチャット、シークレットチャット**は Telegram アプリでのみ利用できます。",
   "telegram.link.pointEncryption": "**これらのチャットはエンドツーエンドで暗号化されません。** チャットは Telegram のサーバーに保存され、Zuna のサーバーには届きません。",
   "telegram.link.pointMonitors": "**Telegram は他のアプリを使うアカウントを監視しています。** 誤って利用制限をかける場合もあります。長く使っているアカウントを連携する方が安全です。",
   "telegram.link.pointNotifications": "**Telegram は Apple 経由で通知を送ります。** Zuna などのアプリ向けの通知は暗号化されないため、Apple は名前やメッセージの内容を読むことができます。両方のアプリを入れている場合は通知が重複します。iOS の設定で片方の通知をオフにできます。",

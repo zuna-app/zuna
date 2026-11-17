@@ -169,6 +169,7 @@ final class CoreController {
         options.listsBots = true
         // A Telegram account linked on this device, its TDLib in the app's own process (docs/TELEGRAM_PLAN.md).
         options.telegram = TelegramSetup.configuration()
+        options.telegramCalls = options.telegram != nil
         #if DEBUG
         options.logToStandardError = true
         #endif
@@ -655,6 +656,25 @@ final class CoreController {
             return String(decoding: data, as: UTF8.self)
         case "voiceReport":
             return VoiceTesting.report()
+        case "telegramCallOffers":
+            // The offers a Telegram call's peer connection makes here, in each shape, for the core's tests.
+            return await TelegramCallFixtures.offers()
+        case "telegramCallAnswers":
+            // The core's answers to them, in `path`, set on real peer connections, and what was taken.
+            return await TelegramCallFixtures.check(path ?? "")
+        case "telegramCallState":
+            // The Telegram call as this device has it.
+            guard let voice = model?.voice else { return "{}" }
+            let state: [String: Any] = [
+                "status": "\(voice.status)",
+                "telegram": voice.isTelegram,
+                "state": voice.telegram?.state ?? NSNull(),
+                "emoji": voice.telegram?.emoji ?? [],
+                "rating": voice.telegramRating != nil,
+                "takesCalls": voice.telegramTakesCalls.map { $0 as Any } ?? NSNull(),
+            ]
+            let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data("{}".utf8)
+            return String(decoding: data, as: UTF8.self)
         case "voiceStats":
             // What the stream stats show, as text. The first call only starts reading.
             guard let voice = model?.voice else { return "" }

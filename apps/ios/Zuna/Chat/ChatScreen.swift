@@ -241,6 +241,10 @@ struct ChatScreen: View {
 
     /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
     static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
+        // A Telegram chat with a person can be called on Telegram, as Telegram says when it's tried (docs/TELEGRAM_CALLS_PLAN.md).
+        if server.entry.isTelegram {
+            return conversation.kind == .dm && !isSaved && conversation.peerId != nil && peer?.bot == nil && !conversation.removed
+        }
         guard server.hasCalls, !conversation.removed else { return false }
         // A bot stays out of calls.
         if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && peer?.bot == nil && !conversation.blocked && peer?.banned != true && peer?.deleted != true }

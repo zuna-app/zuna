@@ -2,9 +2,10 @@
 // each on a fake engine, joined as Telegram joins two apps, carrying the signalling as TDLib
 // would. Each side's peer connection is played by the test, which gives the core the offers the
 // native app's WebRTC really makes (fixtures/telegram-calls, written by its tests in
-// apps/desktop/src/voice/telegram/media/tests.rs) and keeps what the core says to set. The
-// answers it writes go back to those tests, which set them on a real peer connection: write
-// them again with UPDATE_TELEGRAM_CALL_FIXTURES=1 after the offers change.
+// apps/desktop/src/voice/telegram/media/tests.rs), or the iPhone's (`ios-` ones, written by
+// tests/e2e/src/telegram-call-run.ts), and keeps what the core says to set. The answers it writes
+// go back to those, which set them on a real peer connection: write them again with
+// UPDATE_TELEGRAM_CALL_FIXTURES=1 after the offers change.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -61,6 +62,8 @@ class Phone {
   /** The peer connection has a shared screen's transceiver, which it keeps once it has one. */
   screen = false;
   connect = true;
+  /** Whose WebRTC's offers it gives: the native app's, or with `ios-`, the iPhone's. */
+  fixtures = "";
   /** The first offer's keys, which a peer connection keeps from one offer to the next. */
   private keys: { ufrag: string; pwd: string; fingerprint: string; audio: string } | null = null;
   /** The camera's SSRCs, its own and its retransmissions', kept as its transceiver keeps them. */
@@ -104,7 +107,7 @@ class Phone {
 
   /** An offer of a shape as this side's peer connection would make it: with the same keys and the same SSRC for its sound each time. */
   private offerOf(shape: string): string {
-    let sdp = fixture(`offer-${shape}.sdp`);
+    let sdp = fixture(`${this.fixtures}offer-${shape}.sdp`);
     const read = (pattern: RegExp) => sdp.match(pattern)?.[1] ?? "";
     const mine = { ufrag: read(/a=ice-ufrag:(\S+)/), pwd: read(/a=ice-pwd:(\S+)/), fingerprint: read(/a=fingerprint:sha-256 (\S+)/), audio: read(/a=ssrc:(\d+) cname/) };
     if (!this.keys) this.keys = mine;
@@ -154,9 +157,11 @@ class Phone {
   }
 }
 
-function pair(): [Phone, Phone] {
+function pair(fixtures = ""): [Phone, Phone] {
   const ada = new Phone("Ada");
   const grace = new Phone("Grace");
+  ada.fixtures = fixtures;
+  grace.fixtures = fixtures;
   ada.peer = grace;
   grace.peer = ada;
   ada.engine.peer = grace.engine;
@@ -179,8 +184,8 @@ afterEach(() => {
   phones = [];
 });
 
-async function connected(): Promise<[Phone, Phone, number, number]> {
-  const [ada, grace] = pair();
+async function connected(fixtures = ""): Promise<[Phone, Phone, number, number]> {
+  const [ada, grace] = pair(fixtures);
   phones = [ada, grace];
   await ada.ready();
   await grace.ready();
@@ -545,35 +550,52 @@ describe("a call's line in its chat", () => {
   });
 });
 
-describe("the descriptions the native app sets", () => {
-  it("are written for each shape of offer, and its tests set them", async () => {
-    const [ada, grace] = await connected();
-    ada.camera = true;
-    ada.session.callSaid(ada.call()!.id, { muted: false, camera: true, screen: false });
-    await until(() => ada.offers.some((offer) => offer.shape === "caller-camera") && ada.answers.length > 0 && parseDescription(ada.answers.at(-1)!).sections.length === parseDescription(ada.offers.at(-1)!.prepared).sections.length, "the camera's answer");
-    await settle(30);
-    const last = (phone: Phone, shape: string) => ({
-      prepared: phone.offers.filter((offer) => offer.shape === shape).at(-1)!.prepared,
-      answer: phone.answered.filter((answer) => answer.shape === shape).at(-1)!.sdp,
-    });
-    const written: Record<string, { prepared: string; answer: string }> = { caller: last(ada, "caller"), callee: last(grace, "callee"), "caller-camera": last(ada, "caller-camera") };
+/**
+ * The core's descriptions for each shape of one WebRTC's offers, as the last of each were, kept as
+ * files for that WebRTC's own check to set: the native app's, or with `ios-`, the iPhone's, which
+ * shares no screen into a call yet.
+ */
+async function writtenFor(fixtures: string, screen: boolean): Promise<void> {
+  const [ada, grace] = await connected(fixtures);
+  ada.camera = true;
+  ada.session.callSaid(ada.call()!.id, { muted: false, camera: true, screen: false });
+  await until(() => ada.offers.some((offer) => offer.shape === "caller-camera") && ada.answers.length > 0 && parseDescription(ada.answers.at(-1)!).sections.length === parseDescription(ada.offers.at(-1)!.prepared).sections.length, "the camera's answer");
+  await settle(30);
+  const last = (phone: Phone, shape: string) => ({
+    prepared: phone.offers.filter((offer) => offer.shape === shape).at(-1)!.prepared,
+    answer: phone.answered.filter((answer) => answer.shape === shape).at(-1)!.sdp,
+  });
+  const written: Record<string, { prepared: string; answer: string }> = { caller: last(ada, "caller"), callee: last(grace, "callee"), "caller-camera": last(ada, "caller-camera") };
+  if (screen) {
     // Then a screen shared in the camera's place.
     ada.screen = true;
     ada.session.callSaid(ada.call()!.id, { muted: false, camera: false, screen: true });
     await until(() => ada.offers.some((offer) => offer.shape === "caller-screen") && ada.answered.some((answer) => answer.shape === "caller-screen") && grace.call()?.remote.screen, "the screen's answer");
     await settle(30);
     written["caller-screen"] = last(ada, "caller-screen");
-    // The o= line counts answers, which may come a little differently each run.
-    const steady = (sdp: string) => sdp.replace(/^o=.*$/m, "o=");
-    for (const [shape, { prepared, answer }] of Object.entries(written)) {
-      expect(answer, `${shape}'s answer`).toBeTruthy();
-      if (UPDATE) {
-        writeFileSync(join(FIXTURES, `prepared-${shape}.sdp`), prepared);
-        writeFileSync(join(FIXTURES, `answer-${shape}.sdp`), answer);
-        continue;
-      }
-      expect(steady(prepared)).toBe(steady(fixture(`prepared-${shape}.sdp`)));
-      expect(steady(answer)).toBe(steady(fixture(`answer-${shape}.sdp`)));
+  }
+  // The o= line counts answers, which may come a little differently each run.
+  const steady = (sdp: string) => sdp.replace(/^o=.*$/m, "o=");
+  for (const [shape, { prepared, answer }] of Object.entries(written)) {
+    expect(answer, `${shape}'s answer`).toBeTruthy();
+    if (UPDATE) {
+      writeFileSync(join(FIXTURES, `${fixtures}prepared-${shape}.sdp`), prepared);
+      writeFileSync(join(FIXTURES, `${fixtures}answer-${shape}.sdp`), answer);
+      continue;
     }
+    expect(steady(prepared)).toBe(steady(fixture(`${fixtures}prepared-${shape}.sdp`)));
+    expect(steady(answer)).toBe(steady(fixture(`${fixtures}answer-${shape}.sdp`)));
+  }
+}
+
+describe("the descriptions the native app sets", () => {
+  it("are written for each shape of offer, and its tests set them", async () => {
+    await writtenFor("", true);
+  });
+});
+
+describe("the descriptions the iPhone sets", () => {
+  it("are written for each shape of its offers, and its check sets them", async () => {
+    await writtenFor("ios-", false);
   });
 });

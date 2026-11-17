@@ -2805,7 +2805,7 @@
   "telegram.link.phoneIntro": "Telegram wyśle kod na inne zalogowane urządzenie lub e-mail. Aplikacje takie jak Zuna nie otrzymują kodów Telegrama SMS-em.",
   "telegram.link.phoneLead": "Telegram wyśle kod do swojej aplikacji na tym lub innym urządzeniu albo na e-mail. Aplikacje takie jak Zuna nie otrzymują kodów Telegrama SMS-em.",
   "telegram.link.phoneTitle": "Twój numer telefonu",
-  "telegram.link.pointChannels": "**Kanały, połączenia i tajne czaty** są dostępne tylko w aplikacji Telegram.",
+  "telegram.link.pointChannelsGroupCalls": "**Kanały, czaty wideo w grupach i tajne czaty** są dostępne tylko w aplikacji Telegram.",
   "telegram.link.pointEncryption": "**Te czaty nie są szyfrowane end-to-end.** Telegram przechowuje je na swoich serwerach. Serwery Zuny ich nie otrzymują.",
   "telegram.link.pointMonitors": "**Telegram monitoruje konta łączące się przez inne aplikacje** i czasem omyłkowo je ogranicza. Najbezpieczniej połączyć konto używane od dłuższego czasu.",
   "telegram.link.pointNotifications": "**Telegram wysyła powiadomienia przez Apple.** Apple może odczytać nazwy i treść, bo Telegram nie szyfruje powiadomień dla aplikacji takich jak Zuna. Jeśli masz obie aplikacje, dostaniesz podwójne powiadomienia. Możesz wyłączyć je dla jednej aplikacji w ustawieniach iOS.",

@@ -140,7 +140,7 @@ struct VideoViewer: View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
             if let video {
-                SwiftUIVideoView(video.track, layoutMode: .fit, pinchToZoomOptions: [.zoomIn, .resetOnRelease])
+                CallVideoView(video: video, zoom: true)
                     .ignoresSafeArea()
             }
             Button {

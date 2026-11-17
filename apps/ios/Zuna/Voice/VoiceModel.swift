@@ -3,9 +3,11 @@ import CallKit
 import Combine
 import Foundation
 import LiveKit
+import LiveKitWebRTC
 import Observation
 import UIKit
 import UserNotifications
+import ZunaHost
 import ZunaModels
 
 /// How this device does voice. These stay on this device, as on the desktop
@@ -154,6 +156,16 @@ final class VoiceModel {
     private(set) var keyEpoch: Int?
     /// Coming into a room that waits for the person's word, as it takes another of their devices out of voice.
     var moving: VoiceMove?
+    /// The call on the linked Telegram account, as the core last said it (docs/TELEGRAM_CALLS_PLAN.md).
+    private(set) var telegram: TelegramCallView?
+    /// A Telegram call that's over, which Telegram asked to have rated.
+    var telegramRating: TelegramRating?
+    /// Whether Telegram rings this device for calls, its own "Accept calls" for it, once read. Kept
+    /// on the device too, so that a push that wakes the app knows before the core has caught up.
+    private(set) var telegramTakesCalls: Bool? = UserDefaults.standard.object(forKey: VoiceModel.takesCallsKey) as? Bool
+    static let takesCallsKey = "zuna-telegram-takes-calls"
+    /// Called when that changes, for the VoIP token Telegram is given (`CallPushes`).
+    @ObservationIgnored var onTelegramTakesCalls: ((Bool) -> Void)?
     /// What the room watches together, as the core holds it, or nil when nothing's on.
     private(set) var watch: WatchView?
     /// The session this device's person pressed Watch for, which plays here until it ends or they stop it.
@@ -179,6 +191,12 @@ final class VoiceModel {
 
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private var room: VoiceRoom?
+    /// A Telegram call's peer connection, in place of a room (TelegramCall.swift).
+    @ObservationIgnored private var telegramMedia: TelegramMedia?
+    /// What the core said to do while the peer connection was still being made, through the proxy.
+    @ObservationIgnored private var telegramWaiting: [TelegramCallMedia]?
+    /// The camera goes on once the Telegram call's peer connection is made.
+    @ObservationIgnored private var telegramCamera = false
     /// Each join counts, so one that takes a while can tell it's been replaced.
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var reconnects = 0
@@ -282,6 +300,10 @@ final class VoiceModel {
 
     /// Tells everyone on the server what this device is doing, or the conversation's members in a call.
     private func announce() {
+        if isTelegram {
+            sayTelegram()
+            return
+        }
         guard let channelId, let session else { return }
         let update = VoiceUpdate(muted: micOff, deafened: deafened, camera: camera, screen: screen)
         let ring = ringOnAnnounce
@@ -290,6 +312,9 @@ final class VoiceModel {
     }
 
     private func applyVolumes() {
+        if let telegramMedia, let peer = telegram?.userId {
+            telegramMedia.setVolume(deafened || localMutes.contains(peer) ? 0 : volumes[peer] ?? 1)
+        }
         room?.volumes = { [weak self] userId, source in
             guard let self else { return 1 }
             if deafened { return 0 }
@@ -305,6 +330,10 @@ final class VoiceModel {
     }
 
     private func syncVideos() {
+        if isTelegram {
+            syncTelegramVideos()
+            return
+        }
         guard let room else { return }
         let next = room.videos()
         let stillThere = focus.map { key in next.contains { $0.id == key } } ?? true
@@ -327,6 +356,11 @@ final class VoiceModel {
     /// another of this person's devices out of one, unless they're `sure`. `ring` starts a call, ringing everyone else
     /// in the conversation, and `answered` is a call the system's screen answered, which it has already.
     func join(serverId: String, channelId: String, ring: Bool = false, camera: Bool = false, answered: UUID? = nil, sure: Bool = false) async {
+        // A Telegram call is answered, never joined.
+        if serverId == ServerEntry.telegram {
+            await answerTelegram(groupId: channelId, camera: camera, answered: answered)
+            return
+        }
         let here = self.serverId == serverId && self.channelId == channelId && status != .idle
         // The server keeps only a person's latest device in voice, so coming in here ends it on another of theirs.
         // A call the system's screen answered is being come into already, with nowhere left to ask.
@@ -382,6 +416,10 @@ final class VoiceModel {
 
     /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.
     func startCall(serverId: String, key: String, camera: Bool) async {
+        if serverId == ServerEntry.telegram {
+            await startTelegram(key: key, camera: camera)
+            return
+        }
         guard let app else { return }
         let groupId: String
         do {
@@ -402,6 +440,7 @@ final class VoiceModel {
         isCall = false
         ringOnAnnounce = false
         cameraOnJoin = false
+        telegramCamera = false
         callRang = false
         hangUp?.cancel()
         serverMuted = false
@@ -528,6 +567,10 @@ final class VoiceModel {
     /// Leaves the room. `keepingSystemCall` is for one answered from the system's screen, which is that call now.
     func leave(keepingSystemCall: Bool = false) {
         guard status != .idle else { return }
+        if isTelegram {
+            leaveTelegram(hangUp: true, keepingSystemCall: keepingSystemCall)
+            return
+        }
         attempt += 1
         let session = session
         room?.close()
@@ -586,7 +629,8 @@ final class VoiceModel {
     /// itself, as a phone call does.
     func callChanged(serverId: String, groupId: String, call: CallView?) {
         refreshIncoming()
-        guard self.serverId == serverId, channelId == groupId, status != .idle, let call else { return }
+        // A Telegram call says how it ended itself (`telegramCallChanged`).
+        guard self.serverId == serverId, serverId != ServerEntry.telegram, channelId == groupId, status != .idle, let call else { return }
         if !call.ringing.isEmpty {
             callRang = true
             return
@@ -768,15 +812,17 @@ final class VoiceModel {
                 if self.serverId == serverId, channelId == call.groupId, status != .idle { continue }
                 guard let conversation = server.conversation(groupId: call.groupId), !conversation.removed, !conversation.blocked,
                       !server.isBlocked(call.startedBy) else { continue }
+                // A Telegram call says it's Telegram's, as its notifications do, and rings in a muted chat, as in Telegram's apps.
+                let telegram = serverId == ServerEntry.telegram
                 next.append(IncomingCall(
                     serverId: serverId,
                     groupId: call.groupId,
                     startedAt: call.startedAt,
                     startedBy: call.startedBy,
                     key: conversation.key,
-                    title: conversation.title,
+                    title: telegram ? t("notifications.telegramTitle", ["title": conversation.title]) : conversation.title,
                     kind: conversation.kind,
-                    quiet: conversation.muted
+                    quiet: telegram ? false : conversation.muted
                 ))
             }
         }
@@ -797,7 +843,8 @@ final class VoiceModel {
     private func startRinging(_ call: IncomingCall) {
         let actions = SystemCall.Ringing(
             answer: { [weak self] in self?.answeredBySystem(call) },
-            decline: { [weak self] in self?.decline(call) }
+            decline: { [weak self] in self?.decline(call) },
+            telegram: call.serverId == ServerEntry.telegram
         )
         Task {
             let system = await systemCall.ring(call.systemId, title: call.title, actions: actions)
@@ -927,6 +974,7 @@ final class VoiceModel {
 
     private func applyMute() {
         let off = micOff
+        telegramMedia?.setMuted(off)
         Task { await room?.setMuted(off) }
         systemCall.setMuted(off)
         announce()
@@ -953,6 +1001,10 @@ final class VoiceModel {
     }
 
     func toggleCamera() async {
+        if isTelegram {
+            await toggleTelegramCamera()
+            return
+        }
         guard let room else { return }
         let on = !camera
         if on, !(await Self.cameraAllowed()) {
@@ -1064,6 +1116,11 @@ final class VoiceModel {
     }
 
     func flipCamera() async {
+        if let telegramMedia {
+            await telegramMedia.flipCamera()
+            cameraFront = telegramMedia.cameraFront
+            return
+        }
         await room?.flipCamera()
         cameraFront = room?.cameraFacingFront ?? true
     }
@@ -1265,5 +1322,384 @@ final class VoiceModel {
         case .reconnecting: t("voice.stats.statusReconnecting")
         }
         return reader.read(room.statsRoom(), status: words, connected: status == .connected, share: share) { users[$0]?.displayName ?? t("notify.someone") }
+    }
+}
+
+// MARK: Telegram calls
+
+/// A Telegram call that's over, which Telegram asked to have rated, and what's been said of it so far.
+struct TelegramRating: Equatable, Identifiable {
+    let id: Int
+    let name: String
+    /// One to five, once chosen: under five, which problems it had are asked too.
+    var stars: Int?
+    var problems: [String] = []
+
+    /// The problems a call may have had, as Telegram names them (`PROBLEMS` in calls/call.ts), with their words.
+    static let problemKeys: [(String, String)] = [
+        ("echo", mark("telegram.call.problem.echo")),
+        ("noise", mark("telegram.call.problem.noise")),
+        ("interruptions", mark("telegram.call.problem.interruptions")),
+        ("distortedSpeech", mark("telegram.call.problem.distortedSpeech")),
+        ("silentLocal", mark("telegram.call.problem.silentLocal")),
+        ("silentRemote", mark("telegram.call.problem.silentRemote")),
+        ("dropped", mark("telegram.call.problem.dropped")),
+        ("distortedVideo", mark("telegram.call.problem.distortedVideo")),
+        ("pixelatedVideo", mark("telegram.call.problem.pixelatedVideo")),
+    ]
+}
+
+/// A call on the linked Telegram account, as the device's one voice room (docs/TELEGRAM_CALLS_PLAN.md).
+/// The core holds the call and its signalling, and says what the peer connection is to do
+/// (TelegramCall.swift); this is the rest of it: starting, answering and hanging up, the microphone,
+/// the camera and the speaker, and what the call's screen shows. Starting or answering one leaves a
+/// voice channel or a call of Zuna's, and the other way. The desktop's `voice/telegram/mod.rs`.
+extension VoiceModel {
+    /// Whether the room this device is in is a Telegram call.
+    var isTelegram: Bool { serverId == ServerEntry.telegram && status != .idle }
+
+    /// The Telegram call this device is in, as the core last said it.
+    var telegramCall: TelegramCallView? { isTelegram ? telegram : nil }
+
+    private var telegramSession: SessionCalls? { app?.core.session(ServerEntry.telegram) }
+
+    /// Calls the person a Telegram chat is with.
+    func startTelegram(key: String, camera: Bool) async {
+        guard let app, let groupId = app.servers[ServerEntry.telegram]?.conversation(key)?.groupId, let session = telegramSession else { return }
+        if let telegram, telegram.state != "over" {
+            app.toast(t("telegram.call.alreadyInOne"))
+            return
+        }
+        await enterTelegram(groupId: groupId, camera: camera, calling: true, answered: nil)
+        let mine = attempt
+        do {
+            _ = try await session.startTelegramCall(groupId, video: camera)
+        } catch {
+            if mine == attempt { leaveTelegram(hangUp: false, failed: true) }
+            app.toast((error as? CoreCallError)?.message ?? t("voice.call.couldntStart"), .error)
+        }
+    }
+
+    /// Answers the Telegram call ringing in a chat, from the app's card, its notification or the
+    /// system's screen (`answered`). Already in it, the call's screen opens.
+    func answerTelegram(groupId: String, camera: Bool, answered: UUID?) async {
+        if isTelegram, channelId == groupId {
+            stageShown = true
+            return
+        }
+        guard let call = telegram, call.groupId == groupId, call.state == "ringing", let session = telegramSession else {
+            if let answered { systemCall.stopRinging(answered, reason: .remoteEnded) }
+            return
+        }
+        await enterTelegram(groupId: groupId, camera: camera, calling: false, answered: answered)
+        let mine = attempt
+        do {
+            try await session.answerTelegramCall(call.id)
+        } catch {
+            if mine == attempt { leaveTelegram(hangUp: false, failed: true) }
+            app?.toast((error as? CoreCallError)?.message ?? t("voice.couldntConnect"), .error)
+        }
+    }
+
+    /// Comes into a Telegram call here: out of whatever room this device was in, waiting for the
+    /// core to say the peer connection may be made.
+    private func enterTelegram(groupId: String, camera: Bool, calling: Bool, answered: UUID?) async {
+        if status != .idle { leave(keepingSystemCall: answered != nil) }
+        stageShown = true
+        attempt += 1
+        let mine = attempt
+        reconnects = 0
+        // Calling, this device is in the call already, ringing the other person, as in a call of Zuna's.
+        reset(status: calling ? .connected : .connecting)
+        serverId = ServerEntry.telegram
+        channelId = groupId
+        isCall = true
+        telegramCamera = camera
+        refreshIncoming()
+        showTelegramMembers()
+        let title = app?.servers[ServerEntry.telegram]?.conversation(groupId: groupId)?.title ?? t("telegram.call.label")
+        let actions = SystemCall.Actions(
+            mute: { [weak self] muted in self?.mutedBySystem(muted) ?? false },
+            end: { [weak self] in self?.leave() }
+        )
+        if let answered {
+            systemCall.answered(answered, actions: actions)
+        } else {
+            await systemCall.start(title: title, actions: actions, telegram: true)
+        }
+        guard mine == attempt else { return }
+        // Without CallKit, the call starts its own audio.
+        if !systemCall.hasCall { TelegramAudio.startHere() }
+        let problem = await VoiceRoom.microphoneProblem()
+        guard mine == attempt else { return }
+        noMic = problem != nil
+        if let problem { app?.toast(problem) }
+        applyMute()
+        systemCall.setMuted(micOff)
+        showTelegramMembers()
+        updateRingtone()
+    }
+
+    /// Leaves the Telegram call here, and hangs up there unless it's over already. `endedThere`
+    /// is a call the other side or Telegram ended, which the system shows as ended by them.
+    func leaveTelegram(hangUp: Bool, keepingSystemCall: Bool = false, endedThere: Bool = false, failed: Bool = false) {
+        if hangUp, let call = telegram, call.state != "over", let session = telegramSession {
+            Task { try? await session.endTelegramCall(call.id) }
+        }
+        attempt += 1
+        telegramMedia?.close()
+        telegramMedia = nil
+        telegramWaiting = nil
+        if !keepingSystemCall {
+            if endedThere || failed { systemCall.ended(failed: failed) } else { systemCall.end() }
+        }
+        TelegramAudio.stop()
+        reset(status: .idle)
+        stageShown = false
+        app?.setTelegramCallMembers([:])
+        sound(.selfLeave)
+        refreshIncoming()
+        if !keepingSystemCall { onEnded?() }
+    }
+
+    /// The core's word on the call: ringing, connecting, on, or over and why.
+    func telegramCallChanged(_ call: TelegramCallView?) {
+        let before = telegram
+        telegram = call
+        let here = isTelegram && call?.groupId == channelId
+        if let call, call.state == "over" {
+            if call.rate, telegramRating?.id != call.id { telegramRating = TelegramRating(id: call.id, name: peerName(call.userId)) }
+            if here {
+                if !call.endedText.isEmpty { app?.toast(call.endedText) }
+                leaveTelegram(hangUp: false, endedThere: true, failed: call.ended == "failed" || call.ended == "noRelay" || call.ended == "unsupported" || call.ended == "proxy")
+            }
+        } else if let call, here {
+            switch call.state {
+            case "calling": status = .connected
+            case "connecting": status = call.connectedAt != nil ? .reconnecting : .connecting
+            case "ringing": status = .connecting
+            default: status = .connected
+            }
+            if call.state == "on", before?.state != "on", before?.connectedAt == nil {
+                sound(.selfJoin)
+                systemCall.connected()
+            }
+            showTelegramMembers()
+        }
+        // The other side's picture shows while it says it's sending one, which Telegram's apps say
+        // after the picture has come, and again once it's back on the same stream.
+        if telegramMedia != nil, before?.remote != call?.remote { syncTelegramVideos() }
+        updateRingtone()
+    }
+
+    /// What the core says the peer connection is to do.
+    func telegramCallMedia(_ callId: Int, _ media: TelegramCallMedia) {
+        guard isTelegram, telegram?.id == callId else { return }
+        if media.kind == "open" {
+            openTelegramMedia(callId, media)
+            return
+        }
+        if let telegramMedia {
+            telegramMedia.command(media)
+        } else if telegramWaiting != nil {
+            // Still being made, through the proxy: done once it's there, in order.
+            telegramWaiting?.append(media)
+        }
+    }
+
+    private func openTelegramMedia(_ callId: Int, _ media: TelegramCallMedia) {
+        guard telegramMedia == nil, telegramWaiting == nil else { return }
+        let servers = media.servers ?? []
+        let caller = media.caller ?? false
+        // None of the relays is at one of Telegram's addresses: the call can't be had.
+        guard !TelegramMedia.relays(servers, through: nil).isEmpty else { return tellTelegram(callId, "norelay") }
+        // With a proxy set, everything goes through it, a call's media too, or the call doesn't
+        // connect: Telegram's relays are reached by ports on this device that carry it there.
+        guard let proxy = NetworkProxy.current else {
+            makeTelegramMedia(callId, TelegramMedia.relays(servers, through: nil), proxy: nil, caller: caller)
+            return
+        }
+        telegramWaiting = []
+        let mine = attempt
+        Task { [weak self] in
+            let relays = try? await CallProxy.relays(proxy: proxy)
+            guard let self else {
+                relays?.close()
+                return
+            }
+            let waiting = telegramWaiting ?? []
+            telegramWaiting = nil
+            guard mine == attempt else {
+                relays?.close()
+                return
+            }
+            guard let relays else { return tellTelegram(callId, "failed") }
+            // A proxy that carries no UDP gets no Telegram call, and says so.
+            let through = relays.udp ? TelegramMedia.relays(servers, through: relays) : []
+            guard !through.isEmpty else {
+                relays.close()
+                return tellTelegram(callId, relays.udp ? "failed" : "noudp")
+            }
+            makeTelegramMedia(callId, through, proxy: relays, caller: caller)
+            for command in waiting { telegramMedia?.command(command) }
+        }
+    }
+
+    private func tellTelegram(_ callId: Int, _ state: String) {
+        guard let session = telegramSession else { return }
+        Task { try? await session.telegramCallConnection(callId, state: state) }
+    }
+
+    private func makeTelegramMedia(_ callId: Int, _ servers: [LKRTCIceServer], proxy: CallProxy?, caller: Bool) {
+        do {
+            let media = try TelegramMedia(session: telegramSession, id: callId, servers: servers, proxy: proxy, caller: caller, muted: micOff, events: TelegramMedia.Events(
+                media: { [weak self] in self?.syncTelegramVideos() },
+                refused: { _ in }
+            ))
+            telegramMedia = media
+            applyVolumes()
+            if telegramCamera {
+                telegramCamera = false
+                Task { await toggleTelegramCamera() }
+            }
+        } catch {
+            tellTelegram(callId, "failed")
+        }
+    }
+
+    /// Tells the other side what this device's microphone and camera are doing.
+    private func sayTelegram() {
+        showTelegramMembers()
+        guard let call = telegramCall, call.state != "over", let session = telegramSession else { return }
+        let muted = micOff, camera = camera
+        Task { try? await session.telegramCallSaid(call.id, muted: muted, camera: camera) }
+    }
+
+    /// Turns the camera on or off in the Telegram call. Before the peer connection is made, it goes on once it is.
+    private func toggleTelegramCamera() async {
+        guard let media = telegramMedia else {
+            telegramCamera.toggle()
+            return
+        }
+        let on = !camera
+        if on, !(await Self.cameraAllowed()) {
+            app?.toast(t("voice.camera.notAllowed"), .error)
+            return
+        }
+        do {
+            try await media.setCamera(on)
+            guard telegramMedia === media else { return }
+            camera = media.cameraOn
+            cameraFront = media.cameraFront
+            systemCall.video(camera)
+        } catch {
+            app?.toast(t("voice.camera.none"), .error)
+        }
+        sayTelegram()
+        syncTelegramVideos()
+    }
+
+    /// The pictures of a Telegram call, as tiles: the other person's, while they say they're
+    /// sending one, and this device's camera; and whether the other person is heard.
+    private func syncTelegramVideos() {
+        guard let media = telegramMedia, let call = telegram else {
+            videos = []
+            return
+        }
+        let me = app?.servers[ServerEntry.telegram]?.me?.userId ?? ""
+        var next: [CallVideo] = []
+        if let local = media.localVideo {
+            next.append(CallVideo(id: "telegram/camera", userId: me, source: .camera, feed: .telegram(local), local: true, sound: false))
+        }
+        if call.remote.camera || call.remote.screen {
+            let source: CallVideo.Source = call.remote.screen && !call.remote.camera ? .screen : .camera
+            for remote in media.remoteVideos {
+                next.append(CallVideo(id: "telegram/\(call.userId)/\(remote.mid)", userId: call.userId, source: source, feed: .telegram(remote.track), local: false, sound: false))
+            }
+        }
+        let stillThere = focus.map { key in next.contains { $0.id == key } } ?? true
+        let arrived = settings.screenFocus ? next.first { video in video.source == .screen && !video.local && !videos.contains { $0.id == video.id } } : nil
+        if videos != next { videos = next }
+        focus = stillThere && focus != nil ? focus : arrived?.id
+        camera = media.cameraOn
+        cameraFront = media.cameraFront
+        let heard: Set<String> = media.speaking ? [call.userId] : []
+        if speaking != heard { speaking = heard }
+    }
+
+    /// Who's in the call, as a room's members are kept, so the stage draws them: this person, and
+    /// the other once they've answered.
+    private func showTelegramMembers() {
+        guard let app else { return }
+        guard isTelegram, let call = telegram, let channelId else { return app.setTelegramCallMembers([:]) }
+        let me = app.servers[ServerEntry.telegram]?.me
+        var members = [
+            "telegram-self": VoiceMember(channelId: channelId, userId: me?.userId ?? "", deviceId: me?.deviceId ?? "telegram-self", muted: micOff, deafened: deafened, serverMuted: false, camera: camera, screen: false, since: 0),
+        ]
+        if call.state != "calling", call.state != "ringing" {
+            members["telegram-peer"] = VoiceMember(channelId: channelId, userId: call.userId, deviceId: "telegram-peer", muted: call.remote.muted, deafened: false, serverMuted: false, camera: call.remote.camera, screen: call.remote.screen, since: 1)
+        }
+        app.setTelegramCallMembers(members)
+    }
+
+    private func peerName(_ userId: String) -> String {
+        app?.servers[ServerEntry.telegram]?.users[userId]?.displayName ?? t("notify.someone")
+    }
+
+    // MARK: The switch
+
+    /// Reads whether Telegram rings this device for calls.
+    func readTelegramTakesCalls() async {
+        guard let session = telegramSession, let on = try? await session.takesTelegramCalls() else { return }
+        takesCallsChanged(on)
+    }
+
+    /// Turns Telegram's own "Accept calls" for this device on or off. Off, no call rings here, and
+    /// calls can still be made from here.
+    func setTelegramTakesCalls(_ on: Bool) async {
+        guard let session = telegramSession else { return }
+        let before = telegramTakesCalls
+        takesCallsChanged(on)
+        do {
+            try await session.setTakesTelegramCalls(on)
+        } catch {
+            takesCallsChanged(before ?? !on)
+            app?.toast((error as? CoreCallError)?.message ?? ErrorText.describe(error), .error)
+        }
+    }
+
+    private func takesCallsChanged(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.takesCallsKey)
+        guard telegramTakesCalls != on else { return }
+        telegramTakesCalls = on
+        onTelegramTakesCalls?(on)
+    }
+
+    // MARK: How the call was
+
+    /// Chooses how many stars the call gets: five is said at once, fewer asks what was wrong first.
+    func rateStars(_ stars: Int) {
+        guard telegramRating != nil else { return }
+        telegramRating?.stars = min(5, max(1, stars))
+        if stars >= 5 { sendRating() }
+    }
+
+    func toggleProblem(_ problem: String) {
+        guard var rating = telegramRating else { return }
+        if let at = rating.problems.firstIndex(of: problem) { rating.problems.remove(at: at) } else { rating.problems.append(problem) }
+        telegramRating = rating
+    }
+
+    /// Says how the call was, as chosen.
+    func sendRating() {
+        guard let rating = telegramRating, let stars = rating.stars, let session = telegramSession else { return }
+        telegramRating = nil
+        Task { [weak self] in
+            do {
+                try await session.rateTelegramCall(rating.id, stars: stars, problems: rating.problems)
+            } catch {
+                self?.app?.toast((error as? CoreCallError)?.message ?? ErrorText.describe(error), .error)
+            }
+        }
     }
 }

@@ -20,6 +20,8 @@ enum VoiceTesting {
     static var toneMicrophone: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeMicrophone") }
     /// Calls are handed to CallKit, which test builds otherwise leave out (`SystemCall.allowed()`).
     static var systemCall: Bool { UserDefaults.standard.bool(forKey: "ZunaSystemCall") }
+    /// A Telegram call may use a TURN server of the test's own on this machine, as well as Telegram's.
+    static var loopbackRelays: Bool { UserDefaults.standard.bool(forKey: "ZunaTelegramLoopbackRelays") }
 
     /// LiveKit says everything it does, for a check that wants to know why a call didn't connect.
     static func logIfAsked() {

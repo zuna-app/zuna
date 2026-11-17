@@ -104,6 +104,31 @@ public struct SessionCalls: Sendable {
     public func joinByLink(_ link: String) async throws -> String { try await call("joinByLink", [link]) }
     /// A link to a Telegram group that lets people join it.
     public func groupInviteLink(_ groupId: String) async throws -> String { try await call("createInvite", [groupId]) }
+    // MARK: Calls on the linked Telegram account (docs/TELEGRAM_CALLS_PLAN.md)
+
+    /// Calls the person a private chat is with, by voice or with the camera, and says the call's number.
+    public func startTelegramCall(_ groupId: String, video: Bool) async throws -> Int { try await call("startCall", [groupId, TelegramCallOptions(video: video)]) }
+    public func answerTelegramCall(_ id: Int) async throws { try await run("answerCall", [id]) }
+    /// Hangs up, or stops calling.
+    public func endTelegramCall(_ id: Int) async throws { try await run("endCall", [id]) }
+    /// The call going on, or the one that just ended, as its screen shows it.
+    public func getTelegramCall() async throws -> TelegramCallView? { try await call("getTelegramCall") }
+    /// This device's offer, with what the other side mustn't be sent taken out: the one to set.
+    public func telegramCallOffer(_ id: Int, sdp: String) async throws -> String { try await call("callOffer", [id, sdp]) }
+    /// One of this device's candidates, whole: only a relay's goes on.
+    public func telegramCallCandidate(_ id: Int, candidate: String) async throws { try await run("callCandidate", [id, candidate]) }
+    /// What came over the call's data channel.
+    public func telegramCallHeard(_ id: Int, text: String) async throws { try await run("callHeard", [id, text]) }
+    /// This side's microphone and camera, which the other side is told of.
+    public func telegramCallSaid(_ id: Int, muted: Bool, camera: Bool) async throws { try await run("callSaid", [id, TelegramCallSaid(muted: muted, camera: camera, screen: false)]) }
+    /// How the peer connection is doing: "connected", "disconnected", "failed", "data", "norelay" or "noudp".
+    public func telegramCallConnection(_ id: Int, state: String) async throws { try await run("callConnection", [id, state]) }
+    /// How a call that's over was, one to five, and which of Telegram's problems it had.
+    public func rateTelegramCall(_ id: Int, stars: Int, problems: [String]) async throws { try await run("rateCall", [id, stars, problems]) }
+    /// Whether Telegram rings this device for calls: its own "Accept calls" for this session.
+    public func takesTelegramCalls() async throws -> Bool { try await call("takesCalls") }
+    public func setTakesTelegramCalls(_ on: Bool) async throws { try await run("setTakesCalls", [on]) }
+
     /// The account's own sticker sets, each with a picture of its first sticker.
     public func getStickerSets() async throws -> [TelegramStickerSet] { try await call("getStickerSets") }
     public func getStickers(_ setId: String) async throws -> [TelegramSticker] { try await call("getStickers", [setId]) }
@@ -611,4 +636,16 @@ public struct EmoteSetChange: Codable, Sendable, Equatable {
         case setId = "set_id"
         case setName = "set_name"
     }
+}
+
+/// How a Telegram call is started (`startCall`'s options).
+struct TelegramCallOptions: Codable, Sendable, Equatable {
+    var video: Bool
+}
+
+/// What this side of a Telegram call says of itself (`callSaid`). The iPhone shares no screen into one yet.
+struct TelegramCallSaid: Codable, Sendable, Equatable {
+    var muted: Bool
+    var camera: Bool
+    var screen: Bool
 }

@@ -29,6 +29,8 @@ final class SystemCall: NSObject {
         var answer: () -> Void
         /// Declined, before it was answered.
         var decline: () -> Void
+        /// A call on the linked Telegram account, whose audio is WebRTC's own (`TelegramAudio`), not LiveKit's.
+        var telegram = false
     }
 
     private let provider: CXProvider
@@ -46,6 +48,8 @@ final class SystemCall: NSObject {
     private var audioActive = false
     /// Should CallKit not start the audio, the call still has sound, without it.
     private var audioFallback: Task<Void, Never>?
+    /// The current call is a Telegram call's, whose audio CallKit hands to WebRTC's own, not LiveKit's.
+    private var telegramAudio = false
     private let logger = Logger(subsystem: "chat.zuna", category: "voice")
 
     /// How long CallKit is given to start the audio before LiveKit starts it itself.
@@ -83,8 +87,12 @@ final class SystemCall: NSObject {
         provider.setDelegate(self, queue: nil)
     }
 
-    /// Hands a call that's starting to the system, which then shows it as connecting.
-    func start(title: String, actions: Actions) async {
+    /// Whether the system has a call of the app's, which then starts its audio.
+    var hasCall: Bool { current != nil }
+
+    /// Hands a call that's starting to the system, which then shows it as connecting. A Telegram
+    /// call's audio is WebRTC's own, which waits for CallKit as LiveKit's does.
+    func start(title: String, actions: Actions, telegram: Bool = false) async {
         // Asked first, so nothing waits between ending the last call and taking this one.
         let handOver = await allowed()
         end()
@@ -94,9 +102,12 @@ final class SystemCall: NSObject {
         hasConnected = false
         muted = false
         self.actions = actions
+        telegramAudio = telegram
         // CallKit starts the audio once it has the call, so LiveKit leaves it until then.
-        AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
-        try? AudioManager.shared.setEngineAvailability(.none)
+        if !telegram {
+            AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
+            try? AudioManager.shared.setEngineAvailability(.none)
+        }
         do {
             try await controller.request(CXTransaction(action: CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: title))))
         } catch {
@@ -118,8 +129,8 @@ final class SystemCall: NSObject {
         audioFallback = Task { [weak self] in
             try? await Task.sleep(for: Self.audioWait)
             guard let self, !Task.isCancelled, current == id, !audioActive else { return }
-            logger.warning("CallKit didn't start the call's audio, so LiveKit does")
-            releaseAudio()
+            logger.warning("CallKit didn't start the call's audio, so the call does")
+            fallBack()
         }
     }
 
@@ -235,13 +246,16 @@ final class SystemCall: NSObject {
         hasConnected = true
         muted = false
         audioActive = false
-        AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
-        try? AudioManager.shared.setEngineAvailability(.none)
+        telegramAudio = actions.telegram
+        if !actions.telegram {
+            AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
+            try? AudioManager.shared.setEngineAvailability(.none)
+        }
         audioFallback = Task { [weak self] in
             try? await Task.sleep(for: Self.audioWait)
             guard let self, !Task.isCancelled, current == id, !audioActive else { return }
-            logger.warning("CallKit didn't start the answered call's audio, so LiveKit does")
-            releaseAudio()
+            logger.warning("CallKit didn't start the answered call's audio, so the call does")
+            fallBack()
         }
         actions.answer()
         return true
@@ -290,12 +304,23 @@ final class SystemCall: NSObject {
         actions = nil
         audioActive = false
         releaseAudio()
+        telegramAudio = false
     }
 
     private func releaseAudio() {
         audioFallback?.cancel()
+        if telegramAudio {
+            TelegramAudio.stop()
+            return
+        }
         AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = true
         try? AudioManager.shared.setEngineAvailability(.default)
+    }
+
+    /// CallKit didn't start the call's audio: the call has sound without it.
+    private func fallBack() {
+        audioFallback?.cancel()
+        if telegramAudio { TelegramAudio.startHere() } else { releaseAudio() }
     }
 
     /// Ended from the system's controls. One the app ended has already been let go of. One still ringing was declined.
@@ -379,6 +404,10 @@ extension SystemCall: CXProviderDelegate {
             guard current != nil else { return }
             audioActive = true
             audioFallback?.cancel()
+            if telegramAudio {
+                TelegramAudio.activated(audioSession)
+                return
+            }
             do {
                 try AudioManager.shared.setEngineAvailability(.default)
             } catch {
@@ -391,6 +420,10 @@ extension SystemCall: CXProviderDelegate {
         MainActor.assumeIsolated {
             guard current != nil else { return }
             audioActive = false
+            if telegramAudio {
+                TelegramAudio.deactivated(audioSession)
+                return
+            }
             // A call still with the system waits for its audio to start again.
             try? AudioManager.shared.setEngineAvailability(.none)
         }

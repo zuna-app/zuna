@@ -80,6 +80,7 @@ enum A11y {
         static let code = "telegram.code"
         static let password = "telegram.password"
         static let problem = "telegram.problem"
+        static let takesCalls = "telegram.takesCalls"
         static let connections = "telegram.connections"
         static let unlink = "telegram.unlink"
         static let joinByLink = "telegram.joinByLink"
@@ -366,6 +367,10 @@ enum A11y {
         static let answer = "voice.incoming.answer"
         static let answerWithVideo = "voice.incoming.answerWithVideo"
         static let decline = "voice.incoming.decline"
+        static let telegramEmoji = "voice.telegram.emoji"
+        static let rating = "voice.telegram.rating"
+        static func ratingStar(_ stars: Int) -> String { "voice.telegram.rating.\(stars)" }
+        static let ratingSend = "voice.telegram.rating.send"
     }
 
     enum Settings {

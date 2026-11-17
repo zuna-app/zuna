@@ -588,14 +588,21 @@ public struct VoiceMember: Codable, Sendable, Equatable {
     }
 }
 
-/// A call on the linked Telegram account (`TelegramCallView` in types.ts), which the iPhone app
-/// doesn't have yet (docs/TELEGRAM_CALLS_PLAN.md, step 7).
+/// A call on the linked Telegram account (`TelegramCallView` in types.ts): one at a time, with one
+/// person, by voice or with the camera (docs/TELEGRAM_CALLS_PLAN.md).
 public struct TelegramCallView: Codable, Sendable, Equatable {
     public struct Remote: Codable, Sendable, Equatable {
         public var muted: Bool
         public var camera: Bool
         public var screen: Bool
         public var lowBattery: Bool
+
+        public init(muted: Bool, camera: Bool, screen: Bool, lowBattery: Bool) {
+            self.muted = muted
+            self.camera = camera
+            self.screen = screen
+            self.lowBattery = lowBattery
+        }
     }
 
     public var id: Int
@@ -613,6 +620,47 @@ public struct TelegramCallView: Codable, Sendable, Equatable {
     public var ended: String?
     public var endedText: String
     public var rate: Bool
+}
+
+/// A relay for a Telegram call: TURN, at an address the core wrote out, which the app holds to
+/// Telegram's own ranges. Mirrors `TelegramCallServer`.
+public struct TelegramCallServer: Codable, Sendable, Equatable {
+    public var urls: [String]
+    public var username: String
+    public var password: String
+
+    public init(urls: [String], username: String, password: String) {
+        self.urls = urls
+        self.username = username
+        self.password = password
+    }
+}
+
+/// What a Telegram call's peer connection is to do, in order (`TelegramCallMedia` in types.ts):
+/// `kind` says which, and only what that one carries is set.
+public struct TelegramCallMedia: Codable, Sendable, Equatable {
+    public struct Receive: Codable, Sendable, Equatable {
+        public var audio: Int
+        public var video: Int
+    }
+
+    /// "open", "offer", "answer", "candidate", "send", "refused" or "close".
+    public var kind: String
+    public var servers: [TelegramCallServer]?
+    public var caller: Bool?
+    public var receive: Receive?
+    public var sdp: String?
+    /// What each section the other side sends is, by MID: "audio" or "video".
+    public var tracks: [String: String]?
+    public var candidate: String?
+    public var mid: String?
+    public var index: Int?
+    public var text: String?
+    public var stream: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind = "do", servers, caller, receive, sdp, tracks, candidate, mid, index, text, stream
+    }
 }
 
 /// A call in a direct message or a group, from when someone comes into it until the last one
@@ -1093,6 +1141,10 @@ public enum CoreEvent: Sendable, Equatable {
     case activity(serverId: String, elsewhere: Bool)
     /// Where linking the Telegram account stands changed.
     case telegram(serverId: String, link: TelegramLink)
+    /// The call on the linked Telegram account changed, or there's none any more (nil).
+    case telegramCall(serverId: String, call: TelegramCallView?)
+    /// Something that call's peer connection is to do.
+    case telegramCallMedia(serverId: String, callId: Int, media: TelegramCallMedia)
 }
 
 extension CoreEvent {
@@ -1105,7 +1157,7 @@ extension CoreEvent {
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .watch(serverId, _, _), let .preferences(serverId),
              let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .newDevices(serverId, _), let .notify(serverId, _, _, _, _, _, _),
-             let .activity(serverId, _), let .telegram(serverId, _):
+             let .activity(serverId, _), let .telegram(serverId, _), let .telegramCall(serverId, _), let .telegramCallMedia(serverId, _, _):
             serverId
         }
     }
@@ -1118,7 +1170,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId, inUse
-        case channelId, deviceId, member, call, soundId, devices, watch, link, replaces
+        case channelId, deviceId, member, call, soundId, devices, watch, link, replaces, callId, media
     }
 
     public init(from decoder: Decoder) throws {
@@ -1177,6 +1229,9 @@ extension CoreEvent: Codable {
             )
         case "activity": self = .activity(serverId: serverId, elsewhere: try c.decode(Bool.self, forKey: .elsewhere))
         case "telegram": self = .telegram(serverId: serverId, link: try c.decode(TelegramLink.self, forKey: .link))
+        case "telegram_call": self = .telegramCall(serverId: serverId, call: try c.decodeIfPresent(TelegramCallView.self, forKey: .call))
+        case "telegram_call_media":
+            self = .telegramCallMedia(serverId: serverId, callId: try c.decode(Int.self, forKey: .callId), media: try c.decode(TelegramCallMedia.self, forKey: .media))
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown core event \(other)")
         }
     }
@@ -1246,6 +1301,10 @@ extension CoreEvent: Codable {
             try c.encode("activity", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(elsewhere, forKey: .elsewhere)
         case let .telegram(serverId, link):
             try c.encode("telegram", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(link, forKey: .link)
+        case let .telegramCall(serverId, call):
+            try c.encode("telegram_call", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encodeIfPresent(call, forKey: .call)
+        case let .telegramCallMedia(serverId, callId, media):
+            try c.encode("telegram_call_media", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(callId, forKey: .callId); try c.encode(media, forKey: .media)
         }
     }
 }

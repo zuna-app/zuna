@@ -2570,7 +2570,7 @@
   "telegram.link.phoneIntro": "Telegram 会将验证码发至你已登录的其他设备或邮箱。Zuna 等应用无法通过短信接收 Telegram 验证码。",
   "telegram.link.phoneLead": "Telegram 会将验证码发送至此手机或其他设备上的 Telegram 应用，或发送至邮箱。Zuna 等应用无法通过短信接收验证码。",
   "telegram.link.phoneTitle": "你的电话号码",
-  "telegram.link.pointChannels": "**频道、通话和私密聊天**仅在 Telegram 应用中可用。",
+  "telegram.link.pointChannelsGroupCalls": "**频道、群组视频聊天和私密聊天**仅在 Telegram 应用中可用。",
   "telegram.link.pointEncryption": "**这些聊天未采用端到端加密。** Telegram 将它们存放在自己的服务器上，Zuna 服务器不会收到这些内容。",
   "telegram.link.pointMonitors": "**Telegram 会监控使用第三方应用的账号**，有时会误限制这些账号。关联已使用一段时间的账号更稳妥。",
   "telegram.link.pointNotifications": "**Telegram 通过 Apple 发送通知。** Telegram 不会为 Zuna 等应用加密通知，因此 Apple 可以读取名称和消息文字。如果此手机上装有两款应用，每条消息都会收到两次通知。你可以在 iOS 设置中关闭其中一款的通知。",

@@ -40,6 +40,17 @@ final class TelegramDoor: @unchecked Sendable {
     /// The most one part of a connection carries, either way.
     static let mostPart = 64 << 10
 
+    /// Whether an address is in Telegram's ranges, at whatever port: what a Telegram call's relays
+    /// are held to (docs/TELEGRAM_CALLS_PLAN.md, The media). Only a written-out address, never a name.
+    static func isTelegrams(_ host: String) -> Bool {
+        if let address = IPv4Address(host) { return inRanges(address.rawValue, rangesV4.map { (IPv4Address($0.0)!.rawValue, $0.1) }) }
+        if let address = IPv6Address(host) {
+            if let mapped = address.asIPv4 { return isTelegrams("\(mapped)") }
+            return inRanges(address.rawValue, rangesV6.map { (IPv6Address($0.0)!.rawValue, $0.1) })
+        }
+        return false
+    }
+
     /// Whether the door lets a connection to this address and port through.
     static func allowed(host: String, port: Int) -> Bool {
         guard ports.contains(port) else { return false }
@@ -566,4 +577,11 @@ final class TelegramDoor: @unchecked Sendable {
     static func same(_ given: [UInt8], _ expected: [UInt8]) -> Bool {
         given.count == expected.count && zip(given, expected).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
     }
+}
+
+/// Telegram's published ranges, for the app: a Telegram call's relays are held to them, as the
+/// engine's door is (`TelegramDoor.rangesV4` and `rangesV6`).
+public enum TelegramRanges {
+    /// Whether a written-out address is Telegram's. A name is never Telegram's here.
+    public static func contains(_ host: String) -> Bool { TelegramDoor.isTelegrams(host) }
 }

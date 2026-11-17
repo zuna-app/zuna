@@ -1,0 +1,123 @@
+v=0
+o=- 1 4 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1 2 3 4
+a=extmap-allow-mixed
+a=msid-semantic: WMS *
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:5JLc
+a=ice-pwd:qntcBnnT+d7omwTnmGSV5uPW
+a=fingerprint:sha-256 C1:13:A4:16:3A:1D:5D:8E:A2:5E:67:C8:57:69:5A:E8:64:4B:A2:D8:C0:D4:59:D4:70:54:A6:2A:75:38:22:4D
+a=setup:passive
+a=mid:0
+a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=recvonly
+a=rtcp-mux
+a=rtcp-rsize
+a=rtpmap:111 opus/48000/2
+a=rtcp-fb:111 transport-cc
+a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=32000
+m=video 9 UDP/TLS/RTP/SAVPF 98 100 99 101
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:5JLc
+a=ice-pwd:qntcBnnT+d7omwTnmGSV5uPW
+a=fingerprint:sha-256 C1:13:A4:16:3A:1D:5D:8E:A2:5E:67:C8:57:69:5A:E8:64:4B:A2:D8:C0:D4:59:D4:70:54:A6:2A:75:38:22:4D
+a=setup:passive
+a=mid:1
+a=extmap:14 urn:ietf:params:rtp-hdrext:toffset
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:13 urn:3gpp:video-orientation
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=extmap:5 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay
+a=extmap:6 http://www.webrtc.org/experiments/rtp-hdrext/video-content-type
+a=extmap:7 http://www.webrtc.org/experiments/rtp-hdrext/video-timing
+a=extmap:8 http://www.webrtc.org/experiments/rtp-hdrext/color-space
+a=recvonly
+a=rtcp-mux
+a=rtcp-rsize
+a=rtpmap:98 H264/90000
+a=rtcp-fb:98 goog-remb
+a=rtcp-fb:98 transport-cc
+a=rtcp-fb:98 ccm fir
+a=rtcp-fb:98 nack
+a=rtcp-fb:98 nack pli
+a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034
+a=rtpmap:100 VP8/90000
+a=rtcp-fb:100 goog-remb
+a=rtcp-fb:100 transport-cc
+a=rtcp-fb:100 ccm fir
+a=rtcp-fb:100 nack
+a=rtcp-fb:100 nack pli
+a=rtpmap:99 rtx/90000
+a=fmtp:99 apt=98
+a=rtpmap:101 rtx/90000
+a=fmtp:101 apt=100
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:5JLc
+a=ice-pwd:qntcBnnT+d7omwTnmGSV5uPW
+a=fingerprint:sha-256 C1:13:A4:16:3A:1D:5D:8E:A2:5E:67:C8:57:69:5A:E8:64:4B:A2:D8:C0:D4:59:D4:70:54:A6:2A:75:38:22:4D
+a=setup:passive
+a=mid:2
+a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=sendonly
+a=rtcp-mux
+a=rtcp-rsize
+a=msid:telegram-132092202 audio-132092202
+a=rtpmap:111 opus/48000/2
+a=rtcp-fb:111 transport-cc
+a=fmtp:111 minptime=10;useinbandfec=1
+a=ssrc:132092202 cname:telegram-132092202
+a=ssrc:132092202 msid:telegram-132092202 audio-132092202
+m=video 9 UDP/TLS/RTP/SAVPF 98 100 103 41 99 101 104 42
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:5JLc
+a=ice-pwd:qntcBnnT+d7omwTnmGSV5uPW
+a=fingerprint:sha-256 C1:13:A4:16:3A:1D:5D:8E:A2:5E:67:C8:57:69:5A:E8:64:4B:A2:D8:C0:D4:59:D4:70:54:A6:2A:75:38:22:4D
+a=setup:passive
+a=mid:3
+a=extmap:14 urn:ietf:params:rtp-hdrext:toffset
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:13 urn:3gpp:video-orientation
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=extmap:5 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay
+a=extmap:6 http://www.webrtc.org/experiments/rtp-hdrext/video-content-type
+a=extmap:7 http://www.webrtc.org/experiments/rtp-hdrext/video-timing
+a=extmap:8 http://www.webrtc.org/experiments/rtp-hdrext/color-space
+a=inactive
+a=rtcp-mux
+a=rtcp-rsize
+a=rtpmap:98 H264/90000
+a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034
+a=rtpmap:100 VP8/90000
+a=rtpmap:103 VP9/90000
+a=fmtp:103 profile-id=0
+a=rtpmap:41 AV1/90000
+a=fmtp:41 level-idx=5;profile=0;tier=0
+a=rtpmap:99 rtx/90000
+a=fmtp:99 apt=98
+a=rtpmap:101 rtx/90000
+a=fmtp:101 apt=100
+a=rtpmap:104 rtx/90000
+a=fmtp:104 apt=103
+a=rtpmap:42 rtx/90000
+a=fmtp:42 apt=41
+m=application 9 UDP/DTLS/SCTP webrtc-datachannel
+c=IN IP4 0.0.0.0
+a=ice-ufrag:5JLc
+a=ice-pwd:qntcBnnT+d7omwTnmGSV5uPW
+a=fingerprint:sha-256 C1:13:A4:16:3A:1D:5D:8E:A2:5E:67:C8:57:69:5A:E8:64:4B:A2:D8:C0:D4:59:D4:70:54:A6:2A:75:38:22:4D
+a=setup:passive
+a=mid:4
+a=sctp-port:5000
+a=max-message-size:262144

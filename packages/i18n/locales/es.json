@@ -2649,7 +2649,7 @@
   "telegram.link.phoneIntro": "Telegram enviará el código a otro dispositivo con sesión iniciada o a tu correo. Las apps como Zuna no reciben códigos de Telegram por SMS.",
   "telegram.link.phoneLead": "Telegram enviará el código a su app en este teléfono u otro dispositivo, o a tu correo. Las apps como Zuna no reciben códigos de Telegram por SMS.",
   "telegram.link.phoneTitle": "Tu número de teléfono",
-  "telegram.link.pointChannels": "**Los canales, llamadas y chats secretos** solo están disponibles en la app de Telegram.",
+  "telegram.link.pointChannelsGroupCalls": "**Los canales, videochats de grupo y chats secretos** solo están disponibles en la app de Telegram.",
   "telegram.link.pointEncryption": "**Estos chats no tienen cifrado de extremo a extremo.** Telegram los guarda en sus servidores. Los servidores de Zuna nunca los reciben.",
   "telegram.link.pointMonitors": "**Telegram supervisa las cuentas que usan otras apps** y a veces las restringe por error. Lo más seguro es vincular una cuenta que ya lleves tiempo usando.",
   "telegram.link.pointNotifications": "**Telegram envía notificaciones mediante Apple.** Apple puede leer los nombres y el texto porque Telegram no cifra las notificaciones para apps como Zuna. Si tienes ambas apps, recibirás cada notificación dos veces. Puedes desactivarlas para una app en Ajustes de iOS.",

@@ -1,10 +1,12 @@
 import AVFoundation
 import Foundation
 import LiveKit
+import LiveKitWebRTC
 import os
 #if canImport(ScreenCaptureKit)
 import ScreenCaptureKit
 #endif
+import SwiftUI
 import UIKit
 import ZunaHost
 import ZunaModels
@@ -12,15 +14,46 @@ import ZunaModels
 /// One video someone is sending. Mirrors `CallVideo` in packages/ui/src/voice/room.ts.
 struct CallVideo: Identifiable, Equatable {
     enum Source { case camera, screen }
+    /// What it's drawn from: a room's track, or a Telegram call's, which is WebRTC's own (TelegramCall.swift).
+    enum Feed {
+        case room(VideoTrack)
+        case telegram(LKRTCVideoTrack)
+
+        static func same(_ a: Feed, _ b: Feed) -> Bool {
+            switch (a, b) {
+            case let (.room(x), .room(y)): x === y
+            case let (.telegram(x), .telegram(y)): x === y
+            default: false
+            }
+        }
+    }
+
     let id: String
     let userId: String
     let source: Source
-    let track: VideoTrack
+    let feed: Feed
     let local: Bool
     /// A share someone else is sending with its sound, which can be made quieter here.
     let sound: Bool
 
-    static func == (a: CallVideo, b: CallVideo) -> Bool { a.id == b.id && a.track === b.track && a.sound == b.sound }
+    static func == (a: CallVideo, b: CallVideo) -> Bool { a.id == b.id && Feed.same(a.feed, b.feed) && a.sound == b.sound && a.source == b.source }
+}
+
+/// A video as a tile draws it, whichever kind of call it's from.
+struct CallVideoView: View {
+    let video: CallVideo
+    var fill = false
+    var mirror = false
+    var zoom = false
+
+    var body: some View {
+        switch video.feed {
+        case let .room(track):
+            SwiftUIVideoView(track, layoutMode: fill ? .fill : .fit, mirrorMode: mirror ? .mirror : .off, pinchToZoomOptions: zoom ? [.zoomIn, .resetOnRelease] : [])
+        case let .telegram(track):
+            TelegramVideoView(track: track, fill: fill, mirror: mirror)
+        }
+    }
 }
 
 /// One connection to a voice channel's room on the media server, which only ever sees
@@ -183,7 +216,7 @@ final class VoiceRoom {
         }
     }
 
-    private static func microphoneProblem() async -> String? {
+    static func microphoneProblem() async -> String? {
         #if DEBUG
         if VoiceTesting.toneMicrophone { return nil }
         #endif
@@ -314,7 +347,7 @@ final class VoiceRoom {
             for publication in participant.videoTracks {
                 guard let track = publication.track as? VideoTrack, !publication.isMuted else { continue }
                 let source: CallVideo.Source = publication.source == .screenShareVideo ? .screen : .camera
-                tiles.append(CallVideo(id: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, source: source, track: track, local: local, sound: source == .screen && !local && sound.contains(parsed.userId)))
+                tiles.append(CallVideo(id: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, source: source, feed: .room(track), local: local, sound: source == .screen && !local && sound.contains(parsed.userId)))
             }
         }
         return tiles.sorted { $0.id < $1.id }

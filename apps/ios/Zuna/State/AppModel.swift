@@ -705,7 +705,20 @@ final class AppModel {
             break
         case .telegram:
             break
+        case let .telegramCall(_, call):
+            voice.telegramCallChanged(call)
+        case let .telegramCallMedia(_, callId, media):
+            voice.telegramCallMedia(callId, media)
         }
+    }
+
+    /// Who's in the Telegram call this device is in, as a room's members are kept, so the stage draws
+    /// them: this person, and the other once they've answered. Under keys of the call's own.
+    func setTelegramCallMembers(_ members: [String: VoiceMember]) {
+        let telegram = ServerEntry.telegram
+        guard servers[telegram] != nil else { return }
+        let next = servers[telegram]!.voice.filter { !$0.key.hasPrefix("telegram-") }.merging(members) { _, new in new }
+        if servers[telegram]!.voice != next { servers[telegram]!.voice = next }
     }
 
     /// What a toast says when a server ended this device's session, and why.

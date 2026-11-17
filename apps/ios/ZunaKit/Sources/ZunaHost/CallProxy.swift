@@ -24,7 +24,8 @@ public final class CallProxy: @unchecked Sendable {
     /// Where relays' listeners say they're ready, which `relay(for:)` waits on from the rewriter's queue.
     private let listening = DispatchQueue(label: "chat.zuna.call-proxy.listening")
     let logger = Logger(subsystem: "chat.zuna", category: "call-proxy")
-    private let listener: NWListener
+    /// The endpoint LiveKit's SDK reaches, which a Telegram call's relays alone don't have.
+    private let listener: NWListener?
     private let lock = NSLock()
     private var relays: [String: Relay] = [:]
     private var sockets: [ObjectIdentifier: SignalSocket] = [:]
@@ -32,27 +33,47 @@ public final class CallProxy: @unchecked Sendable {
     private var lastUDP: Date?
     private var lastTCP: Date?
 
-    private init(proxy: NetworkProxy, target: String, udp: Bool, listener: NWListener, secret: String, port: UInt16) {
+    private init(proxy: NetworkProxy, target: String, udp: Bool, listener: NWListener?, secret: String, port: UInt16) {
         self.proxy = proxy
         self.target = target
         self.udp = udp
         self.listener = listener
         self.secret = secret
-        url = "ws://127.0.0.1:\(port)/\(secret)"
+        url = listener == nil ? "" : "ws://127.0.0.1:\(port)/\(secret)"
+    }
+
+    /// Whether the proxy grants a UDP association.
+    private static func carriesUDP(_ proxy: NetworkProxy) async throws -> Bool {
+        let probe = DispatchQueue(label: "chat.zuna.call-proxy.probe")
+        do {
+            let (control, _) = try await Socks.associate(proxy, queue: probe)
+            control.cancel()
+            return true
+        } catch let failure as Socks.Failure where !failure.atProxy {
+            return false
+        }
+    }
+
+    /// Relays alone, for a Telegram call (docs/TELEGRAM_CALLS_PLAN.md, Through a proxy): each of its
+    /// TURN servers becomes a port on loopback, which carries what WebRTC sends it through the proxy
+    /// to that server, in a UDP association. Nothing is made where the proxy grants none: a Telegram
+    /// call needs UDP. Throws when the proxy can't be had at all.
+    public static func relays(proxy: NetworkProxy) async throws -> CallProxy {
+        let udp = try await carriesUDP(proxy)
+        let call = CallProxy(proxy: proxy, target: "", udp: udp, listener: nil, secret: "", port: 0)
+        call.logger.info("A Telegram call goes through the proxy\(udp ? "" : ", which carries no UDP", privacy: .public)")
+        return call
+    }
+
+    /// The port on loopback WebRTC is to reach a TURN server at over UDP, or nil where there's none.
+    public func udpRelay(to address: String, port: UInt16) -> (address: String, port: UInt16)? {
+        relay(for: "udp", address: address, port: port)
     }
 
     /// Opens the endpoint for a call to LiveKit at `target`, once it has asked the proxy whether
     /// it carries UDP. Throws when the proxy can't be had at all.
     public static func start(target: String, proxy: NetworkProxy) async throws -> CallProxy {
-        let probe = DispatchQueue(label: "chat.zuna.call-proxy.probe")
-        var udp = false
-        do {
-            let (control, _) = try await Socks.associate(proxy, queue: probe)
-            control.cancel()
-            udp = true
-        } catch let failure as Socks.Failure where !failure.atProxy {
-            udp = false
-        }
+        let udp = try await carriesUDP(proxy)
         let listener = try loopbackListener(.tcp)
         let secret = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
         // A listener takes its handler before it starts: until the call is made, nothing is taken.
@@ -78,7 +99,7 @@ public final class CallProxy: @unchecked Sendable {
             }
             return (Array(self.sockets.values), Array(self.relays.values))
         }
-        listener.cancel()
+        listener?.cancel()
         for socket in sockets { socket.close() }
         for relay in relays { relay.close() }
     }

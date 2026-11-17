@@ -97,7 +97,7 @@ struct LinkTelegramView: View {
                 point(t("telegram.link.pointSees"))
                 point(t("telegram.link.pointMonitors"))
                 point(t("telegram.link.pointNotifications"))
-                point(t("telegram.link.pointChannels"))
+                point(t("telegram.link.pointChannelsGroupCalls"))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             PrimaryButton(title: t("common.continue"), busy: busy) {
