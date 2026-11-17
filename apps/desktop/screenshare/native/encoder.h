@@ -38,6 +38,9 @@ typedef struct zuna_encoder_config {
     int quality;
     void *d3d11_device;       // ID3D11Device*, for ZUNA_INPUT_D3D11
     const char *render_node;  // /dev/dri/renderD128, for VA-API and DMA-BUFs into NVENC
+    // H.264 in constrained baseline rather than High: no CABAC and no B-frames, which every
+    // decoder takes, as a Telegram call's do. AV1 takes no notice.
+    int baseline;
 } zuna_encoder_config;
 
 typedef struct zuna_dmabuf {

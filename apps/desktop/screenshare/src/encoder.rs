@@ -50,6 +50,7 @@ struct RawConfig {
     quality: c_int,
     d3d11_device: *mut c_void,
     render_node: *const c_char,
+    baseline: c_int,
 }
 
 #[repr(C)]
@@ -197,6 +198,8 @@ pub struct Stream {
     pub gop: u32,
     pub bitrate: u64,
     pub quality: Quality,
+    /// H.264 in constrained baseline, which every decoder takes, rather than High.
+    pub baseline: bool,
 }
 
 pub struct Config<'a> {
@@ -255,6 +258,7 @@ impl Encoder {
             quality: stream.quality as c_int,
             d3d11_device: config.d3d11_device,
             render_node: render_node.as_ref().map_or(ptr::null(), |node| node.as_ptr()),
+            baseline: stream.baseline as c_int,
         };
         let mut raw = ptr::null_mut();
         check(api, unsafe { (api.open)(&raw_config, &mut raw) }, &format!("Opening {}", config.codec))?;

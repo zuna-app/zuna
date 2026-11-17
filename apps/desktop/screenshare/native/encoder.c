@@ -136,12 +136,15 @@ static void set_low_latency_options(zuna_encoder *e) {
     void *options = e->codec->priv_data;
     int quality = e->config.quality;
     int av1 = is_av1(e);
+    const char *profile = e->config.baseline ? "constrained_baseline" : "high";
     if (is_family(e, "nvenc")) {
         av_opt_set(options, "preset", quality == ZUNA_QUALITY_SPEED ? "p1" : quality == ZUNA_QUALITY_BEST ? "p7" : "p4", 0);
         av_opt_set(options, "tune", "ull", 0);
         av_opt_set(options, "rc", is_capped_vbr(e) ? "vbr" : "cbr", 0);
         if (!av1) {
-            av_opt_set(options, "profile", "high", 0);
+            // NVENC's "baseline" is constrained baseline: its SPS sets constraint_set1, and it
+            // writes CAVLC, as checked on an RTX 5080.
+            av_opt_set(options, "profile", e->config.baseline ? "baseline" : "high", 0);
             av_opt_set(options, "cq", H264_TARGET_QUALITY, 0);
         }
         av_opt_set_int(options, "zerolatency", 1, 0);
@@ -161,13 +164,13 @@ static void set_low_latency_options(zuna_encoder *e) {
             av_opt_set(options, "latency", "lowest_latency", 0);
             av_opt_set_int(options, "skip_frame", 0, 0);
         } else {
-            av_opt_set(options, "profile", "high", 0);
+            av_opt_set(options, "profile", profile, 0);
             av_opt_set(options, "header_insertion_mode", "idr", 0);
             av_opt_set_int(options, "latency", 1, 0);
             av_opt_set_int(options, "frame_skipping", 0, 0);
         }
     } else if (is_family(e, "mf")) {
-        e->codec->profile = av1 ? AV_PROFILE_AV1_MAIN : AV_PROFILE_H264_HIGH;
+        e->codec->profile = av1 ? AV_PROFILE_AV1_MAIN : e->config.baseline ? AV_PROFILE_H264_CONSTRAINED_BASELINE : AV_PROFILE_H264_HIGH;
         av_opt_set(options, "rate_control", "cbr", 0);
         av_opt_set(options, "scenario", "display_remoting", 0);
         av_opt_set_int(options, "quality", quality == ZUNA_QUALITY_SPEED ? 0 : quality == ZUNA_QUALITY_BEST ? 100 : 50, 0);
@@ -177,7 +180,7 @@ static void set_low_latency_options(zuna_encoder *e) {
         av_opt_set(options, "rc_mode", "CBR", 0);
         av_opt_set_int(options, "async_depth", 1, 0);
         if (!av1) {
-            av_opt_set(options, "profile", "high", 0);
+            av_opt_set(options, "profile", profile, 0);
             av_opt_set_int(options, "sei", 0, 0);
             av_opt_set_int(options, "aud", 0, 0);
         }

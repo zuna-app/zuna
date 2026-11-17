@@ -137,7 +137,7 @@ fn run(options: &Options, stop: &AtomicBool, outputs: &mpsc::Receiver<Box<dyn Ou
     // Keyframes go out whenever someone asks, so the encoder's own only need to come rarely.
     // Not never, as what AMF and the others take for that is unknown.
     let gop = options.fps * 60;
-    let encoder = capture.open_encoder(Stream { width, height, fps: options.fps, gop, bitrate, quality: options.quality })?;
+    let encoder = capture.open_encoder(Stream { width, height, fps: options.fps, gop, bitrate, quality: options.quality, baseline: options.baseline && options.codec == Codec::H264 })?;
     events(Event::Ready(Ready { description: capture.description.clone(), source: capture.source, codec: options.codec, width, height }));
 
     let output = loop {

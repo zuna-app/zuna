@@ -562,7 +562,7 @@ mod bench {
         let name = codec.encoder(&args.encoder);
         // Through the pipeline, the bitrate starts low and climbs to the most it may send, as a share's does.
         let bitrate = if args.pipeline { starting_bitrate(kbps * 1000) } else { kbps * 1000 };
-        let stream = Stream { width: args.width as u32, height: args.height as u32, fps: args.fps, gop: args.fps * 60, bitrate, quality: args.effort };
+        let stream = Stream { width: args.width as u32, height: args.height as u32, fps: args.fps, gop: args.fps * 60, bitrate, quality: args.effort, baseline: false };
         let mut encoder = Encoder::open(&Config {
             codec: &name,
             input: INPUT_CPU,

@@ -62,6 +62,9 @@ pub fn family(encoder: &str) -> &str {
 pub struct Options {
     /// What it's encoded in.
     pub codec: Codec,
+    /// H.264 in constrained baseline rather than High, for a decoder that takes nothing else:
+    /// Telegram's apps, in a call on the linked account.
+    pub baseline: bool,
     /// `auto`, or an encoder's family, by itself or in an FFmpeg encoder's name: `nvenc`, `amf`
     /// and `mf` on Windows, `nvenc` and `vaapi` on Linux, as in `h264_nvenc`. `codec` says which.
     pub encoder: String,
@@ -94,6 +97,7 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             codec: Codec::H264,
+            baseline: false,
             encoder: "auto".into(),
             quality: Quality::default(),
             fps: 60,
