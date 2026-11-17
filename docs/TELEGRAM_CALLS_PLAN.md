@@ -247,7 +247,7 @@ Each step is a commit or a few, pushed when its checks pass.
 7. The iPhone: the peer connection, CallKit while Zuna is open, the call's screen, the camera, the proxy.
 8. The iPhone's VoIP pushes and the switch there. The iPhone's first build with calls has them.
 9. The docs under "What changes with it", in the commits that make each true.
-10. Later, each on its own: sharing a screen from Zuna, a call's statistics, video chats in groups, conference calls.
+10. Later, each on its own: sharing a screen from Zuna, built on the desktop on 2026-11-17, and on the iPhone after step 8 ("What the iPhone has to get right"); a call's statistics, video chats in groups, conference calls.
 
 Until step 8 is pushed, `.agents/FEATURE_PARITY.md` lists the iPhone as a Known gap.
 
