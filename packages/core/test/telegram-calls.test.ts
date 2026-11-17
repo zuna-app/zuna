@@ -10,8 +10,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { TelegramSession } from "../src/telegram/session";
-import { parseDescription, type Description } from "../src/telegram/calls/sdp";
-import { readSignal, writeSignal } from "../src/telegram/calls/signal";
+import { acceptContent, parseDescription, prepareOffer, type Description } from "../src/telegram/calls/sdp";
+import { readSignal, writeSignal, type MediaContent } from "../src/telegram/calls/signal";
 import { relaysOf } from "../src/telegram/calls/call";
 import { messageView } from "../src/telegram/map";
 import type { CoreEvent, TelegramCallMedia, TelegramCallView } from "../src/types";
@@ -455,6 +455,27 @@ describe("what the other side sends", () => {
       exchangeId: "5",
       contents: [{ type: "video", ssrc: "7", ssrcGroups: [{ semantics: "FID", ssrcs: ["7", "8"] }], rtpExtensions: [] }],
     });
+  });
+
+  it("is taken in H.264 only as constrained baseline, at whatever level, under its own number", () => {
+    const codec = (id: number, name: string, parameters: Record<string, string>) => ({ id, name, clockrate: 90000, channels: 0, feedbackTypes: [{ type: "nack", subtype: "pli" }], parameters });
+    const h264 = (id: number, profile: string) => codec(id, "H264", { "level-asymmetry-allowed": "1", "packetization-mode": "1", "profile-level-id": profile });
+    const theirs: MediaContent = {
+      type: "video",
+      ssrc: 5,
+      ssrcGroups: [],
+      rtpExtensions: [],
+      payloadTypes: [h264(100, "640c34"), codec(101, "rtx", { apt: "100" }), h264(102, "42e034"), codec(103, "rtx", { apt: "102" }), codec(104, "VP8", {}), codec(105, "rtx", { apt: "104" })],
+    };
+    // Constrained high isn't taken, as this side's WebRTC may not decode it, nor its retransmissions.
+    const taken = acceptContent(theirs);
+    expect(taken.payloadTypes.map((payload) => payload.id)).toEqual([102, 103, 104, 105]);
+    // This side's offer takes it in its own constrained baseline, 42e01f, under the other side's number.
+    const prepared = prepareOffer(fixture("offer-callee.sdp"), (section) => (section.direction === "sendonly" ? { sends: true } : { sends: false, takes: section.media === "video" ? taken : null }), new Map());
+    const video = prepared.description.sections.find((section) => section.media === "video")!;
+    expect(video.codecs.filter((each) => each.name === "H264").map((each) => each.pt)).toEqual([102]);
+    expect(video.codecs.some((each) => each.name === "VP8" && each.pt === 104)).toBe(true);
+    expect(video.codecs.some((each) => each.pt === 100)).toBe(false);
   });
 
   it("names only relays this side may use", () => {

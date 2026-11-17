@@ -149,6 +149,36 @@ export function parseDescription(sdp: string): Description {
 const param = (codec: { fmtp: [string, string][] }, name: string) => codec.fmtp.find(([key]) => key.toLowerCase() === name)?.[1];
 
 /**
+ * H.264's profiles as WebRTC reads them from a profile-level-id's first two bytes, its
+ * profile_idc and the bits of its profile_iop a mask keeps: the first that fits is the profile.
+ */
+const H264_PROFILES: [profile: string, idc: number, mask: number, bits: number][] = [
+  ["constrained-baseline", 0x42, 0x4f, 0x40],
+  ["constrained-baseline", 0x4d, 0x8f, 0x80],
+  ["constrained-baseline", 0x58, 0xcf, 0xc0],
+  ["baseline", 0x42, 0x4f, 0x00],
+  ["baseline", 0x58, 0xcf, 0x80],
+  ["main", 0x4d, 0xaf, 0x00],
+  ["high", 0x64, 0xff, 0x00],
+  ["constrained-high", 0x64, 0xff, 0x0c],
+  ["predictive-high-444", 0xf4, 0xff, 0x00],
+];
+
+/**
+ * An H.264 codec's profile, without its level, which, as WebRTC has it, doesn't make it another
+ * codec: Telegram's apps offer 42e029 where this side's WebRTC has 42e01f, the same constrained
+ * baseline at levels 4.1 and 3.1. Matched with the level, it was taken in the messages and left
+ * out of the description, so the other side's picture never came. Without a profile-level-id,
+ * WebRTC's own default.
+ */
+function h264Profile(codec: Codec): string {
+  const id = (param(codec, "profile-level-id") ?? "42e01f").toLowerCase();
+  if (!/^[0-9a-f]{6}$/.test(id)) return id;
+  const [idc, iop] = [parseInt(id.slice(0, 2), 16), parseInt(id.slice(2, 4), 16)];
+  return H264_PROFILES.find(([, wanted, mask, bits]) => idc === wanted && (iop & mask) === bits)?.[0] ?? id.slice(0, 4);
+}
+
+/**
  * What makes two codecs the same one, whatever their numbers: the name, rate and channels, and
  * the parameters that make H.264, VP9 and AV1 different codecs. A retransmission stream is the
  * one of whichever codec it repeats.
@@ -158,7 +188,7 @@ function identity(codec: Codec, all: Codec[]): string {
   const base = `${name}/${codec.clock}/${codec.channels || (name === "opus" ? 2 : 0)}`;
   switch (name) {
     case "h264":
-      return `${base}/${(param(codec, "profile-level-id") ?? "42001f").toLowerCase()}/${param(codec, "packetization-mode") ?? "0"}`;
+      return `${base}/${h264Profile(codec)}/${param(codec, "packetization-mode") ?? "0"}`;
     case "vp9":
       return `${base}/${param(codec, "profile-id") ?? "0"}`;
     case "av1":
@@ -210,7 +240,10 @@ function sentRank(kind: string, codec: Codec): number {
 function taken(kind: string, codec: Codec): boolean {
   const name = codec.name.toLowerCase();
   if (kind === "audio") return name === "opus" && codec.clock === 48000;
-  if (name === "h264") return param(codec, "packetization-mode") === "1";
+  // Constrained baseline alone, which every WebRTC with H.264 takes, so this side's offer always
+  // has it: Telegram's apps offer constrained high first, 640c29, which the desktop's WebRTC on
+  // Linux doesn't take, and the other side sends in the first codec taken.
+  if (name === "h264") return param(codec, "packetization-mode") === "1" && h264Profile(codec) === "constrained-baseline";
   if (name === "vp9") return (param(codec, "profile-id") ?? "0") === "0";
   if (name === "av1") return (param(codec, "profile") ?? "0") === "0";
   return TAKEN_VIDEO.has(name);

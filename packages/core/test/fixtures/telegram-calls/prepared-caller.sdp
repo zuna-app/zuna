@@ -44,7 +44,7 @@ a=rtcp-rsize
 a=rtpmap:111 opus/48000/2
 a=rtcp-fb:111 transport-cc
 a=fmtp:111 minptime=10;useinbandfec=1
-m=video 9 UDP/TLS/RTP/SAVPF 103 109 96 98 117 41 45 97 99 104 114 118 42 46
+m=video 9 UDP/TLS/RTP/SAVPF 109 96 98 45 97 99 114 46
 c=IN IP4 0.0.0.0
 a=rtcp:9 IN IP4 0.0.0.0
 a=ice-ufrag:9jQZ
@@ -81,15 +81,6 @@ a=rtcp-fb:98 nack pli
 a=fmtp:98 profile-id=0
 a=rtpmap:99 rtx/90000
 a=fmtp:99 apt=98
-a=rtpmap:103 H264/90000
-a=rtcp-fb:103 goog-remb
-a=rtcp-fb:103 transport-cc
-a=rtcp-fb:103 ccm fir
-a=rtcp-fb:103 nack
-a=rtcp-fb:103 nack pli
-a=fmtp:103 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
-a=rtpmap:104 rtx/90000
-a=fmtp:104 apt=103
 a=rtpmap:109 H264/90000
 a=rtcp-fb:109 goog-remb
 a=rtcp-fb:109 transport-cc
@@ -99,24 +90,6 @@ a=rtcp-fb:109 nack pli
 a=fmtp:109 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
 a=rtpmap:114 rtx/90000
 a=fmtp:114 apt=109
-a=rtpmap:117 H264/90000
-a=rtcp-fb:117 goog-remb
-a=rtcp-fb:117 transport-cc
-a=rtcp-fb:117 ccm fir
-a=rtcp-fb:117 nack
-a=rtcp-fb:117 nack pli
-a=fmtp:117 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f
-a=rtpmap:118 rtx/90000
-a=fmtp:118 apt=117
-a=rtpmap:41 H264/90000
-a=rtcp-fb:41 goog-remb
-a=rtcp-fb:41 transport-cc
-a=rtcp-fb:41 ccm fir
-a=rtcp-fb:41 nack
-a=rtcp-fb:41 nack pli
-a=fmtp:41 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=f4001f
-a=rtpmap:42 rtx/90000
-a=fmtp:42 apt=41
 a=rtpmap:45 AV1/90000
 a=rtcp-fb:45 goog-remb
 a=rtcp-fb:45 transport-cc

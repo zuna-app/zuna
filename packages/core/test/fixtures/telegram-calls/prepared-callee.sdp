@@ -54,7 +54,7 @@ a=rtcp-rsize
 a=rtpmap:111 opus/48000/2
 a=rtcp-fb:111 transport-cc
 a=fmtp:111 minptime=10;useinbandfec=1
-m=video 9 UDP/TLS/RTP/SAVPF 103 109 96 97 104 114
+m=video 9 UDP/TLS/RTP/SAVPF 109 96 97 114
 c=IN IP4 0.0.0.0
 a=rtcp:9 IN IP4 0.0.0.0
 a=ice-ufrag:xwWj
@@ -82,15 +82,6 @@ a=rtcp-fb:96 nack
 a=rtcp-fb:96 nack pli
 a=rtpmap:97 rtx/90000
 a=fmtp:97 apt=96
-a=rtpmap:103 H264/90000
-a=rtcp-fb:103 goog-remb
-a=rtcp-fb:103 transport-cc
-a=rtcp-fb:103 ccm fir
-a=rtcp-fb:103 nack
-a=rtcp-fb:103 nack pli
-a=fmtp:103 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
-a=rtpmap:104 rtx/90000
-a=fmtp:104 apt=103
 a=rtpmap:109 H264/90000
 a=rtcp-fb:109 goog-remb
 a=rtcp-fb:109 transport-cc
