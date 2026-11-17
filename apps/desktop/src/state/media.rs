@@ -19,8 +19,12 @@ pub fn checked_download(server_id: &str, value: serde_json::Value) -> Result<ser
 impl AppState {
     pub(super) fn store_picture(&mut self, key: String, result: Result<(Vec<u8>, String), String>, cx: &mut Context<Self>) {
         let picture = match result {
-            Ok((bytes, mime)) if !bytes.is_empty() => Picture::Ready(Arc::new(Image::from_bytes(image_format(&mime, &bytes), bytes))),
-            _ => Picture::Failed(std::time::Instant::now()),
+            // Only what this app draws as a picture, and no more of it than it holds (`picture`).
+            Ok((bytes, mime)) => match picture(&mime, bytes) {
+                Some(image) => Picture::Ready(Arc::new(image)),
+                None => Picture::Failed(std::time::Instant::now()),
+            },
+            Err(_) => Picture::Failed(std::time::Instant::now()),
         };
         self.touch_media(&key);
         self.pictures.insert(key, picture);

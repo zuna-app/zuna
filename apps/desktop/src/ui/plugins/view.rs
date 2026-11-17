@@ -337,8 +337,7 @@ fn image_source(uid: &str, src: &str, cx: &App) -> Option<std::sync::Arc<gpui::I
     } else {
         return None;
     };
-    let format = crate::state::image_format("", &bytes);
-    Some(std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)))
+    crate::state::picture("", bytes).map(std::sync::Arc::new)
 }
 
 /// A canvas: its shapes, drawn freely inside its own box.

@@ -311,7 +311,7 @@ pub(super) fn decode_data_url(data: &str) -> Option<Arc<Image>> {
     let (header, encoded) = data.split_once(',')?;
     let mime = header.trim_start_matches("data:").split(';').next().unwrap_or("image/jpeg");
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
-    Some(Arc::new(Image::from_bytes(crate::state::image_format(mime, &bytes), bytes)))
+    crate::state::picture(mime, bytes).map(Arc::new)
 }
 
 pub(super) fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, cx: &mut App) -> AnyElement {

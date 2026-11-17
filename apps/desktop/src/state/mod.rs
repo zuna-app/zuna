@@ -5,6 +5,8 @@ mod events;
 mod lists;
 mod notify;
 mod media;
+mod picture;
+pub use picture::picture;
 pub use media::checked_download;
 mod telegram;
 
@@ -330,40 +332,6 @@ pub struct AppState {
     reported_active: Option<(bool, Option<String>)>,
     _events: Option<Task<()>>,
     _activity: Option<Task<()>>,
-}
-
-/// How a picture is decoded: by its own first bytes where they say, as the type a file is given
-/// can be wrong (a photo sent to Telegram stays here as it was sent, though Telegram calls every
-/// photo a JPEG), and by that type where they don't, as for SVG.
-pub fn image_format(mime: &str, bytes: &[u8]) -> ImageFormat {
-    match bytes {
-        [0x89, b'P', b'N', b'G', ..] => ImageFormat::Png,
-        [b'G', b'I', b'F', b'8', ..] => ImageFormat::Gif,
-        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => ImageFormat::Webp,
-        [0xff, 0xd8, 0xff, ..] => ImageFormat::Jpeg,
-        _ => match mime {
-            "image/png" => ImageFormat::Png,
-            "image/gif" => ImageFormat::Gif,
-            "image/webp" => ImageFormat::Webp,
-            "image/svg+xml" => ImageFormat::Svg,
-            "image/bmp" => ImageFormat::Bmp,
-            _ => ImageFormat::Jpeg,
-        },
-    }
-}
-
-#[cfg(test)]
-mod format_tests {
-    use super::*;
-
-    #[test]
-    fn a_picture_is_decoded_as_what_its_bytes_say() {
-        assert_eq!(image_format("image/jpeg", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]), ImageFormat::Png);
-        assert_eq!(image_format("image/png", &[0xff, 0xd8, 0xff, 0xe0]), ImageFormat::Jpeg);
-        assert_eq!(image_format("image/jpeg", b"RIFF\0\0\0\0WEBPVP8 "), ImageFormat::Webp);
-        assert_eq!(image_format("image/svg+xml", b"<svg xmlns"), ImageFormat::Svg);
-        assert_eq!(image_format("", b"GIF89a"), ImageFormat::Gif);
-    }
 }
 
 fn sort_messages(items: &mut [MessageView]) {
