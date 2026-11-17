@@ -68,7 +68,18 @@ impl Voice {
         // Opened again, it sends to the same source, which the room or the call already sends.
         let source = self.mic_source.clone().unwrap_or_else(VoiceRoom::microphone_source);
         let sending = source.clone();
-        let opening = open_microphone(settings, self.mic_off(), self.processing.clone(), move |frame| room::send_frame(&sending, frame, 1), cx);
+        // A share's sound in a Telegram call goes in the microphone's frames (telegram/mix.rs).
+        let mix = self.share_mix.clone();
+        let opening = open_microphone(
+            settings,
+            self.mic_off(),
+            self.processing.clone(),
+            move |mut frame| {
+                mix.mix(&mut frame);
+                room::send_frame(&sending, frame, 1)
+            },
+            cx,
+        );
         cx.background_executor().spawn(async move { opening.await.map(|mic| (mic, source)) })
     }
 

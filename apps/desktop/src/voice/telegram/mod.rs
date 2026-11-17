@@ -5,6 +5,7 @@
 //! Starting or answering one leaves a voice channel or a call of Zuna's, and the other way.
 
 pub mod media;
+pub mod mix;
 #[cfg(test)]
 mod tests;
 

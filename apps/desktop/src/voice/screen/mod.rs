@@ -95,6 +95,26 @@ fn start_sound(app: Option<&str>, source: livekit::webrtc::audio_source::native:
     Ok((sound, ended))
 }
 
+/// Starts capturing the computer's sound for a Telegram call, mixed into the microphone's frames,
+/// or sent by itself where no microphone takes them (telegram/mix.rs).
+#[cfg(not(target_os = "macos"))]
+fn start_mixed_sound(app: Option<&str>, mix: Arc<super::telegram::mix::ShareMix>, source: livekit::webrtc::audio_source::native::NativeAudioSource) -> Result<(Sound, UnboundedReceiver<String>), String> {
+    let (stopped, ended) = unbounded();
+    let sound = Sound::start(
+        Wanted::from_id(app),
+        SOUND_START_LIMIT,
+        move |samples| {
+            for frame in mix.push(samples) {
+                send_frame(&source, frame, 1);
+            }
+        },
+        move |problem| {
+            stopped.unbounded_send(problem.chars().take(200).collect()).ok();
+        },
+    )?;
+    Ok((sound, ended))
+}
+
 /// An app playing sound, by what the share's sound calls it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoundApp {

@@ -14,6 +14,7 @@ impl Voice {
         if let Some(sound) = self.share.sound.take() {
             sound.stop();
         }
+        self.share_mix.set_on(false);
         if let (true, Some(room)) = (sharing, self.room.clone()) {
             crate::host::tokio().spawn(async move { room.stop_share_video().await });
         }
@@ -281,10 +282,57 @@ impl Voice {
                 voice.show_members(cx);
                 voice.sync_videos(cx);
                 voice.sound(VoiceSound::SelfJoin);
+                if choice.audio {
+                    voice.start_telegram_share_sound(choice.sound_app.clone(), cx);
+                }
                 cx.notify();
             })
             .ok();
-            log::info!("screen share sent into the Telegram call, {width}×{height}");
+            log::info!("screen share sent into the Telegram call, {width}×{height}, sound {}", if choice.audio { "asked for" } else { "not asked for" });
+        })
+        .detach();
+    }
+
+    /// Sends the computer's sound beside a share into a Telegram call, in the call's own sound,
+    /// mixed into the microphone's (telegram/mix.rs). A share without it is still worth having, so
+    /// this only says so.
+    #[cfg(not(target_os = "macos"))]
+    fn start_telegram_share_sound(&mut self, app: Option<String>, cx: &mut Context<Self>) {
+        let Some(source) = self.mic_source.clone() else { return };
+        let mix = self.share_mix.clone();
+        mix.set_on(true);
+        cx.spawn(async move |this, cx| {
+            let mixing = mix.clone();
+            let started = cx.background_executor().spawn(async move { start_mixed_sound(app.as_deref(), mixing, source) }).await;
+            this.update(cx, |voice, cx| match started {
+                Ok((sound, mut ended)) => {
+                    if voice.screen.is_none() || !voice.in_telegram() {
+                        sound.stop();
+                        mix.set_on(false);
+                        return;
+                    }
+                    log::info!("sharing the computer's sound in the Telegram call's");
+                    voice.share.sound = Some(sound);
+                    voice.share.sound_watch = Some(cx.spawn(async move |this, cx| {
+                        if let Some(problem) = ended.next().await {
+                            this.update(cx, |voice, cx| {
+                                if let Some(sound) = voice.share.sound.take() {
+                                    sound.stop();
+                                }
+                                voice.share_mix.set_on(false);
+                                voice.toast(tr!("voice.screen.audioStopped", problem = problem), ToastKind::Error, cx);
+                            })
+                            .ok();
+                        }
+                    }));
+                }
+                Err(error) => {
+                    log::warn!("sharing the computer's sound: {error}");
+                    mix.set_on(false);
+                    voice.toast(t("voice.screen.noAudio"), ToastKind::Info, cx);
+                }
+            })
+            .ok();
         })
         .detach();
     }

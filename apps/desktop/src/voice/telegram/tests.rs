@@ -100,12 +100,13 @@ fn a_telegram_call_rings_is_answered_shown_and_ended(cx: &mut TestAppContext) {
     assert!(app.drawn(cx, "telegram-call-label"), "the call says it's Telegram's");
     assert!(app.drawn(cx, "camera-control") && app.drawn(cx, "leave-control"));
     assert!(!app.drawn(cx, "watch-control") && !app.drawn(cx, "soundboard-control"), "nothing Telegram's calls haven't");
-    // A screen can be shared into it from where it comes already encoded, without the computer's sound.
+    // A screen can be shared into it from where it comes already encoded, with the computer's
+    // sound if it's chosen, which goes in the call's own.
     #[cfg(not(target_os = "macos"))]
     {
         app.click(cx, "share-control");
         assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::ScreenPicker));
-        assert!(!app.drawn(cx, "screen-sound"), "a Telegram call takes the picture alone");
+        assert!(app.drawn(cx, "screen-sound"), "whose sound goes is chosen as for a room's share");
         app.update(cx, |state, cx| state.set_overlay(None, cx));
     }
     #[cfg(target_os = "macos")]

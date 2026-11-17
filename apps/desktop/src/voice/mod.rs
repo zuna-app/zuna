@@ -187,6 +187,8 @@ pub struct Voice {
     telegram_media: Option<Arc<telegram::media::TelegramMedia>>,
     /// The camera goes on once its peer connection is made.
     telegram_camera: bool,
+    /// The computer's sound shared into a Telegram call, which the microphone's frames carry.
+    share_mix: Arc<telegram::mix::ShareMix>,
     /// What the core said to do while the peer connection was still being made through the proxy.
     telegram_waiting: Option<Vec<Value>>,
     /// A Telegram call that's over, which Telegram asked to have rated.
@@ -265,6 +267,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         telegram: None,
         telegram_media: None,
         telegram_camera: false,
+        share_mix: Default::default(),
         telegram_waiting: None,
         telegram_rating: None,
         ptt_watching: None,
