@@ -158,6 +158,7 @@ type Server struct {
 	commitHolds       *ratelimit.Backoff
 
 	proofs seenProofs
+	seals  seenProofs
 
 	voice        *voiceRooms
 	voiceLimiter *ratelimit.Keyed
@@ -216,6 +217,8 @@ func New(cfg Config, db *store.DB) *Server {
 		files:       filepath.Join(cfg.DataDir, "files"),
 		emotes:      emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		callers:     callers,
+		proofs:      seenProofs{most: maxSeenProofs, mostOfOne: maxSeenOfADevice},
+		seals:       seenProofs{most: maxSeenSeals},
 		authLimiter: keyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		// Friends behind one home router share an address, and a bot may answer in many
 		// chats at once, so this only stops a flood.

@@ -27,8 +27,12 @@ const (
 	// A signed request's body is read before its handler runs, so it can't be larger
 	// than the largest a proven route takes, a vault write's.
 	maxProvenBody = maxVaultBody
-	// The signatures seen within the window, so that one can't be sent again.
-	maxSeenProofs = 100_000
+	// The signatures seen within the window, so that one can't be sent again: of every
+	// device together, and of any one device, which is far more than an app signs.
+	maxSeenProofs    = 200_000
+	maxSeenOfADevice = 5_000
+	// The seals of sealed requests seen within the window, of every group together.
+	maxSeenSeals = 100_000
 )
 
 // requestProofInput is what a device signs for a request: its method, its path
@@ -39,36 +43,62 @@ func requestProofInput(method, path string, at int64, body []byte) []byte {
 }
 
 // seenProofs remembers signatures until they're too old to be accepted anyway, by
-// their hash, as a hybrid signature is a few kilobytes.
+// their hash, as a hybrid signature is a few kilobytes. It holds `most` of them, and of
+// any one owner `mostOfOne`, if that's set. Nothing is ever refused because it's full:
+// the oldest goes instead, so that whoever fills it takes nothing from anyone else. An
+// owner over its own share is the only one told so.
 type seenProofs struct {
-	mu   sync.Mutex
-	seen map[[sha256.Size]byte]time.Time
+	mu        sync.Mutex
+	most      int
+	mostOfOne int
+	seen      map[[sha256.Size]byte]struct{}
+	// In the order they came, which is the order they grow old in.
+	order []seenProof
+	held  map[string]int
 }
 
-// first reports whether a signature hasn't been seen, and remembers it.
-func (p *seenProofs) first(signature []byte, now time.Time) bool {
+type seenProof struct {
+	key   [sha256.Size]byte
+	owner string
+	at    time.Time
+}
+
+// forgetOldest lets the oldest signature go. Callers hold the lock.
+func (p *seenProofs) forgetOldest() {
+	oldest := p.order[0]
+	p.order = p.order[1:]
+	delete(p.seen, oldest.key)
+	if p.held[oldest.owner]--; p.held[oldest.owner] <= 0 {
+		delete(p.held, oldest.owner)
+	}
+}
+
+// first reports whether a signature hasn't been seen, and remembers it as its owner's.
+// flooded says its owner already holds its whole share, and it wasn't taken.
+func (p *seenProofs) first(owner string, signature []byte, now time.Time) (fresh, flooded bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.seen == nil {
-		p.seen = map[[sha256.Size]byte]time.Time{}
+		p.seen = map[[sha256.Size]byte]struct{}{}
+		p.held = map[string]int{}
+	}
+	for len(p.order) > 0 && now.Sub(p.order[0].at) > 2*proofWindow {
+		p.forgetOldest()
 	}
 	key := sha256.Sum256(signature)
 	if _, ok := p.seen[key]; ok {
-		return false
+		return false, false
 	}
-	if len(p.seen) >= maxSeenProofs {
-		for k, at := range p.seen {
-			if now.Sub(at) > 2*proofWindow {
-				delete(p.seen, k)
-			}
-		}
-		// Still full means a flood of valid signatures, which only devices can make.
-		if len(p.seen) >= maxSeenProofs {
-			return false
-		}
+	if p.mostOfOne > 0 && p.held[owner] >= p.mostOfOne {
+		return false, true
 	}
-	p.seen[key] = now
-	return true
+	if p.most > 0 && len(p.order) >= p.most {
+		p.forgetOldest()
+	}
+	p.seen[key] = struct{}{}
+	p.order = append(p.order, seenProof{key: key, owner: owner, at: now})
+	p.held[owner]++
+	return true, false
 }
 
 func (s *Server) proven(next authedHandler) authedHandler {
@@ -122,7 +152,13 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "proof_stale", "message": "This device's clock is too far from the server's.", "now": now.UnixMilli()})
 		return false
 	}
-	if !s.proofs.first(signature, now) {
+	// Kept by device, so that one that signs without end fills only its own share.
+	fresh, flooded := s.proofs.first(sess.DeviceID, signature, now)
+	if flooded {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many at once. Please wait a moment.")
+		return false
+	}
+	if !fresh {
 		writeError(w, http.StatusUnauthorized, "proof_invalid", "This request was already made.")
 		return false
 	}

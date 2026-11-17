@@ -115,7 +115,10 @@ func (s *Server) sealed(next sealedHandler) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "proof_stale", "message": "This device's clock is too far from the server's.", "now": now.UnixMilli()})
 			return
 		}
-		if !s.proofs.first(seal, now) {
+		// Seals have a memory of their own, apart from devices' proofs, as any member of any
+		// group makes them for nothing. It only spares the work of one sent again: what a
+		// sealed request changes takes a token, which is spent once whatever is remembered.
+		if fresh, _ := s.seals.first("", seal, now); !fresh {
 			writeError(w, http.StatusUnauthorized, "proof_invalid", "This request was already made.")
 			return
 		}
