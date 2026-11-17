@@ -473,13 +473,13 @@ describe("what the engine says is checked", () => {
 
   it("says what Zuna can't show yet, and keeps its words", () => {
     const photo = messageView({ ...textMessage(GRACE, serverId(1), GRACE, ""), content: { "@type": "messagePhoto", caption: { text: "Sunset", entities: [] } } }, context)!;
-    expect(photo.text).toBe("Sunset\n_Zuna can't display this yet: Photo. You can see it in the Telegram app._");
+    expect(photo.text).toBe("Sunset\n*Zuna can't display this yet: Photo. You can see it in the Telegram app.*");
     const once = messageView({ ...textMessage(GRACE, serverId(2), GRACE, ""), content: { "@type": "messagePhoto", caption: { text: "", entities: [] }, self_destruct_type: { "@type": "messageSelfDestructTypeImmediately" } } }, context)!;
     expect(once.text).toContain("Photo (view once)");
     const joined = messageView({ ...textMessage(GROUP, serverId(3), GRACE, ""), content: { "@type": "messageChatAddMembers", member_user_ids: [BOT, "x"] } }, context)!;
     expect(joined.system).toEqual({ type: "member_added", actorId: String(GRACE), targetIds: [String(BOT)] });
     const call = messageView({ ...textMessage(GRACE, serverId(4), GRACE, ""), content: { "@type": "messageCall", is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 } }, context)!;
-    expect(call.text).toBe("_Missed call_");
+    expect(call.text).toBe("*Missed call*");
   });
 });
 

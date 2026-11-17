@@ -2,7 +2,7 @@
 //
 // Telegram gives a message's text plain, with entities that say which parts are bold, a
 // link and so on, by their offsets in UTF-16 units, which is how JavaScript counts too.
-// Zuna writes the formatting into the text itself: **bold**, _italic_, ~~struck~~,
+// Zuna writes the formatting into the text itself: **bold**, *italic*, ~~struck~~,
 // ||hidden||, `code`, a fenced block and "> " for a quote. It has no underline and no
 // link under other words, so one loses its line and the other shows its address after.
 
@@ -28,7 +28,6 @@ const INLINE: { type: string; pattern: RegExp }[] = [
   { type: "bold", pattern: /\*\*([^\n]+?)\*\*/ },
   { type: "strikethrough", pattern: /~~([^\n]+?)~~/ },
   { type: "italic", pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/ },
-  { type: "italic", pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/ },
 ];
 const MAX_DEPTH = 8;
 const URL = /\bhttps?:\/\/(?:[^\s<>"'()]|\([^\s<>"'()]*\))*(?:[^\s<>"'.,;:!?()\]}]|\([^\s<>"'()]*\))/gi;
@@ -133,7 +132,7 @@ function wrap(entity: Entity, inner: string): string {
     case "bold":
       return `**${inner}**`;
     case "italic":
-      return `_${inner}_`;
+      return `*${inner}*`;
     case "strikethrough":
       return `~~${inner}~~`;
     case "spoiler":

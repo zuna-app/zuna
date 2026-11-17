@@ -294,10 +294,9 @@ public enum Markup {
         regex(#"\*\*([^\n]+?)\*\*"#),
         regex(#"~~([^\n]+?)~~"#),
         regex("(?:\\G|(?<![\(word)*]))\\*([^\(space)*](?:[^\\n*]*[^\(space)*])?)\\*(?![\(word)*])"),
-        regex("(?:\\G|(?<![\(word)_]))_([^\(space)_](?:[^\\n_]*[^\(space)_])?)_(?![\(word)_])"),
         named,
     ]
-    private static let namedRule = 6
+    private static let namedRule = 5
 
     private static func regex(_ pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression {
         // The patterns are constants; a mistake in one is a programming error.

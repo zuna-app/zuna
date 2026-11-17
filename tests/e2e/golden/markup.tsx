@@ -25,7 +25,7 @@ export const corpus: MarkupCase[] = [
   { text: "   " },
   { text: "two\nlines\n\n\nand a gap" },
   { text: "\n\nleading and trailing newlines\n\n" },
-  { text: "**bold** and ~~gone~~ and `code` and *italic* and _also italic_" },
+  { text: "**bold** and ~~gone~~ and `code` and *italic* and _not italic_" },
   { text: "**bold with *italic* inside** after" },
   { text: "***both***" },
   { text: "`code with **stars** inside`" },

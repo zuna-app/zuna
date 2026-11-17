@@ -14,7 +14,6 @@ export function plainText(text: string): string {
     .replace(/\*\*([^\n]+?)\*\*/g, "$1")
     .replace(/~~([^\n]+?)~~/g, "$1")
     .replace(/(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/g, "$1")
-    .replace(/(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/g, "$1")
     // A mention by name in a Telegram chat (telegram/markup.ts), which says the name alone.
     .replace(/\[([^[\]\n]{1,100})\]\(tg:\/\/user\?id=[1-9]\d{0,15}\)/g, "$1")
     .replace(/^>\s?/gm, "")

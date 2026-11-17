@@ -5,7 +5,7 @@ import { ParseError, fromTelegram, markupOf, parseMode, toTelegram } from "../sr
 
 describe("Zuna's markup, as Telegram's text and entities", () => {
   it("takes the formatting out of the text and says where it was", () => {
-    expect(toTelegram("**bold** and _slanted_, ~~gone~~ ||hidden|| `code`")).toEqual({
+    expect(toTelegram("**bold** and *slanted*, ~~gone~~ ||hidden|| `code`")).toEqual({
       text: "bold and slanted, gone hidden code",
       entities: [
         { type: "bold", offset: 0, length: 4 },
@@ -18,14 +18,18 @@ describe("Zuna's markup, as Telegram's text and entities", () => {
   });
 
   it("keeps formatting inside formatting, and leaves code as it's written", () => {
-    expect(toTelegram("**bold with _slant_** and `**not bold**`")).toEqual({
-      text: "bold with slant and **not bold**",
+    expect(toTelegram("**bold, *slant* inside** and `**not bold**`")).toEqual({
+      text: "bold, slant inside and **not bold**",
       entities: [
-        { type: "bold", offset: 0, length: 15 },
-        { type: "italic", offset: 10, length: 5 },
-        { type: "code", offset: 20, length: 12 },
+        { type: "bold", offset: 0, length: 18 },
+        { type: "italic", offset: 6, length: 5 },
+        { type: "code", offset: 23, length: 12 },
       ],
     });
+  });
+
+  it("leaves underscores as they're written", () => {
+    expect(toTelegram("_not slanted_ and snake_case")).toEqual({ text: "_not slanted_ and snake_case", entities: [] });
   });
 
   it("finds commands, mentions and addresses, which a bot's library looks for", () => {
@@ -65,21 +69,21 @@ describe("Telegram's text and entities, as Zuna's markup", () => {
           { type: "code", offset: 25, length: 4 },
         ],
       }),
-    ).toBe("**bold** _slanted_ ~~gone~~ ||hidden|| `code`");
+    ).toBe("**bold** *slanted* ~~gone~~ ||hidden|| `code`");
   });
 
   it("nests what's nested, drops what Zuna hasn't got, and shows a link's address", () => {
     expect(
       fromTelegram({
-        text: "bold slant under link",
+        text: "bold slant more under link",
         entities: [
-          { type: "bold", offset: 0, length: 10 },
+          { type: "bold", offset: 0, length: 15 },
           { type: "italic", offset: 5, length: 5 },
-          { type: "underline", offset: 11, length: 5 },
-          { type: "text_link", offset: 17, length: 4, url: "https://example.com/" },
+          { type: "underline", offset: 16, length: 5 },
+          { type: "text_link", offset: 22, length: 4, url: "https://example.com/" },
         ],
       }),
-    ).toBe("**bold _slant_** under link (https://example.com/)");
+    ).toBe("**bold *slant* more** under link (https://example.com/)");
   });
 
   it("writes code blocks and quotes on lines of their own", () => {
@@ -95,7 +99,7 @@ describe("Telegram's text and entities, as Zuna's markup", () => {
   });
 
   it("goes there and back", () => {
-    for (const markup of ["**bold** and _slanted_", "a ||secret|| `x`", "~~no~~ **yes _both_**", "> quoted\nplain"]) {
+    for (const markup of ["**bold** and *slanted*", "a ||secret|| `x`", "~~no~~ **yes *both* too**", "> quoted\nplain"]) {
       expect(fromTelegram(toTelegram(markup))).toBe(markup);
     }
   });

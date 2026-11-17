@@ -77,7 +77,7 @@ final class ChatReadingTests: XCTestCase {
         let alice = try Peer("alice")
         let tag = UUID().uuidString.prefix(4)
         let welcome = try alice.send(to: "user:\(bobId)", ["text": "Hi Bob \(tag)"])
-        let styled = try alice.send(to: "user:\(bobId)", ["text": "**Bold**, _italic_, ~~gone~~, `code` and https://example.com"])
+        let styled = try alice.send(to: "user:\(bobId)", ["text": "**Bold**, *italic*, ~~gone~~, `code` and https://example.com"])
         let emotes = try alice.sendWithEmotes(to: "user:\(bobId)", "zunaDance zunaRing hi @bob", mentions: [bobId])
         let jumbo = try alice.sendWithEmotes(to: "user:\(bobId)", "zunaHappy")
         let code = try alice.send(to: "user:\(bobId)", ["text": "```ts\nconst answer: number = 42;\n```"])

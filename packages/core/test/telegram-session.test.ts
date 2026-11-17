@@ -489,7 +489,7 @@ describe("what changes in a message", () => {
     line({ "@type": "messageSenderUser", user_id: 4444 });
     line({ "@type": "messageSenderChat", chat_id: GROUP });
     line({ "@type": "messageSenderChat", chat_id: 5555 });
-    expect(of(events, "message").slice(-4).map((event) => event.message.text)).toEqual(["_Grace Hopper named the group “Trip”_", "_Someone named the group “Trip”_", "_Weekend trip named the group “Trip”_", "_Someone named the group “Trip”_"]);
+    expect(of(events, "message").slice(-4).map((event) => event.message.text)).toEqual(["*Grace Hopper named the group “Trip”*", "*Someone named the group “Trip”*", "*Weekend trip named the group “Trip”*", "*Someone named the group “Trip”*"]);
   });
 
   it("keeps a chat's newest four hundred messages in memory, and forgets the oldest", async () => {

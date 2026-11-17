@@ -541,12 +541,12 @@ describe("a call's line in its chat", () => {
   const line = (content: Record<string, unknown>, from: number) =>
     messageView({ "@type": "message", id: serverId(9), chat_id: GRACE, sender_id: { "@type": "messageSenderUser", user_id: from }, is_outgoing: from === SELF, date: 1_700_000_000, content: { "@type": "messageCall", unique_id: "1", ...content } }, { selfId: SELF, now: Date.now(), find: () => undefined, nameOf: () => "Grace" })!.text;
   it("says which way it went, how, and how long, or that it never was", () => {
-    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 192 }, SELF)).toBe("_Outgoing call, 3:12_");
-    expect(line({ is_video: true, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 3723 }, GRACE)).toBe("_Incoming video call, 1:02:03_");
-    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 }, GRACE)).toBe("_Missed call_");
-    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 }, SELF)).toBe("_Cancelled call_");
-    expect(line({ is_video: true, discard_reason: { "@type": "callDiscardReasonDeclined" }, duration: 0 }, SELF)).toBe("_Outgoing video call, declined_");
-    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonDeclined" }, duration: 0 }, GRACE)).toBe("_Incoming call, declined_");
+    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 192 }, SELF)).toBe("*Outgoing call, 3:12*");
+    expect(line({ is_video: true, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 3723 }, GRACE)).toBe("*Incoming video call, 1:02:03*");
+    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 }, GRACE)).toBe("*Missed call*");
+    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonMissed" }, duration: 0 }, SELF)).toBe("*Cancelled call*");
+    expect(line({ is_video: true, discard_reason: { "@type": "callDiscardReasonDeclined" }, duration: 0 }, SELF)).toBe("*Outgoing video call, declined*");
+    expect(line({ is_video: false, discard_reason: { "@type": "callDiscardReasonDeclined" }, duration: 0 }, GRACE)).toBe("*Incoming call, declined*");
   });
 });
 

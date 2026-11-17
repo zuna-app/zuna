@@ -41,8 +41,8 @@
       "html": "<span class=\"text-block\">leading and trailing newlines<time></time></span>"
     },
     {
-      "text": "**bold** and ~~gone~~ and `code` and *italic* and _also italic_",
-      "html": "<span class=\"text-block\"><strong>bold</strong> and <del>gone</del> and <code class=\"inline-code\">code</code> and <em>italic</em> and <em>also italic</em><time></time></span>"
+      "text": "**bold** and ~~gone~~ and `code` and *italic* and _not italic_",
+      "html": "<span class=\"text-block\"><strong>bold</strong> and <del>gone</del> and <code class=\"inline-code\">code</code> and <em>italic</em> and _not italic_<time></time></span>"
     },
     {
       "text": "**bold with *italic* inside** after",
@@ -86,7 +86,7 @@
     },
     {
       "text": "_under_ snake_case_name _ x_",
-      "html": "<span class=\"text-block\"><em>under</em> snake_case_name _ x_<time></time></span>"
+      "html": "<span class=\"text-block\">_under_ snake_case_name _ x_<time></time></span>"
     },
     {
       "text": "*a*b *c*",
@@ -94,7 +94,7 @@
     },
     {
       "text": "ż*x* y and ż_x_ y",
-      "html": "<span class=\"text-block\">ż<em>x</em> y and ż<em>x</em> y<time></time></span>"
+      "html": "<span class=\"text-block\">ż<em>x</em> y and ż_x_ y<time></time></span>"
     },
     {
       "text": "a**b**c",
@@ -254,7 +254,7 @@
     },
     {
       "text": "**a***b* **c**_d_ ~~e~~*f*_g_",
-      "html": "<span class=\"text-block\"><strong>a</strong><em>b</em> <strong>c</strong><em>d</em> <del>e</del>*f*<em>g</em><time></time></span>"
+      "html": "<span class=\"text-block\"><strong>a</strong><em>b</em> <strong>c</strong>_d_ <del>e</del>*f*_g_<time></time></span>"
     },
     {
       "text": "x*a* *b*x_c_ _d_x",
@@ -266,7 +266,7 @@
     },
     {
       "text": "||**~~_*`deep`*_~~**|| and ||**~~_*deep*_~~**||",
-      "html": "<span class=\"text-block\"><span class=\"spoiler\"><strong><del><em><em><code class=\"inline-code\">deep</code></em></em></del></strong></span> and <span class=\"spoiler\"><strong><del><em><em>deep</em></em></del></strong></span><time></time></span>"
+      "html": "<span class=\"text-block\"><span class=\"spoiler\"><strong><del>_*<code class=\"inline-code\">deep</code>*_</del></strong></span> and <span class=\"spoiler\"><strong><del>_*deep*_</del></strong></span><time></time></span>"
     },
     {
       "text": "**a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** **a** ",
@@ -278,7 +278,7 @@
     },
     {
       "text": "*a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ *a* _b_ ",
-      "html": "<span class=\"text-block\"><em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <em>a</em> <em>b</em> <time></time></span>"
+      "html": "<span class=\"text-block\"><em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <em>a</em> _b_ <time></time></span>"
     },
     {
       "text": "**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a**a",

@@ -437,7 +437,7 @@ describe("a picture's size", () => {
 
 describe("formatting at its edges", () => {
   it("leaves formatting nested too deep as it's written", () => {
-    const deep = "**".repeat(0) + "||a ~~b **c _d `e` d_ c** b~~ a||";
+    const deep = "**".repeat(0) + "||a ~~b **c *d `e` d* c** b~~ a||";
     expect(toTelegram(deep).text).toBe("a b c d e d c b a");
     let nested = "x";
     for (let depth = 0; depth < 10; depth++) nested = `**${nested}**`.replace(/^\*\*/, depth % 2 ? "**" : "~~").replace(/\*\*$/, depth % 2 ? "**" : "~~");

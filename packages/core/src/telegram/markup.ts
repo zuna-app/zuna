@@ -120,7 +120,6 @@ const RULES: { pattern: RegExp; kind: string; plain?: boolean }[] = [
   { pattern: /\*\*([^\n]+?)\*\*/y, kind: "textEntityTypeBold" },
   { pattern: /~~([^\n]+?)~~/y, kind: "textEntityTypeStrikethrough" },
   { pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/y, kind: "textEntityTypeItalic" },
-  { pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/y, kind: "textEntityTypeItalic" },
 ];
 
 /** Zuna's markup as Telegram's formatted text, for sending. */

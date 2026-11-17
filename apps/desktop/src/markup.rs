@@ -106,7 +106,6 @@ static RULES: LazyLock<Vec<(Rule, FancyRegex)>> = LazyLock::new(|| {
         (Rule::Bold, FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap()),
         (Rule::Strike, FancyRegex::new(r"~~([^\n]+?)~~").unwrap()),
         (Rule::Italic, FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap()),
-        (Rule::Italic, FancyRegex::new(r"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])").unwrap()),
     ]
 });
 
@@ -339,7 +338,6 @@ static PLAIN_RULES: LazyLock<Vec<(FancyRegex, Plain)>> = LazyLock::new(|| {
         (FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"~~([^\n]+?)~~").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), Plain::Pattern("$1")),
-        (FancyRegex::new(r"(?<![A-Za-z0-9_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![A-Za-z0-9_])").unwrap(), Plain::Pattern("$1")),
         // A mention by name in a Telegram chat, which says the name alone.
         (FancyRegex::new(r"\[([^\[\]\n]{1,100})\]\(tg://user\?id=[1-9][0-9]{0,15}\)").unwrap(), Plain::Pattern("$1")),
         (FancyRegex::new(r"(?m)^>\s?").unwrap(), Plain::Pattern("")),
@@ -598,7 +596,7 @@ mod tests {
     fn formats_spans() {
         let emotes = HashMap::new();
         let mentionable = HashMap::from([("sam".to_string(), "u1".to_string())]);
-        let blocks = parse("hi **bold** and _it_ @sam https://example.com/a(b) `x`", &context(&emotes, &mentionable));
+        let blocks = parse("hi **bold** and *it* @sam https://example.com/a(b) `x`", &context(&emotes, &mentionable));
         let Block::Text(rich) = &blocks[0] else { panic!() };
         assert_eq!(rich.text, "hi bold and it @sam https://example.com/a(b) x");
         assert!(rich.spans.iter().any(|(range, style)| style.bold && &rich.text[range.clone()] == "bold"));
@@ -606,6 +604,10 @@ mod tests {
         assert!(rich.spans.iter().any(|(_, style)| style.mention.as_ref().map(|m| m.0.as_str()) == Some("u1")));
         assert!(rich.spans.iter().any(|(_, style)| style.link.as_deref() == Some("https://example.com/a(b)")));
         assert!(rich.spans.iter().any(|(range, style)| style.code && &rich.text[range.clone()] == "x"));
+        // Underscores are only underscores.
+        let Block::Text(rich) = &parse("_not it_ snake_case", &context(&emotes, &mentionable))[0] else { panic!() };
+        assert_eq!(rich.text, "_not it_ snake_case");
+        assert!(rich.spans.iter().all(|(_, style)| !style.italic));
     }
 
     #[test]
@@ -621,6 +623,7 @@ mod tests {
     #[test]
     fn plain_text_strips_markup() {
         assert_eq!(plain_text("**a** ||secret|| `b`\n> c"), "a [spoiler] b c");
+        assert_eq!(plain_text("*a* _b_"), "a _b_");
         assert_eq!(jumbo_size("😀😀", &HashMap::new()), 2);
         assert_eq!(jumbo_size("hello 😀", &HashMap::new()), 0);
     }

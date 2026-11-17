@@ -583,25 +583,25 @@ function serviceLine(content: unknown, senderId: string, context: MessageContext
     case "messageChatSetMessageAutoDeleteTime":
       return { system: { type: "timer_changed", actorId, seconds: int(field(content, "message_auto_delete_time"), 0, 2 ** 31, 0) }, text: "" };
     case "messageChatChangeTitle":
-      return { system: null, text: `_${t("telegram.namedTheGroup", { name: context.nameOf(senderId), title: str(field(content, "title"), MAX_TITLE) })}_` };
+      return { system: null, text: `*${t("telegram.namedTheGroup", { name: context.nameOf(senderId), title: str(field(content, "title"), MAX_TITLE) })}*` };
     case "messageChatChangePhoto":
-      return { system: null, text: `_${t("telegram.changedTheGroupsPicture", { name: context.nameOf(senderId) })}_` };
+      return { system: null, text: `*${t("telegram.changedTheGroupsPicture", { name: context.nameOf(senderId) })}*` };
     case "messageChatDeletePhoto":
-      return { system: null, text: `_${t("telegram.removedTheGroupsPicture", { name: context.nameOf(senderId) })}_` };
+      return { system: null, text: `*${t("telegram.removedTheGroupsPicture", { name: context.nameOf(senderId) })}*` };
     case "messagePinMessage":
-      return { system: null, text: `_${t("telegram.pinnedAMessage", { name: context.nameOf(senderId) })}_` };
+      return { system: null, text: `*${t("telegram.pinnedAMessage", { name: context.nameOf(senderId) })}*` };
     case "messageScreenshotTaken":
-      return { system: null, text: `_${t("telegram.tookAScreenshot", { name: context.nameOf(senderId) })}_` };
+      return { system: null, text: `*${t("telegram.tookAScreenshot", { name: context.nameOf(senderId) })}*` };
     case "messageContactRegistered":
-      return { system: null, text: `_${t("telegram.joinedTelegram", { name: context.nameOf(senderId) })}_` };
+      return { system: null, text: `*${t("telegram.joinedTelegram", { name: context.nameOf(senderId) })}*` };
     case "messageChatUpgradeTo":
     case "messageChatUpgradeFrom":
-      return { system: null, text: `_${t("telegram.theGroupWasUpgraded")}_` };
+      return { system: null, text: `*${t("telegram.theGroupWasUpgraded")}*` };
     case "messageCall":
-      return { system: null, text: `_${callLine(content, !!senderId && senderId === String(context.selfId))}_` };
+      return { system: null, text: `*${callLine(content, !!senderId && senderId === String(context.selfId))}*` };
     default:
       return kind.startsWith("messageChat") || kind.startsWith("messageSupergroup") || kind.startsWith("messageBasicGroup") || kind === "messageCustomServiceAction"
-        ? { system: null, text: `_${t("telegram.somethingChangedInTheGroup")}_` }
+        ? { system: null, text: `*${t("telegram.somethingChangedInTheGroup")}*` }
         : null;
   }
 }
@@ -674,7 +674,7 @@ export function messageView(message: TdObject, context: MessageContext): Message
   const edited = int(message.edit_date, 0, 2 ** 31, 0) * 1000;
   const service = serviceLine(message.content, senderId, context);
   const content = service ? { text: service.text, unshown: null, attachments: [] } : contentText(message.content);
-  const unshownLine = content.unshown ? `_${t("telegram.unshownLine", { what: content.unshown })}_` : "";
+  const unshownLine = content.unshown ? `*${t("telegram.unshownLine", { what: content.unshown })}*` : "";
   const location = field(message.content, "location");
   const latitude = field(location, "latitude");
   const longitude = field(location, "longitude");

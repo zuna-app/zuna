@@ -270,9 +270,9 @@ describe("Telegram's messages as the app's", () => {
     expect(view({ "@type": "messageSticker", sticker: { format: { "@type": "stickerFormatTgs" } } }).text).toBe("Sticker");
     expect(view({ "@type": "messageContact", contact: { first_name: "Alan", last_name: "Turing" } }).text).toBe("Contact: Alan Turing");
     expect(view({ "@type": "messageContact", contact: {} }).text).toBe("Contact: someone");
-    expect(view({ "@type": "messagePoll", caption: { text: "Vote", entities: [] } }).text).toBe("Vote\n_Zuna can't display this yet: Poll. You can see it in the Telegram app._");
-    expect(view({ "@type": "messageVideo", is_secret: true, video: { video: file(1) } }).text).toBe("_Zuna can't display this yet: Video (view once). You can see it in the Telegram app._");
-    expect(view({ "@type": "messageSomethingNew" }).text).toBe("_Zuna can't display this yet: A message Zuna can't show. You can see it in the Telegram app._");
+    expect(view({ "@type": "messagePoll", caption: { text: "Vote", entities: [] } }).text).toBe("Vote\n*Zuna can't display this yet: Poll. You can see it in the Telegram app.*");
+    expect(view({ "@type": "messageVideo", is_secret: true, video: { video: file(1) } }).text).toBe("*Zuna can't display this yet: Video (view once). You can see it in the Telegram app.*");
+    expect(view({ "@type": "messageSomethingNew" }).text).toBe("*Zuna can't display this yet: A message Zuna can't show. You can see it in the Telegram app.*");
     expect(view({ "@type": "messageLocation", location: { latitude: 52.2, longitude: 21 } })).toMatchObject({ text: "", location: { lat: 52.2, lon: 21 } });
     expect(view({ "@type": "messageLocation", location: { latitude: 0, longitude: 181 } }).location).toBeNull();
     expect(view({ "@type": "messageLocation", location: { latitude: "0", longitude: 0 } }).location).toBeNull();
@@ -293,21 +293,21 @@ describe("Telegram's messages as the app's", () => {
       expect(shown.system).toBeNull();
       return shown.text;
     };
-    expect(words({ "@type": "messageChatChangeTitle", title: "Club" })).toBe(`_Person ${GRACE} named the group “Club”_`);
-    expect(words({ "@type": "messageChatChangePhoto" })).toBe(`_Person ${GRACE} changed the group's picture_`);
-    expect(words({ "@type": "messageChatDeletePhoto" })).toBe(`_Person ${GRACE} removed the group's picture_`);
-    expect(words({ "@type": "messagePinMessage" })).toBe(`_Person ${GRACE} pinned a message_`);
-    expect(words({ "@type": "messageScreenshotTaken" })).toBe(`_Person ${GRACE} took a screenshot_`);
-    expect(words({ "@type": "messageContactRegistered" })).toBe(`_Person ${GRACE} joined Telegram_`);
-    expect(words({ "@type": "messageChatUpgradeTo" })).toBe("_The group was upgraded_");
-    expect(words({ "@type": "messageChatUpgradeFrom" })).toBe("_The group was upgraded_");
+    expect(words({ "@type": "messageChatChangeTitle", title: "Club" })).toBe(`*Person ${GRACE} named the group “Club”*`);
+    expect(words({ "@type": "messageChatChangePhoto" })).toBe(`*Person ${GRACE} changed the group's picture*`);
+    expect(words({ "@type": "messageChatDeletePhoto" })).toBe(`*Person ${GRACE} removed the group's picture*`);
+    expect(words({ "@type": "messagePinMessage" })).toBe(`*Person ${GRACE} pinned a message*`);
+    expect(words({ "@type": "messageScreenshotTaken" })).toBe(`*Person ${GRACE} took a screenshot*`);
+    expect(words({ "@type": "messageContactRegistered" })).toBe(`*Person ${GRACE} joined Telegram*`);
+    expect(words({ "@type": "messageChatUpgradeTo" })).toBe("*The group was upgraded*");
+    expect(words({ "@type": "messageChatUpgradeFrom" })).toBe("*The group was upgraded*");
     // A call's line, as Telegram's apps write it: from Grace, so to this account.
-    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonMissed" } })).toBe("_Missed video call_");
-    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 61 })).toBe("_Incoming video call, 1:01_");
-    expect(words({ "@type": "messageCall", duration: 5 })).toBe("_Incoming call, 0:05_");
-    expect(words({ "@type": "messageCall" })).toBe("_Missed call_");
+    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonMissed" } })).toBe("*Missed video call*");
+    expect(words({ "@type": "messageCall", is_video: true, discard_reason: { "@type": "callDiscardReasonHungUp" }, duration: 61 })).toBe("*Incoming video call, 1:01*");
+    expect(words({ "@type": "messageCall", duration: 5 })).toBe("*Incoming call, 0:05*");
+    expect(words({ "@type": "messageCall" })).toBe("*Missed call*");
     for (const kind of ["messageChatSetTheme", "messageSupergroupSomething", "messageBasicGroupSomething", "messageCustomServiceAction"]) {
-      expect(words({ "@type": kind })).toBe("_Something changed in the group_");
+      expect(words({ "@type": kind })).toBe("*Something changed in the group*");
     }
   });
 
@@ -485,7 +485,8 @@ describe("Telegram's entities and Zuna's markup, at their edges", () => {
     expect(fromMarkup("```js\nnever closed")).toEqual({ text: "```js\nnever closed", entities: [] });
     expect(fromMarkup("> \nplain")).toEqual({ text: "\nplain", entities: [] });
     expect(fromMarkup("> one\n>two")).toEqual({ text: "one\ntwo", entities: [{ offset: 0, length: 7, type: { "@type": "textEntityTypeBlockQuote" } }] });
-    expect(fromMarkup("_lean_ and ||**hidden bold**||")).toEqual({
+    expect(fromMarkup("_kept_ as written")).toEqual({ text: "_kept_ as written", entities: [] });
+    expect(fromMarkup("*lean* and ||**hidden bold**||")).toEqual({
       text: "lean and hidden bold",
       entities: [
         { offset: 0, length: 4, type: { "@type": "textEntityTypeItalic" } },
@@ -496,14 +497,13 @@ describe("Telegram's entities and Zuna's markup, at their edges", () => {
   });
 
   it("nests each mark inside the others, but never inside itself", () => {
-    expect(fromMarkup("~~a **b _c ||d *e* d|| c_ b** a~~")).toEqual({
+    expect(fromMarkup("~~a **b *c ||d e d|| c* b** a~~")).toEqual({
       text: "a b c d e d c b a",
       entities: [
         { offset: 0, length: 17, type: { "@type": "textEntityTypeStrikethrough" } },
         { offset: 2, length: 13, type: { "@type": "textEntityTypeBold" } },
         { offset: 4, length: 9, type: { "@type": "textEntityTypeItalic" } },
         { offset: 6, length: 5, type: { "@type": "textEntityTypeSpoiler" } },
-        { offset: 8, length: 1, type: { "@type": "textEntityTypeItalic" } },
       ],
     });
     // The nearest closing ends a mark, so one inside another of its kind only splits it.

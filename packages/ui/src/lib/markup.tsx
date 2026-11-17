@@ -109,7 +109,6 @@ const RULES: { pattern: RegExp; render: (inner: string, key: string, context: Ma
   { pattern: /\*\*([^\n]+?)\*\*/, render: (inner, key, context, depth) => <strong key={key}>{renderInline(inner, context, key, depth)}</strong> },
   { pattern: /~~([^\n]+?)~~/, render: (inner, key, context, depth) => <del key={key}>{renderInline(inner, context, key, depth)}</del> },
   { pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/, render: (inner, key, context, depth) => <em key={key}>{renderInline(inner, context, key, depth)}</em> },
-  { pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/, render: (inner, key, context, depth) => <em key={key}>{renderInline(inner, context, key, depth)}</em> },
 ];
 
 const INLINE_RULES = RULES.map((rule) => ({ ...rule, atStart: new RegExp(rule.pattern.source, "y") }));

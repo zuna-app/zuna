@@ -11,7 +11,7 @@ final class PlainTextTests: XCTestCase {
             ("```ts\nconst a = 1;\n```\nafter", "[code] after"),
             ("secret: ||the butler|| did it", "secret: [spoiler] did it"),
             ("*italic* but not 2*3*4 or *nope *", "italic but not 2*3*4 or *nope *"),
-            ("_under_ snake_case_name _ x_", "under snake_case_name _ x_"),
+            ("_under_ snake_case_name _ x_", "_under_ snake_case_name _ x_"),
             ("> quoted line\n>second\nplain", "quoted line second plain"),
             ("  lots   of\n\n spaces\t ", "lots of spaces"),
             ("**unclosed and *mixed**", "unclosed and *mixed"),

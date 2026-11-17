@@ -61,7 +61,7 @@ pub fn messages(group: &str) -> Vec<Value> {
         attachment
     };
     vec![
-        message("m01", group, 1.0, BOB, "Hi! **bold**, _italic_, ~~struck~~, ||hidden||, `code` and https://example.com/page", json!({ "preview": { "url": "https://example.com/page", "title": "A page", "description": "What it says", "siteName": "example.com", "image": { "data": THUMB, "width": 1, "height": 1 } } })),
+        message("m01", group, 1.0, BOB, "Hi! **bold**, *italic*, ~~struck~~, ||hidden||, `code` and https://example.com/page", json!({ "preview": { "url": "https://example.com/page", "title": "A page", "description": "What it says", "siteName": "example.com", "image": { "data": THUMB, "width": 1, "height": 1 } } })),
         message("m02", group, 2.0, ME, "> quoted\n```rust\nfn main() {}\n```\nand @bob too", json!({ "mentions": [BOB], "editedAt": NOW - 30_000.0, "reactions": [{ "key": "👍", "userIds": [BOB, ME] }, { "key": "Kappa", "emote": { "id": "01KAPPA", "animated": false }, "userIds": [BOB] }] })),
         message("m03", group, 3.0, BOB, "Replying", json!({ "reply": { "id": "m02", "senderId": ME, "text": "and @bob too", "hasAttachment": false, "deleted": false } })),
         message("m04", group, 4.0, BOB, "", json!({ "attachments": [file("photo.png", "image/png", json!({ "width": 640, "height": 480, "thumb": THUMB }))] })),

@@ -124,7 +124,7 @@ describe("a bot written for Telegram", () => {
     alice.session.sendMessage(dm(), { text: "/start" });
     await read(alice, dm(), "Welcome!");
     alice.session.sendMessage(dm(), { text: "/fancy" });
-    await read(alice, dm(), "**Bold**, _slanted_ and a link (https://example.com/)");
+    await read(alice, dm(), "**Bold**, *slanted* and a link (https://example.com/)");
   });
 
   it("is told when it's brought into a group, and answers there", async () => {
