@@ -2496,6 +2496,7 @@
   "telegram.call.rateSend": "发送",
   "telegram.call.rateTitle": "与 {name} 的通话怎么样？",
   "telegram.call.rateWhatWasWrong": "出了什么问题？Telegram 只会收到你在这里选择的内容。",
+  "telegram.call.screenRefused": "{name} 的 Telegram 无法显示共享的屏幕",
   "telegram.changedTheGroupsPicture": "{name} 更换了群头像",
   "telegram.checklist": "清单",
   "telegram.codeExpired": "验证码已过期，请获取新的验证码。",

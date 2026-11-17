@@ -2728,6 +2728,7 @@
   "telegram.call.rateSend": "Wyślij",
   "telegram.call.rateTitle": "Jak przebiegła rozmowa z {name}?",
   "telegram.call.rateWhatWasWrong": "Co poszło nie tak? Telegram dostanie tylko to, co tu zaznaczysz.",
+  "telegram.call.screenRefused": "Telegram osoby {name} nie może pokazać udostępnionego ekranu",
   "telegram.changedTheGroupsPicture": "Zdjęcie grupy zmieniła osoba {name}",
   "telegram.checklist": "Lista kontrolna",
   "telegram.codeExpired": "Kod wygasł. Poproś o nowy.",

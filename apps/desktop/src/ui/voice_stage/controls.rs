@@ -87,11 +87,12 @@ impl VoiceStage {
             .pb(px(if self.room.call { 10. } else { 14. }))
             .child(mic_group)
             .child(deafen_group);
-        // A Telegram call has the camera, and nothing Telegram's calls haven't: no screen of this
-        // device's shared, no soundboard, nothing watched together.
+        // A Telegram call has the camera and a shared screen, from where one can be sent into it,
+        // and nothing Telegram's calls haven't: no soundboard, nothing watched together.
         let telegram = self.room.server_id == crate::voice::telegram::TELEGRAM;
+        let can_share = voice.can_share();
         bar = bar.child(control("camera-control", if camera { "camera" } else { "camera-off" }, if camera { theme.on_accent } else { theme.text1 }, if camera { theme.accent } else { theme.bg3 }, if camera { t("voice.controls.cameraOff").into() } else { t("voice.controls.cameraOn").into() }, false).on_click(move |_, _, cx| cam.update(cx, |voice, cx| voice.toggle_camera(cx))));
-        if !telegram {
+        if can_share {
             bar = bar.child(
                 control("share-control", if sharing { "monitor-off" } else { "monitor-up" }, if sharing { theme.on_accent } else { theme.text1 }, if sharing { theme.accent } else { theme.bg3 }, if sharing { t("voice.controls.stopSharing").into() } else { share_refusal.unwrap_or(t("voice.controls.shareScreen")).into() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
                     if sharing {
@@ -100,8 +101,10 @@ impl VoiceStage {
                         picker.update(cx, |state, cx| state.set_overlay(Some(Overlay::ScreenPicker), cx));
                     }
                 }),
-            )
-            .child(crate::ui::soundboard::soundboard_button(&self.state, &self.voice, sounds, cx));
+            );
+        }
+        if !telegram {
+            bar = bar.child(crate::ui::soundboard::soundboard_button(&self.state, &self.voice, sounds, cx));
             // A video to watch together, from a link, once this device may contact YouTube.
             let (watch_on, allowed) = { let voice = self.voice.read(cx); (voice.watch.is_some(), voice.watch_allowed(cx)) };
             let watch_label = if !allowed { t("voice.watch.off") } else if watch_on { t("voice.watch.another") } else { t("voice.watch.title") };

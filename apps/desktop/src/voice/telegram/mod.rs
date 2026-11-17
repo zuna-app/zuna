@@ -307,6 +307,7 @@ impl Voice {
                             }
                             match event {
                                 MediaEvent::Media => voice.sync_videos(cx),
+                                MediaEvent::ShareRefused => voice.share_refused(cx),
                             }
                             true
                         });
@@ -327,18 +328,22 @@ impl Voice {
         }
     }
 
-    /// Tells the other side what this device's microphone and camera are doing.
+    /// Tells the other side what this device's microphone, camera and shared screen are doing.
     pub(super) fn say_telegram(&self, cx: &mut Context<Self>) {
         let Some(call) = self.telegram_call() else { return };
-        let state = json!({ "muted": self.mic_off(), "camera": self.camera });
+        let state = json!({ "muted": self.mic_off(), "camera": self.camera, "screen": self.screen.is_some() });
         let call = self.core(cx).call(Some(TELEGRAM), "callSaid", vec![json!(call.id), state]);
         cx.background_executor().spawn(async move { call.await.ok() }).detach();
     }
 
-    /// Turns the camera on or off in the Telegram call.
+    /// Turns the camera on or off in the Telegram call. On, it takes the place of a shared screen,
+    /// as one picture goes at a time.
     pub(super) fn toggle_telegram_camera(&mut self, cx: &mut Context<Self>) {
         let Some(media) = self.telegram_media.clone() else { return };
         let on = !self.camera;
+        if on && self.screen.is_some() {
+            self.end_share(true, cx);
+        }
         let device = self.settings.camera_device.clone();
         cx.spawn(async move |this, cx| {
             let result = crate::host::tokio().spawn_blocking(move || media.set_camera(on, &device)).await.unwrap_or_else(|_| Err(t("voice.camera.none").into()));
@@ -354,6 +359,17 @@ impl Voice {
             .ok();
         })
         .detach();
+    }
+
+    /// The other side's app can't show a shared screen, which goes in H.264 alone: the share stops, saying so.
+    fn share_refused(&mut self, cx: &mut Context<Self>) {
+        if self.screen.is_none() {
+            return;
+        }
+        self.end_share(true, cx);
+        let peer = self.telegram.as_ref().map(|call| call.user_id.clone()).unwrap_or_default();
+        let name = self.peer_name(&peer, cx);
+        self.toast(tr!("telegram.call.screenRefused", name = name), ToastKind::Error, cx);
     }
 
     /// The pictures of a Telegram call, as tiles: the other person's, and this device's camera.
@@ -395,7 +411,7 @@ impl Voice {
     /// and the other once they've answered.
     pub(super) fn show_members(&mut self, cx: &mut Context<Self>) {
         let call = self.telegram_call().cloned();
-        let (muted, deafened, camera) = (self.mic_off(), self.deafened, self.camera);
+        let (muted, deafened, camera, screen) = (self.mic_off(), self.deafened, self.camera, self.screen.is_some());
         self.state.update(cx, |state, cx| {
             let Some(server) = state.servers.get_mut(TELEGRAM) else { return };
             server.voice.remove(SELF_KEY);
@@ -406,7 +422,7 @@ impl Voice {
             };
             let me = server.me.as_ref().map(|me| (me.user_id.clone(), me.device_id.clone())).unwrap_or_default();
             // Under this device's own ID, which is how a room's members tell this one apart.
-            server.voice.insert(SELF_KEY.into(), VoiceMember { channel_id: call.group_id.clone(), user_id: me.0, device_id: me.1, muted, deafened, server_muted: false, camera, screen: false, since: 0. });
+            server.voice.insert(SELF_KEY.into(), VoiceMember { channel_id: call.group_id.clone(), user_id: me.0, device_id: me.1, muted, deafened, server_muted: false, camera, screen, since: 0. });
             if call.state != "calling" && call.state != "ringing" {
                 server.voice.insert(
                     PEER_KEY.into(),

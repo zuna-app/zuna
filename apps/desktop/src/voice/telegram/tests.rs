@@ -99,7 +99,17 @@ fn a_telegram_call_rings_is_answered_shown_and_ended(cx: &mut TestAppContext) {
     });
     assert!(app.drawn(cx, "telegram-call-label"), "the call says it's Telegram's");
     assert!(app.drawn(cx, "camera-control") && app.drawn(cx, "leave-control"));
-    assert!(!app.drawn(cx, "share-control") && !app.drawn(cx, "watch-control"), "nothing Telegram's calls haven't");
+    assert!(!app.drawn(cx, "watch-control") && !app.drawn(cx, "soundboard-control"), "nothing Telegram's calls haven't");
+    // A screen can be shared into it from where it comes already encoded, without the computer's sound.
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.click(cx, "share-control");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(crate::state::Overlay::ScreenPicker));
+        assert!(!app.drawn(cx, "screen-sound"), "a Telegram call takes the picture alone");
+        app.update(cx, |state, cx| state.set_overlay(None, cx));
+    }
+    #[cfg(target_os = "macos")]
+    assert!(!app.drawn(cx, "share-control"), "not yet from macOS");
     assert!(app.read(cx, |state| state.servers[TELEGRAM].voice.values().any(|member| member.user_id == GRACE)), "the other person is drawn as in the call");
 
     // The other side's picture comes before it says its camera's on, as Telegram's apps say it:

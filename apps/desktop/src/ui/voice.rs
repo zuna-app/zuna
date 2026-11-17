@@ -77,7 +77,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
     } else {
         t("voice.settings.voiceActivity").to_string()
     };
-    let (camera, sharing, deafened, server_muted, no_mic) = (voice.camera, voice.screen.is_some(), voice.deafened, voice.server_muted, voice.no_mic);
+    let (camera, sharing, deafened, server_muted, no_mic, can_share) = (voice.camera, voice.screen.is_some(), voice.deafened, voice.server_muted, voice.no_mic, voice.can_share());
     let status_icon = if voice.status == VoiceStatus::Connected { quality_icon(voice, cx) } else { spinner(12., status_color).into_any_element() };
     let key = conversation.as_ref().map(|item| item.key.clone()).or_else(|| channel.as_ref().map(|item| item.key.clone()));
     let go = {
@@ -175,15 +175,17 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                     .flex()
                     .gap(px(6.))
                     .child(action("voice-camera", camera, if camera { "camera" } else { "camera-off" }, if camera { t("voice.controls.cameraOff").into() } else { t("voice.controls.cameraOn").into() }, false).on_click(move |_, _, cx| voice_for_camera.update(cx, |voice, cx| voice.toggle_camera(cx))))
-                    .child(
-                        action("voice-share", sharing, if sharing { "monitor-off" } else { "monitor-up" }, if sharing { t("voice.controls.stopSharing").into() } else { share_refusal.unwrap_or(t("voice.controls.shareScreen")).to_string() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
-                            if sharing {
-                                voice_for_share.update(cx, |voice, cx| voice.stop_screen(cx));
-                            } else if share_refusal.is_none() {
-                                picker_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::ScreenPicker), cx));
-                            }
-                        }),
-                    ),
+                    .when(can_share, |el| {
+                        el.child(
+                            action("voice-share", sharing, if sharing { "monitor-off" } else { "monitor-up" }, if sharing { t("voice.controls.stopSharing").into() } else { share_refusal.unwrap_or(t("voice.controls.shareScreen")).to_string() }, !sharing && share_refusal.is_some()).on_click(move |_, _, cx| {
+                                if sharing {
+                                    voice_for_share.update(cx, |voice, cx| voice.stop_screen(cx));
+                                } else if share_refusal.is_none() {
+                                    picker_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::ScreenPicker), cx));
+                                }
+                            }),
+                        )
+                    }),
             )
             .child(
                 div()

@@ -17,7 +17,7 @@ import { idOf, int, isObject, kindOf, list, str } from "../map";
 import { gunzip, gzip, isGzip } from "./gzip";
 import { CallSeal } from "./seal";
 import { SctpAssociation } from "./sctp";
-import { acceptContent, contentOf, isLiteralAddress, prepareOffer, readCandidateLine, takenOf, writeAnswer, type Answered, type Description, type Role, type Section } from "./sdp";
+import { acceptContent, contentOf, isLiteralAddress, prepareOffer, readCandidateLine, SCREEN_TRACK, takenOf, trackOf, writeAnswer, type Answered, type Description, type Role, type Section } from "./sdp";
 import { readSignal, writeSignal, type Fingerprint, type MediaContent, type Signal } from "./signal";
 
 /** The one version of the protocol between the apps Zuna speaks, which every current app of Telegram's has. */
@@ -51,11 +51,15 @@ export interface CallHost {
   nameOf(userId: number): string;
 }
 
-/** What each end of a call says of its microphone and camera. */
+/** What each end of a call says of its microphone, its camera and a screen it shares, which goes instead of the camera. */
 interface Said {
   muted: boolean;
   camera: boolean;
+  screen: boolean;
 }
+
+/** Which of this side's pictures a section sends: a shared screen's, or the camera's. */
+const pictureOf = (section: Section): "screen" | "camera" => (trackOf(section) === SCREEN_TRACK ? "screen" : "camera");
 
 /** A call this device has started or been rung for, until it's over. */
 interface Live {
@@ -237,7 +241,13 @@ export class TelegramCalls {
     live.offering = false;
     const counts = { audio: 0, video: 0 };
     const roleOf = (section: Section): Role => {
-      if (section.direction === "sendonly" || section.direction === "sendrecv") return contentOf(section) ? { sends: true } : { sends: false, takes: null };
+      if (section.direction === "sendonly" || section.direction === "sendrecv") {
+        if (!contentOf(section)) return { sends: false, takes: null };
+        // One picture at a time, as Telegram's apps send them, each a stream of its own: a
+        // shared screen while there is one, and the camera otherwise. The other stays quiet.
+        if (section.media === "video" && (pictureOf(section) === "screen") !== live.said.screen) return { sends: false, takes: null };
+        return { sends: true };
+      }
       if (section.media !== "audio" && section.media !== "video") return { sends: false, takes: null };
       const index = counts[section.media]++;
       return { sends: false, takes: live.remoteContents.filter((content) => content.type === section.media)[index] ?? null };
@@ -282,13 +292,20 @@ export class TelegramCalls {
     if (signal?.kind === "MediaState") this.onSignal(signal);
   }
 
-  /** This side's microphone and camera, which the other side is told of. A camera turned on for the first time is a stream to offer. */
+  /**
+   * This side's microphone, camera and shared screen, which the other side is told of. A screen
+   * goes instead of the camera, as a stream of its own, so starting or stopping one is offered;
+   * so is a camera turned on for the first time.
+   */
   said(id: number, said: Said): void {
     const live = this.live?.view.id === id ? this.live : null;
     if (!live) return;
-    live.said = { muted: said?.muted === true, camera: said?.camera === true };
-    const sending = live.local?.description.sections.some((section, index) => section.media === "video" && live.local!.roles[index]?.sends);
-    if (live.said.camera && !sending) this.askOffer(live);
+    const screen = said?.screen === true;
+    const before = live.said.screen;
+    live.said = { muted: said?.muted === true, camera: said?.camera === true && !screen, screen };
+    const sending = live.local?.description.sections.find((section, index) => section.media === "video" && live.local!.roles[index]?.sends);
+    const wanted = screen ? "screen" : live.said.camera ? "camera" : null;
+    if (screen !== before || (wanted && (!sending || pictureOf(sending) !== wanted))) this.askOffer(live);
     this.sayMediaState();
   }
 
@@ -462,7 +479,7 @@ export class TelegramCalls {
       sctp: null,
       early: [],
       opened: false,
-      said: { muted: false, camera: video },
+      said: { muted: false, camera: video, screen: false },
       dataOpen: false,
       local: null,
       setupSent: "",
@@ -661,6 +678,10 @@ export class TelegramCalls {
     const pending = live.pending;
     if (pending && pending.exchangeId === exchangeId) {
       live.pending = null;
+      // The other side now knows this side's streams as this offer had them, and no others: a
+      // picture that gave way to another isn't sent any more.
+      live.told.clear();
+      live.taken.clear();
       for (const offered of pending.contents) {
         const answer = contents.find((content) => content.ssrc === offered.ssrc) ?? contents.filter((content) => content.type === offered.type)[pending.contents.filter((each) => each.type === offered.type).indexOf(offered)];
         live.told.set(offered.ssrc, offered);
@@ -711,13 +732,17 @@ export class TelegramCalls {
       return { sends: false, takes: role.takes };
     });
     const tracks: Record<string, "audio" | "video"> = {};
+    let refused = false;
     description.sections.forEach((section, index) => {
       const role = answered[index]!;
       if (!role.sends && role.takes && (section.media === "audio" || section.media === "video")) tracks[section.mid] = section.media;
+      // A shared screen the other side took no codec of: H.264, which its app can't read.
+      if (role.sends && section.media === "video" && pictureOf(section) === "screen" && !role.taken?.payloadTypes.some((payload) => payload.name.toLowerCase() !== "rtx")) refused = true;
     });
     live.answering = false;
     live.answers++;
     this.media(live, { do: "answer", sdp: writeAnswer(description, { ...live.remoteSetup, caller: live.view.outgoing }, answered, live.answers + 1), tracks });
+    if (refused) this.media(live, { do: "refused", stream: "screen" });
     for (const line of live.candidates.splice(0)) this.addCandidate(live, line);
     if (live.again) {
       live.again = false;
@@ -725,11 +750,12 @@ export class TelegramCalls {
     }
   }
 
-  /** Tells the other side what this side's microphone and camera are doing, over the data channel once it's open. */
+  /** Tells the other side what this side's microphone, camera and shared screen are doing, over the data channel once it's open. */
   private sayMediaState(): void {
     const live = this.live;
     if (!live || !live.dataOpen || live.view.state === "over") return;
-    const text = writeSignal({ kind: "MediaState", muted: live.said.muted, lowBattery: false, videoState: live.said.camera ? "active" : "inactive", screencastState: "inactive", videoRotation: 0 });
+    const { muted, camera, screen } = live.said;
+    const text = writeSignal({ kind: "MediaState", muted, lowBattery: false, videoState: camera ? "active" : "inactive", screencastState: screen ? "active" : "inactive", videoRotation: 0 });
     this.media(live, { do: "send", text });
   }
 }

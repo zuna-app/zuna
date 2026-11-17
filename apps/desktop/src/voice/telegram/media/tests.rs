@@ -10,17 +10,21 @@ use livekit::webrtc::stats::{IceRole, RtcStats};
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/fixtures/telegram-calls");
 
 /// The calls' shapes the fixtures are of: the caller's and the one called's first offers, by
-/// voice, and the caller's once its camera is on.
-const SHAPES: &[(&str, bool, bool)] = &[("caller", true, false), ("callee", false, false), ("caller-camera", true, true)];
+/// voice, the caller's once its camera is on, and once it shares a screen after that, in the
+/// camera's place, the camera's transceiver still there.
+const SHAPES: &[(&str, bool, bool, bool)] = &[("caller", true, false, false), ("callee", false, false, false), ("caller-camera", true, true, false), ("caller-screen", true, true, true)];
 
 /// A peer connection as a call makes one in a shape, with its offer.
-async fn offer_of(caller: bool, camera: bool) -> (PeerConnection, SessionDescription) {
+async fn offer_of(caller: bool, camera: bool, screen: bool) -> (PeerConnection, SessionDescription) {
     let runtime = LkRuntime::instance();
     let (pc, _channel) = connection(&runtime, Vec::new(), caller, crate::voice::room::VoiceRoom::microphone_source()).expect("a peer connection");
     if camera {
         let source = NativeVideoSource::new(VideoResolution { width: 1280, height: 720 }, false);
         let track = runtime.pc_factory().create_video_track("camera", source);
         pc.add_transceiver(MediaStreamTrack::Video(track), RtpTransceiverInit { direction: RtpTransceiverDirection::SendOnly, stream_ids: vec!["zuna".into()], send_encodings: Vec::new() }).expect("a camera's transceiver");
+    }
+    if screen {
+        share_transceiver(&runtime, &pc, 1920, 1080, 30, 2500).expect("a shared screen's transceiver");
     }
     receive(&pc, 1, 1).expect("transceivers taking the other side's");
     if !caller {
@@ -39,8 +43,8 @@ fn shape(sdp: &str) -> Vec<String> {
 fn offers_are_of_the_shape_the_core_was_tested_with() {
     let update = std::env::var("UPDATE_TELEGRAM_CALL_FIXTURES").is_ok_and(|value| value == "1");
     crate::host::tokio().block_on(async {
-        for (name, caller, camera) in SHAPES {
-            let (_pc, offer) = offer_of(*caller, *camera).await;
+        for (name, caller, camera, screen) in SHAPES {
+            let (_pc, offer) = offer_of(*caller, *camera, *screen).await;
             let sdp = offer.to_string();
             // Relaying only: an offer made before gathering names no candidate and no address.
             assert!(!sdp.contains("a=candidate"), "{name}'s offer names a candidate");
@@ -80,10 +84,10 @@ fn own(sdp: &str) -> Vec<String> {
 #[test]
 fn the_cores_answers_are_taken() {
     crate::host::tokio().block_on(async {
-        for (name, caller, camera) in SHAPES {
+        for (name, caller, camera, screen) in SHAPES {
             let read = |what: &str| std::fs::read_to_string(format!("{FIXTURES}/{what}-{name}.sdp")).unwrap_or_else(|_| panic!("{what}-{name}.sdp is missing: the core's test writes it"));
             let (answer, prepared) = (read("answer"), read("prepared"));
-            let (pc, offer) = offer_of(*caller, *camera).await;
+            let (pc, offer) = offer_of(*caller, *camera, *screen).await;
             // The offer as the core gave it back, made this peer connection's own: its keys and
             // SSRCs in place of those of the one the fixture came from.
             let (theirs, mine) = (own(&prepared), own(&offer.to_string()));
@@ -100,8 +104,16 @@ fn the_cores_answers_are_taken() {
             // What the other side said it sends now comes to this side, where the answer said so.
             let receiving = pc.transceivers().iter().filter(|transceiver| transceiver.current_direction() == Some(RtpTransceiverDirection::RecvOnly)).count();
             assert!(receiving >= 1, "{name}: nothing of the other side's is taken");
-            let sending = pc.transceivers().iter().filter(|transceiver| transceiver.current_direction() == Some(RtpTransceiverDirection::SendOnly)).count();
-            assert_eq!(sending, if *camera { 2 } else { 1 }, "{name}: this side's streams aren't all taken");
+            // The sound, and one picture: a shared screen in the camera's place, which stays quiet.
+            let sending: Vec<String> = pc.transceivers().iter().filter(|transceiver| transceiver.current_direction() == Some(RtpTransceiverDirection::SendOnly)).filter_map(|transceiver| transceiver.sender().track().map(|track| track.id())).collect();
+            let expected: &[&str] = if *screen { &["microphone", SCREEN_TRACK] } else if *camera { &["microphone", "camera"] } else { &["microphone"] };
+            assert_eq!(sending, expected, "{name}: this side's streams aren't taken as they should be");
+            // A shared screen goes in H.264 alone, which its frames come in.
+            if *screen {
+                let share = pc.transceivers().into_iter().find(|transceiver| transceiver.sender().track().is_some_and(|track| track.id() == SCREEN_TRACK)).expect("the screen's transceiver");
+                let codecs: Vec<String> = share.sender().parameters().codecs.iter().map(|codec| codec.mime_type.to_lowercase()).filter(|mime| mime != "video/rtx").collect();
+                assert!(!codecs.is_empty() && codecs.iter().all(|mime| mime == "video/h264"), "{name}: the screen goes in {codecs:?}");
+            }
             // The caller controls ICE, as Telegram's apps take it to, and the one called never
             // claims to, which they'd answer with nothing but role conflicts.
             let roles: Vec<IceRole> = pc.get_stats().await.expect("its stats").into_iter().filter_map(|stats| if let RtcStats::Transport(transport) = stats { Some(transport.transport.ice_role) } else { None }).collect();

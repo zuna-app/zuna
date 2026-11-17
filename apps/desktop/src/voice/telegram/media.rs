@@ -24,6 +24,8 @@ use livekit::webrtc::peer_connection::{AnswerOptions, OfferOptions, PeerConnecti
 use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt as _;
 use livekit::webrtc::peer_connection_factory::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration};
 use livekit::webrtc::prelude::{I420Buffer, VideoBuffer, VideoFrame, VideoResolution, VideoRotation};
+use livekit::webrtc::rtp_parameters::RtpEncodingParameters;
+use livekit::webrtc::rtp_sender::VideoEncoderBackend;
 use livekit::webrtc::rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit};
 use livekit::webrtc::session_description::{SdpType, SessionDescription};
 use livekit::webrtc::video_source::native::NativeVideoSource;
@@ -40,6 +42,8 @@ use crate::voice::room::{Feed, Frame, show, upright};
 pub enum MediaEvent {
     /// What's being sent and shown changed.
     Media,
+    /// The other side's app took none of the codecs a shared screen goes in: H.264 alone.
+    ShareRefused,
 }
 
 /// Something the other side sends, playing or being shown.
@@ -169,6 +173,9 @@ pub struct TelegramMedia {
     camera: Mutex<Option<Camera>>,
     /// The camera's transceiver, made the first time it's turned on, and its source.
     camera_out: Mutex<Option<(RtpTransceiver, NativeVideoSource)>>,
+    /// A shared screen's transceiver, made the first time one is shared, and its source, which
+    /// every screen shared in the call goes to, already encoded.
+    share_out: Mutex<Option<(RtpTransceiver, NativeVideoSource)>>,
 }
 
 /// Turns a relay Telegram named into one WebRTC may use: only TURN, only over UDP, only at one of
@@ -271,6 +278,24 @@ pub(crate) async fn answer_first(pc: &PeerConnection) -> Result<(), String> {
     pc.set_local_description(answer).await.map_err(|error| error.to_string())
 }
 
+/// The track a shared screen goes out on is named `screen`, which tells the core the section it's
+/// in is a screen's, sent instead of the camera and in H.264 alone (`SCREEN_TRACK` in calls/sdp.ts).
+pub(crate) const SCREEN_TRACK: &str = "screen";
+
+/// A shared screen's transceiver, which only sends: its frames come already encoded in H.264, on
+/// the graphics card (`zuna-screenshare`), and go through as they are, at most at this bitrate
+/// and frame rate. The size is the first share's, as each frame says its own.
+pub(crate) fn share_transceiver(runtime: &LkRuntime, pc: &PeerConnection, width: u32, height: u32, fps: u32, kbps: u32) -> Result<(RtpTransceiver, NativeVideoSource), String> {
+    let source = NativeVideoSource::new_encoded(VideoResolution { width, height });
+    let track = runtime.pc_factory().create_video_track(SCREEN_TRACK, source.clone());
+    let encoding = RtpEncodingParameters { max_bitrate: Some(kbps as u64 * 1000), max_framerate: Some(fps as f64), ..Default::default() };
+    let transceiver = pc
+        .add_transceiver(MediaStreamTrack::Video(track), RtpTransceiverInit { direction: RtpTransceiverDirection::SendOnly, stream_ids: vec!["zuna".into()], send_encodings: vec![encoding] })
+        .map_err(|error| error.to_string())?;
+    transceiver.sender().set_video_encoder_backend(VideoEncoderBackend::PreEncoded);
+    Ok((transceiver, source))
+}
+
 /// Adds transceivers that only take the other side's streams, until there are as many of each kind as asked.
 pub(crate) fn receive(pc: &PeerConnection, audio: usize, video: usize) -> Result<(), String> {
     for (kind, media_type, wanted) in [("audio", MediaType::Audio, audio), ("video", MediaType::Video, video)] {
@@ -351,7 +376,7 @@ impl TelegramMedia {
         })));
 
         let (commands, mut queue) = tokio::sync::mpsc::unbounded_channel::<Value>();
-        let media = Arc::new(TelegramMedia { pc, caller, proxied, _runtime: runtime, shared, commands, camera: Mutex::new(None), camera_out: Mutex::new(None) });
+        let media = Arc::new(TelegramMedia { pc, caller, proxied, _runtime: runtime, shared, commands, camera: Mutex::new(None), camera_out: Mutex::new(None), share_out: Mutex::new(None) });
         let doing = Arc::downgrade(&media);
         crate::host::tokio().spawn(async move {
             while let Some(command) = queue.recv().await {
@@ -436,6 +461,9 @@ impl TelegramMedia {
                     channel.send(text.as_bytes(), false).map_err(|error| format!("{error:?}"))?;
                 }
             }
+            "refused" => {
+                self.shared.events.unbounded_send(MediaEvent::ShareRefused).ok();
+            }
             "close" => self.close(),
             _ => {}
         }
@@ -511,6 +539,20 @@ impl TelegramMedia {
         })?;
         *self.camera.lock() = Some(Camera { _capture: capture, feed });
         Ok(())
+    }
+
+    /// Sends a shared screen's picture instead of the camera, which goes off: the source its
+    /// encoded frames go to. The first time, it's a stream the other side hasn't been offered,
+    /// which the core offers once it hears of it; stopped, the core stops offering it.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    pub fn share(&self, width: u32, height: u32, fps: u32, kbps: u32) -> Result<NativeVideoSource, String> {
+        let _runtime_guard = crate::host::tokio().enter();
+        self.camera.lock().take();
+        let mut out = self.share_out.lock();
+        if out.is_none() {
+            *out = Some(share_transceiver(&self._runtime, &self.pc, width, height, fps, kbps)?);
+        }
+        Ok(out.as_ref().map(|(_, source)| source.clone()).expect("made above"))
     }
 
     /// Closes everything of the call's: the connection, what it was playing and showing.

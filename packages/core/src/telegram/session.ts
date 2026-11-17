@@ -1033,7 +1033,7 @@ export class TelegramSession {
     this.calls.heard(id, text);
   }
 
-  callSaid(id: number, state: { muted: boolean; camera: boolean }): void {
+  callSaid(id: number, state: { muted: boolean; camera: boolean; screen: boolean }): void {
     this.calls.said(id, state);
   }
 

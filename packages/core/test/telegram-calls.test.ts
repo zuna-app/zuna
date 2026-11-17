@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { TelegramSession } from "../src/telegram/session";
-import { acceptContent, parseDescription, prepareOffer, type Description } from "../src/telegram/calls/sdp";
+import { acceptContent, parseDescription, prepareOffer, trackOf, type Description } from "../src/telegram/calls/sdp";
 import { readSignal, writeSignal, type MediaContent } from "../src/telegram/calls/signal";
 import { relaysOf } from "../src/telegram/calls/call";
 import { messageView } from "../src/telegram/map";
@@ -58,9 +58,13 @@ class Phone {
   heard: string[] = [];
   failures: string[] = [];
   camera = false;
+  /** The peer connection has a shared screen's transceiver, which it keeps once it has one. */
+  screen = false;
   connect = true;
   /** The first offer's keys, which a peer connection keeps from one offer to the next. */
   private keys: { ufrag: string; pwd: string; fingerprint: string; audio: string } | null = null;
+  /** The camera's SSRCs, its own and its retransmissions', kept as its transceiver keeps them. */
+  private cameraSsrcs: [string, string] | null = null;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(readonly name: string) {
@@ -95,7 +99,7 @@ class Phone {
 
   private shape(): string {
     const caller = this.call()?.outgoing ?? true;
-    return caller ? (this.camera ? "caller-camera" : "caller") : "callee";
+    return caller ? (this.screen ? "caller-screen" : this.camera ? "caller-camera" : "caller") : "callee";
   }
 
   /** An offer of a shape as this side's peer connection would make it: with the same keys and the same SSRC for its sound each time. */
@@ -105,6 +109,12 @@ class Phone {
     const mine = { ufrag: read(/a=ice-ufrag:(\S+)/), pwd: read(/a=ice-pwd:(\S+)/), fingerprint: read(/a=fingerprint:sha-256 (\S+)/), audio: read(/a=ssrc:(\d+) cname/) };
     if (!this.keys) this.keys = mine;
     for (const key of ["ufrag", "pwd", "fingerprint", "audio"] as const) sdp = sdp.split(mine[key]).join(this.keys[key]);
+    // The camera's section is the first with retransmissions, and a shared screen's comes after it.
+    const fid = sdp.match(/a=ssrc-group:FID (\d+) (\d+)/);
+    if (fid) {
+      this.cameraSsrcs ??= [fid[1]!, fid[2]!];
+      for (const at of [0, 1] as const) sdp = sdp.split(fid[at + 1]!).join(this.cameraSsrcs[at]);
+    }
     return sdp;
   }
 
@@ -222,7 +232,7 @@ describe("a call", () => {
 
     // What each says of itself goes over the data channel.
     expect(readSignal(ada.heard.at(-1)!)).toMatchObject({ kind: "MediaState", muted: false, videoState: "inactive" });
-    ada.session.callSaid(ada.call()!.id, { muted: true, camera: false });
+    ada.session.callSaid(ada.call()!.id, { muted: true, camera: false, screen: false });
     await until(() => grace.call()?.remote.muted, "Grace seeing Ada muted");
   });
 
@@ -300,7 +310,7 @@ describe("a call", () => {
     const [ada, grace] = await connected();
     const before = grace.answers.length;
     ada.camera = true;
-    ada.session.callSaid(ada.call()!.id, { muted: false, camera: true });
+    ada.session.callSaid(ada.call()!.id, { muted: false, camera: true, screen: false });
     await until(() => ada.offers.some((offer) => offer.shape === "caller-camera") && grace.answers.length > before && grace.answers.at(-1)!.includes("m=video"), "Grace taking Ada's camera");
     await until(() => grace.call()?.remote.camera, "Grace told the camera's on");
     const prepared = parseDescription(ada.offers.at(-1)!.prepared);
@@ -315,6 +325,43 @@ describe("a call", () => {
     const mine = parseDescription(ada.answers.at(-1)!).sections.find((section) => section.mid === video.mid)!;
     expect(mine.direction).toBe("recvonly");
     expect(mine.codecs[0]!.name.toLowerCase()).toBe("h264");
+  });
+
+  it("shares a screen in the camera's place, as a stream of its own in H.264 alone, and gives it back", async () => {
+    const [ada, grace] = await connected();
+    const id = ada.call()!.id;
+    ada.camera = true;
+    ada.session.callSaid(id, { muted: false, camera: true, screen: false });
+    await until(() => grace.call()?.remote.camera, "Grace seeing Ada's camera");
+    const videoOf = (description: Description, track: string) => description.sections.find((section) => section.media === "video" && trackOf(section) === track)!;
+    /** The pictures of Ada's Grace takes, by SSRC: what her last answer sends her way. */
+    const taking = () => parseDescription(grace.answers.at(-1)!).sections.filter((section) => section.media === "video" && section.direction === "sendonly").map((section) => section.ssrcs[0]);
+    const camera = videoOf(parseDescription(ada.offers.at(-1)!.prepared), "camera");
+    await until(() => taking().includes(camera.ssrcs[0]), "Grace taking the camera");
+
+    // Shared, with the camera still said to be on: the screen goes instead, and is said to.
+    ada.screen = true;
+    ada.session.callSaid(id, { muted: false, camera: true, screen: true });
+    await until(() => grace.call()?.remote.screen && !grace.call()?.remote.camera, "Grace told the screen's shared");
+    expect(readSignal(ada.heard.at(-1)!)).toMatchObject({ kind: "MediaState", videoState: "inactive", screencastState: "active", videoRotation: 0 });
+    await until(() => ada.offers.at(-1)!.shape === "caller-screen" && ada.answers.length > 0 && parseDescription(ada.answers.at(-1)!).sections.length === parseDescription(ada.offers.at(-1)!.prepared).sections.length, "the screen's answer");
+    const prepared = parseDescription(ada.offers.at(-1)!.prepared);
+    const screen = videoOf(prepared, "screen");
+    // In H.264 alone, as its frames come, with its retransmissions.
+    expect(new Set(screen.codecs.map((codec) => codec.name.toLowerCase()))).toEqual(new Set(["h264", "rtx"]));
+    await until(() => taking().length === 1 && taking()[0] === screen.ssrcs[0], "Grace taking the screen alone");
+    // Ada sends the screen, and the camera's section is quiet, for whenever it's back.
+    const mine = parseDescription(ada.answers.at(-1)!);
+    expect(mine.sections.find((section) => section.mid === screen.mid)!.direction).toBe("recvonly");
+    expect(mine.sections.find((section) => section.mid === videoOf(prepared, "camera").mid)!.direction).toBe("inactive");
+    expect(mine.sections.find((section) => section.mid === screen.mid)!.codecs[0]!.name.toLowerCase()).toBe("h264");
+    expect(ada.media.some((media) => media.do === "refused")).toBe(false);
+
+    // Stopped: the camera's stream is offered again in its place, and nothing's shared.
+    ada.session.callSaid(id, { muted: false, camera: false, screen: false });
+    await until(() => grace.call() && !grace.call()!.remote.screen && !grace.call()!.remote.camera, "Grace told the share's over");
+    await until(() => taking().length === 1 && taking()[0] === camera.ssrcs[0], "Grace taking the camera's stream again");
+    expect(parseDescription(ada.answers.at(-1)!).sections.find((section) => section.mid === screen.mid)!.direction).toBe("inactive");
   });
 
   it("that can't be had ends itself, saying why", async () => {
@@ -502,14 +549,20 @@ describe("the descriptions the native app sets", () => {
   it("are written for each shape of offer, and its tests set them", async () => {
     const [ada, grace] = await connected();
     ada.camera = true;
-    ada.session.callSaid(ada.call()!.id, { muted: false, camera: true });
+    ada.session.callSaid(ada.call()!.id, { muted: false, camera: true, screen: false });
     await until(() => ada.offers.some((offer) => offer.shape === "caller-camera") && ada.answers.length > 0 && parseDescription(ada.answers.at(-1)!).sections.length === parseDescription(ada.offers.at(-1)!.prepared).sections.length, "the camera's answer");
     await settle(30);
     const last = (phone: Phone, shape: string) => ({
       prepared: phone.offers.filter((offer) => offer.shape === shape).at(-1)!.prepared,
       answer: phone.answered.filter((answer) => answer.shape === shape).at(-1)!.sdp,
     });
-    const written = { caller: last(ada, "caller"), callee: last(grace, "callee"), "caller-camera": last(ada, "caller-camera") };
+    const written: Record<string, { prepared: string; answer: string }> = { caller: last(ada, "caller"), callee: last(grace, "callee"), "caller-camera": last(ada, "caller-camera") };
+    // Then a screen shared in the camera's place.
+    ada.screen = true;
+    ada.session.callSaid(ada.call()!.id, { muted: false, camera: false, screen: true });
+    await until(() => ada.offers.some((offer) => offer.shape === "caller-screen") && ada.answered.some((answer) => answer.shape === "caller-screen") && grace.call()?.remote.screen, "the screen's answer");
+    await settle(30);
+    written["caller-screen"] = last(ada, "caller-screen");
     // The o= line counts answers, which may come a little differently each run.
     const steady = (sdp: string) => sdp.replace(/^o=.*$/m, "o=");
     for (const [shape, { prepared, answer }] of Object.entries(written)) {

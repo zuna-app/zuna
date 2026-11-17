@@ -69,6 +69,12 @@ const KNOWN_FEEDBACK = new Set(["transport-cc", "goog-remb", "nack", "nack pli",
 
 /** Codecs a stream of this side's goes in, first preferred: Opus for sound, H.264 where both sides have it and VP8 otherwise. */
 const SENT_VIDEO = ["h264", "vp8"];
+/**
+ * The track a shared screen's section names (`a=msid:zuna screen`), which every app's peer
+ * connection gives it. It goes in H.264 alone, encoded before WebRTC has it, in constrained
+ * baseline, which every decoder of Telegram's takes.
+ */
+export const SCREEN_TRACK = "screen";
 /** Codecs this side takes from the other's streams. */
 const TAKEN_VIDEO = new Set(["h264", "vp8", "vp9", "av1"]);
 
@@ -228,12 +234,18 @@ function payloadOf(codec: Codec): PayloadType {
   };
 }
 
-/** Whether this side sends a stream in a codec, and in which order it prefers them. */
-function sentRank(kind: string, codec: Codec): number {
+/** Whether this side sends a stream in a codec, and in which order it prefers them: a shared screen in H.264 alone. */
+function sentRank(kind: string, codec: Codec, screen = false): number {
   const name = codec.name.toLowerCase();
   if (kind === "audio") return name === "opus" ? 0 : -1;
   if (name === "h264") return param(codec, "packetization-mode") === "1" && (param(codec, "profile-level-id") ?? "").toLowerCase().startsWith("42") ? 0 : -1;
-  return SENT_VIDEO.indexOf(name);
+  return screen ? -1 : SENT_VIDEO.indexOf(name);
+}
+
+/** The track a section of this side's sends, as its `a=msid` line names it. */
+export function trackOf(section: Section): string {
+  const line = section.lines.find((each) => each.startsWith("a=msid:"));
+  return line?.split(" ")[1]?.trim() ?? "";
 }
 
 /** Whether this side takes the other side's stream in a codec. */
@@ -400,7 +412,8 @@ export function prepareOffer(sdp: string, roleOf: (section: Section) => Role, to
     if (role.sends) {
       const before = told.get(contentOf(section)?.ssrc ?? 0);
       const earlier = before?.payloadTypes.map(codecOf) ?? [];
-      const kept = all.filter((codec) => sentRank(section.media, codec) >= 0);
+      const screen = section.media === "video" && trackOf(section) === SCREEN_TRACK;
+      const kept = all.filter((codec) => sentRank(section.media, codec, screen) >= 0);
       const keptPts = new Set(kept.map((codec) => codec.pt));
       kept.push(...all.filter((codec) => codec.name.toLowerCase() === "rtx" && keptPts.has(Number(param(codec, "apt")))));
       for (const codec of kept) {

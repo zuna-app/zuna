@@ -359,7 +359,8 @@ impl Reader {
                     row(t("voice.stats.cpu"), number("cpuCores").map(|cores| tr!("voice.stats.cpuValue", percent = format!("{:.1}", cores * 100.))), false),
                     row(t("voice.stats.keyframes"), number("allKeys").map(|keys| tr!("voice.stats.keyframesNative", keys = count(Some(keys)).unwrap_or_default(), asked = count(number("allKeyRequests")).unwrap_or_default(), changes = count(number("allBitrateChanges")).unwrap_or_default())), false),
                     row(t("voice.stats.framesRejected"), count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
-                    row(t("voice.stats.encryption"), share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { t("voice.stats.endToEnd").to_string() } else { t("common.off").to_string() }), false),
+                    // Said of a room's share alone: a Telegram call's is Telegram's, never said to be Zuna's.
+                    row(t("voice.stats.encryption"), share.info.as_ref().and_then(|info| info.get("e2ee")).map(|e2ee| if e2ee.as_bool().unwrap_or(false) { t("voice.stats.endToEnd").to_string() } else { t("common.off").to_string() }), false),
                 ]
                 .into_iter()
                 .flatten()

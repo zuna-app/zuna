@@ -2496,6 +2496,7 @@
   "telegram.call.rateSend": "送信",
   "telegram.call.rateTitle": "{name} との通話はいかがでしたか？",
   "telegram.call.rateWhatWasWrong": "何が問題でしたか？Telegram に伝わるのはここで選んだ項目だけです。",
+  "telegram.call.screenRefused": "{name} の Telegram は共有画面を表示できません",
   "telegram.changedTheGroupsPicture": "{name} がグループ画像を変更しました",
   "telegram.checklist": "チェックリスト",
   "telegram.codeExpired": "コードの有効期限が切れました。新しいコードをリクエストしてください。",

@@ -2574,6 +2574,7 @@
   "telegram.call.rateSend": "Envoyer",
   "telegram.call.rateTitle": "Comment s’est passé ton appel avec {name} ?",
   "telegram.call.rateWhatWasWrong": "Qu’est-ce qui n’allait pas ? Telegram ne reçoit que ce que tu choisis ici.",
+  "telegram.call.screenRefused": "Le Telegram de {name} ne peut pas afficher un écran partagé",
   "telegram.changedTheGroupsPicture": "{name} a changé l’image du groupe",
   "telegram.checklist": "Liste de contrôle",
   "telegram.codeExpired": "Ce code a expiré. Demande-en un autre.",

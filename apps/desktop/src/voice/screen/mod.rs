@@ -29,13 +29,22 @@ const SHARE_PERMISSION_WAIT: Duration = Duration::from_secs(5);
 const SOUND_START_LIMIT: Duration = Duration::from_secs(10);
 const SOUND_ANSWER_LIMIT: Duration = Duration::from_secs(5);
 
-/// Where the encoded picture goes: to LiveKit, which sends it as it is, and whose estimate of
-/// the network and requests for keyframes go back to the encoder.
+/// The most a screen shared into a Telegram call is sent at: what Telegram's relays carry well,
+/// and its apps' decoders on a phone take.
 #[cfg(not(target_os = "macos"))]
-struct LiveKitOutput(livekit::webrtc::video_source::native::NativeVideoSource);
+const TELEGRAM_SHARE_HEIGHT: u32 = 1080;
+#[cfg(not(target_os = "macos"))]
+const TELEGRAM_SHARE_FPS: u32 = 30;
+#[cfg(not(target_os = "macos"))]
+const TELEGRAM_SHARE_KBPS: u32 = 2500;
+
+/// Where the encoded picture goes: to WebRTC, a room's or a Telegram call's, which sends it as it
+/// is, and whose estimate of the network and requests for keyframes go back to the encoder.
+#[cfg(not(target_os = "macos"))]
+struct EncodedOutput(livekit::webrtc::video_source::native::NativeVideoSource);
 
 #[cfg(not(target_os = "macos"))]
-impl zuna_screenshare::Output for LiveKitOutput {
+impl zuna_screenshare::Output for EncodedOutput {
     fn send(&mut self, frame: &zuna_screenshare::EncodedFrame) -> bool {
         use livekit::webrtc::video_frame::{EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame};
         use livekit::webrtc::video_source::VideoResolution;

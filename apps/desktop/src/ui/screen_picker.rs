@@ -157,7 +157,8 @@ impl Render for ScreenPicker {
         let settings = voice.settings.clone();
         let server = voice.server_id.as_ref().and_then(|id| self.state.read(cx).servers.get(id)).cloned();
         let rules = server.as_ref().and_then(|server| server.info.as_ref()).and_then(|info| info.screen_share.clone());
-        let sound_allowed = rules.as_ref().is_none_or(|rules| rules.sound);
+        // A Telegram call takes the picture alone.
+        let sound_allowed = !voice.in_telegram() && rules.as_ref().is_none_or(|rules| rules.sound);
         let source = self.source();
         let pick = self.sound_pick(source.as_ref(), settings.screen_sound_by_default);
 

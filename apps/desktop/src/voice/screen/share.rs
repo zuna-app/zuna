@@ -21,7 +21,7 @@ impl Voice {
     }
 
     /// Stops what this device is sharing, if anything. A server that stopped it has already given up its place.
-    pub(super) fn end_share(&mut self, give_up_place: bool, cx: &mut Context<Self>) {
+    pub(in crate::voice) fn end_share(&mut self, give_up_place: bool, cx: &mut Context<Self>) {
         if self.screen.take().is_none() {
             return;
         }
@@ -29,7 +29,11 @@ impl Voice {
         if let Some(room) = self.room.clone() {
             crate::host::tokio().spawn(async move { room.stop_share_sound().await });
         }
-        if give_up_place {
+        if self.in_telegram() {
+            // The camera's stream goes in its place again, which the core offers.
+            self.say_telegram(cx);
+            self.show_members(cx);
+        } else if give_up_place {
             if let (Some(server_id), Some(channel_id)) = (self.server_id.clone(), self.channel_id.clone()) {
                 let call = self.core(cx).call(Some(&server_id), "voiceScreenStop", vec![json!(channel_id)]);
                 cx.background_executor().spawn(async move { call.await.ok() }).detach();
@@ -54,8 +58,19 @@ impl Voice {
         self.toast(if reason == "stopped" { t("voice.screen.stoppedByAdmin") } else { t("voice.screen.stoppedByRules") }, ToastKind::Info, cx);
     }
 
-    /// Shares a screen or a window, natively, once the server says it may.
+    /// Whether this device can share a screen in the room it's in: a Telegram call takes one
+    /// from Windows and Linux, where it comes already encoded, and not yet from macOS.
+    pub fn can_share(&self) -> bool {
+        !self.in_telegram() || cfg!(not(target_os = "macos"))
+    }
+
+    /// Shares a screen or a window, natively, once the server says it may, or into a Telegram call.
     pub fn start_screen(&mut self, choice: ScreenChoice, cx: &mut Context<Self>) {
+        if self.in_telegram() {
+            #[cfg(not(target_os = "macos"))]
+            self.start_telegram_screen(choice, cx);
+            return;
+        }
         let (Some(room), Some(server_id), Some(channel_id)) = (self.room.clone(), self.server_id.clone(), self.channel_id.clone()) else { return };
         if self.screen.is_some() {
             return;
@@ -126,23 +141,7 @@ impl Voice {
                     return;
                 }
             };
-            // Waits for it to say it's capturing, or to stop.
-            let ready = {
-                let timeout = cx.background_executor().timer(START_TIMEOUT);
-                futures::pin_mut!(timeout);
-                loop {
-                    let next = said.next();
-                    futures::pin_mut!(next);
-                    match futures::future::select(next, &mut timeout).await {
-                        futures::future::Either::Left((Some(Event::Ready(ready)), _)) => break Ok(ready),
-                        futures::future::Either::Left((Some(Event::Stats(_)), _)) => continue,
-                        futures::future::Either::Left((Some(Event::Ended(problem)), _)) => break Err(problem.unwrap_or_else(|| t("voice.screen.stoppedUnexpectedly").into())),
-                        futures::future::Either::Left((None, _)) => break Err(t("voice.screen.stoppedUnexpectedly").into()),
-                        futures::future::Either::Right(_) => break Err(t("voice.screen.tooSlow").into()),
-                    }
-                }
-            };
-            let ready = match ready {
+            let ready = match ready_of(&mut said, cx).await {
                 Ok(ready) => ready,
                 Err(problem) => {
                     native.stop();
@@ -165,7 +164,7 @@ impl Voice {
             };
             let source = crate::host::tokio().spawn(async move { publishing.start_share_video(width, height, fps, kbps, track_codec).await }).await.map_err(|error| error.to_string()).and_then(|result| result);
             match source {
-                Ok(source) => native.publish(Box::new(LiveKitOutput(source))),
+                Ok(source) => native.publish(Box::new(EncodedOutput(source))),
                 Err(problem) => {
                     native.stop();
                     this.update(cx, |voice, cx| voice.share_failed(&server_id, &channel_id, problem, cx)).ok();
@@ -184,31 +183,7 @@ impl Voice {
                     }
                     voice.share.native = Some(native);
                     voice.screen = Some(ShareInfo { info: Some(info), ..share.clone() });
-                    voice.share.watch = Some(cx.spawn(async move |this, cx| {
-                        while let Some(event) = said.next().await {
-                            let going = this
-                                .update(cx, |voice, cx| match event {
-                                    Event::Stats(stats) => {
-                                        voice.share.stats = Some(stats);
-                                        true
-                                    }
-                                    Event::Ended(problem) => {
-                                        if voice.screen.is_some() {
-                                            voice.end_share(true, cx);
-                                            if let Some(problem) = problem {
-                                                voice.toast(tr!("voice.screen.stopped", problem = problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
-                                            }
-                                        }
-                                        false
-                                    }
-                                    Event::Ready(_) => true,
-                                })
-                                .unwrap_or(false);
-                            if !going {
-                                break;
-                            }
-                        }
-                    }));
+                    voice.watch_share(said, cx);
                     voice.announce(cx);
                     voice.sound(VoiceSound::SelfJoin);
                     cx.notify();
@@ -226,6 +201,123 @@ impl Voice {
             }
         })
         .detach();
+    }
+
+    /// Into a Telegram call, on Windows and Linux: captured and encoded on the GPU as a room's
+    /// share is, in H.264's constrained baseline, which Telegram's apps decode, and sent instead of
+    /// the camera, which goes off, as a stream of its own, as Telegram's apps send one. The
+    /// computer's sound doesn't go, and the picture is held to what a call through Telegram's
+    /// relays carries.
+    #[cfg(not(target_os = "macos"))]
+    fn start_telegram_screen(&mut self, choice: ScreenChoice, cx: &mut Context<Self>) {
+        use zuna_screenshare::{Codec, Event, Options, Share, Source};
+        let Some(media) = self.telegram_media.clone() else { return };
+        if self.screen.is_some() {
+            return;
+        }
+        let settings = self.settings.clone();
+        let terms = screen_terms(&ScreenChoices { height: settings.screen_resolution, fps: settings.screen_frame_rate, kbps: settings.screen_max_bitrate }, None, "");
+        let height = if terms.height == 0 { TELEGRAM_SHARE_HEIGHT } else { terms.height.min(TELEGRAM_SHARE_HEIGHT) };
+        let (fps, kbps) = (terms.fps.clamp(1, TELEGRAM_SHARE_FPS), terms.kbps.clamp(1, TELEGRAM_SHARE_KBPS));
+        let encoder = settings.screen_encoder.as_str();
+        let options = Options {
+            codec: Codec::H264,
+            baseline: true,
+            encoder: if ["auto", "h264_nvenc", "h264_amf", "h264_mf", "h264_vaapi"].contains(&encoder) { encoder.into() } else { "auto".into() },
+            fps,
+            bitrate_kbps: kbps as u64,
+            source: if choice.source.screen { Source::Screen } else { Source::Window },
+            monitor_at: choice.source.monitor_at(),
+            window: choice.source.window(),
+            cursor: settings.screen_cursor,
+            max_height: Some(height),
+            ..Options::default()
+        };
+        let share = ShareInfo { name: choice.source.name.clone(), fps, kbps, height, held: Vec::new(), info: None };
+        let mine = self.attempt;
+        cx.spawn(async move |this, cx| {
+            let (events, mut said) = unbounded::<Event>();
+            let failed = |problem: String, this: &gpui::WeakEntity<Voice>, cx: &mut gpui::AsyncApp| {
+                log::warn!("the screen share didn't start: {problem}");
+                this.update(cx, |voice, cx| voice.toast(tr!("voice.screen.failed", problem = problem.chars().take(200).collect::<String>()), ToastKind::Error, cx)).ok();
+            };
+            let native = match Share::start(options, move |event| {
+                events.unbounded_send(event).ok();
+            }) {
+                Ok(native) => native,
+                Err(problem) => return failed(problem, &this, cx),
+            };
+            let ready = match ready_of(&mut said, cx).await {
+                Ok(ready) => ready,
+                Err(problem) => {
+                    native.stop();
+                    return failed(problem, &this, cx);
+                }
+            };
+            let (width, height) = (ready.width, ready.height);
+            let sharing = media.clone();
+            let source = crate::host::tokio().spawn_blocking(move || sharing.share(width, height, fps, kbps)).await.map_err(|error| error.to_string()).and_then(|result| result);
+            match source {
+                Ok(source) => native.publish(Box::new(EncodedOutput(source))),
+                Err(problem) => {
+                    native.stop();
+                    return failed(problem, &this, cx);
+                }
+            }
+            // A window's title is in the description, and could be anything. Nothing's said of
+            // encryption: the call is Telegram's, and its key checked by the emoji alone.
+            let info = json!({ "description": ready.description, "source": ready.source, "codec": ready.codec.name(), "width": width, "height": height, "fps": fps });
+            this.update(cx, |voice, cx| {
+                if voice.attempt != mine || voice.telegram_media.as_ref().is_none_or(|current| !Arc::ptr_eq(current, &media)) {
+                    native.stop();
+                    return;
+                }
+                // The camera went off for it.
+                voice.camera = false;
+                voice.share.native = Some(native);
+                voice.screen = Some(ShareInfo { info: Some(info), ..share });
+                voice.watch_share(said, cx);
+                voice.say_telegram(cx);
+                voice.show_members(cx);
+                voice.sync_videos(cx);
+                voice.sound(VoiceSound::SelfJoin);
+                cx.notify();
+            })
+            .ok();
+            log::info!("screen share sent into the Telegram call, {width}×{height}");
+        })
+        .detach();
+    }
+
+    /// Follows a share once it's going: its stats, and its end, by itself or as what was shared went.
+    #[cfg(not(target_os = "macos"))]
+    fn watch_share(&mut self, mut said: UnboundedReceiver<zuna_screenshare::Event>, cx: &mut Context<Self>) {
+        use zuna_screenshare::Event;
+        self.share.watch = Some(cx.spawn(async move |this, cx| {
+            while let Some(event) = said.next().await {
+                let going = this
+                    .update(cx, |voice, cx| match event {
+                        Event::Stats(stats) => {
+                            voice.share.stats = Some(stats);
+                            true
+                        }
+                        Event::Ended(problem) => {
+                            if voice.screen.is_some() {
+                                voice.end_share(true, cx);
+                                if let Some(problem) = problem {
+                                    voice.toast(tr!("voice.screen.stopped", problem = problem.chars().take(200).collect::<String>()), ToastKind::Error, cx);
+                                }
+                            }
+                            false
+                        }
+                        Event::Ready(_) => true,
+                    })
+                    .unwrap_or(false);
+                if !going {
+                    break;
+                }
+            }
+        }));
     }
 
     /// On macOS: macOS's picker chooses, the app captures with ScreenCaptureKit, and the picture
@@ -403,5 +495,24 @@ impl Voice {
             .ok();
         })
         .detach();
+    }
+}
+
+/// Waits for a share to say it's capturing, which on Linux waits for the portal's dialog, or to stop.
+#[cfg(not(target_os = "macos"))]
+async fn ready_of(said: &mut UnboundedReceiver<zuna_screenshare::Event>, cx: &mut gpui::AsyncApp) -> Result<zuna_screenshare::Ready, String> {
+    use zuna_screenshare::Event;
+    let timeout = cx.background_executor().timer(START_TIMEOUT);
+    futures::pin_mut!(timeout);
+    loop {
+        let next = said.next();
+        futures::pin_mut!(next);
+        match futures::future::select(next, &mut timeout).await {
+            futures::future::Either::Left((Some(Event::Ready(ready)), _)) => return Ok(ready),
+            futures::future::Either::Left((Some(Event::Stats(_)), _)) => continue,
+            futures::future::Either::Left((Some(Event::Ended(problem)), _)) => return Err(problem.unwrap_or_else(|| t("voice.screen.stoppedUnexpectedly").into())),
+            futures::future::Either::Left((None, _)) => return Err(t("voice.screen.stoppedUnexpectedly").into()),
+            futures::future::Either::Right(_) => return Err(t("voice.screen.tooSlow").into()),
+        }
     }
 }

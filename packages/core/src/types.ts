@@ -802,6 +802,8 @@ export type TelegramCallMedia =
   | { do: "candidate"; candidate: string; mid: string; index: number }
   /** Sends this over the data channel. */
   | { do: "send"; text: string }
+  /** The other side's app took none of the codecs this stream goes in: a shared screen goes in H.264 alone. */
+  | { do: "refused"; stream: "screen" }
   /** Closes everything of the call's. */
   | { do: "close" };
 
