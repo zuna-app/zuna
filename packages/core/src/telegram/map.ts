@@ -512,10 +512,27 @@ export interface MessageContext {
   nameOf: (senderId: string) => string;
 }
 
+/**
+ * An emoji sent alone, which Telegram's apps play as an animation: the emoji itself, which every app
+ * shows large when it's alone, or a custom emoji's picture, as a sticker's, while it has a still one
+ * and isn't one drawn in the text's color.
+ */
+function animatedEmoji(content: unknown): { text: string; unshown: string | null; attachments: Attachment[] } {
+  const sticker = field(field(content, "animated_emoji"), "sticker");
+  const type = field(sticker, "full_type");
+  if (kindOf(type) === "stickerFullTypeCustomEmoji" && field(type, "needs_repainting") !== true) {
+    const picture = attachmentsOf({ "@type": "messageSticker", sticker });
+    if (picture) return { text: "", unshown: null, attachments: picture };
+  }
+  const emoji = str(field(content, "emoji"), 16);
+  return emoji ? { text: emoji, unshown: null, attachments: [] } : { text: "", unshown: t("telegram.aMessageZunaCantShow"), attachments: [] };
+}
+
 /** The words a message's content shows, and whether it has something Zuna can't show yet. */
 function contentText(content: unknown): { text: string; unshown: string | null; attachments: Attachment[] } {
   const kind = kindOf(content);
   if (kind === "messageText") return { text: toMarkup(formatted(field(content, "text"))), unshown: null, attachments: [] };
+  if (kind === "messageAnimatedEmoji") return animatedEmoji(content);
   const caption = toMarkup(formatted(field(content, "caption")));
   // Seen once, it's never downloaded here: Telegram's own app shows it.
   const once = kindOf(field(content, "self_destruct_type")) !== "" || field(content, "is_secret") === true;

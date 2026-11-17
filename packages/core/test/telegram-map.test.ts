@@ -278,6 +278,21 @@ describe("Telegram's messages as the app's", () => {
     expect(view({ "@type": "messageLocation", location: { latitude: "0", longitude: 0 } }).location).toBeNull();
   });
 
+  it("shows an emoji sent alone as itself, and a custom one by its picture while it has a still one", () => {
+    const alone = (emoji: unknown, sticker: unknown = null) => view({ "@type": "messageAnimatedEmoji", emoji, animated_emoji: { "@type": "animatedEmoji", sticker } });
+    const animated = { format: { "@type": "stickerFormatTgs" }, thumbnail: { format: { "@type": "thumbnailFormatWebp" }, width: 100, height: 100, file: file(60) }, sticker: file(61) };
+    // Telegram's own animation of an emoji is Zuna's emoji, which the apps show large.
+    expect(alone("💀", { ...animated, full_type: { "@type": "stickerFullTypeRegular" } })).toMatchObject({ text: "💀", attachments: [] });
+    expect(alone("💀")).toMatchObject({ text: "💀", attachments: [] });
+    const custom = (change: Record<string, unknown> = {}, repainted = false) => ({ ...animated, ...change, full_type: { "@type": "stickerFullTypeCustomEmoji", custom_emoji_id: "5368324170671202286", needs_repainting: repainted } });
+    expect(alone("💀", custom())).toMatchObject({ text: "", attachments: [{ fileId: "tg:60", mime: "image/webp", sticker: true, width: 100, height: 100 }] });
+    expect(alone("💀", custom({ format: { "@type": "stickerFormatWebp" }, width: 100, height: 100, thumbnail: null }))).toMatchObject({ text: "", attachments: [{ fileId: "tg:61", mime: "image/webp", sticker: true }] });
+    // With no still picture, or one meant to be drawn in the text's color, it's its emoji.
+    expect(alone("💀", custom({ thumbnail: null }))).toMatchObject({ text: "💀", attachments: [] });
+    expect(alone("💀", custom({}, true))).toMatchObject({ text: "💀", attachments: [] });
+    expect(alone(42).text).toBe("*Zuna can't display this yet: A message Zuna can't show. You can see it in the Telegram app.*");
+  });
+
   it("puts what happened in a group as the app's system lines, or in words where it has none", () => {
     const line = (content: Record<string, unknown>, sender: unknown = { "@type": "messageSenderUser", user_id: GRACE }) => view(content, { chat_id: GROUP, sender_id: sender });
     expect(line({ "@type": "messageChatJoinByLink" }).system).toEqual({ type: "member_added", actorId: String(GRACE), targetIds: [String(GRACE)] });
