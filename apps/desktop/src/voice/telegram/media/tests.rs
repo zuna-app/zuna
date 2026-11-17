@@ -107,6 +107,12 @@ fn the_cores_answers_are_taken() {
             let roles: Vec<IceRole> = pc.get_stats().await.expect("its stats").into_iter().filter_map(|stats| if let RtcStats::Transport(transport) = stats { Some(transport.transport.ice_role) } else { None }).collect();
             let role = if *caller { IceRole::Controlling } else { IceRole::Controlled };
             assert!(!roles.is_empty() && roles.iter().all(|each| *each == role), "{name}: ICE's roles are {roles:?}, not {role:?}");
+            // WebRTC offers a section again with only the header extensions its last answer had, so
+            // a section quiet for now still has the picture's orientation for when it isn't.
+            let again = pc.create_offer(offering()).await.expect("the next offer").to_string();
+            for video in again.split("m=").filter(|section| section.starts_with("video")) {
+                assert!(video.contains("urn:3gpp:video-orientation"), "{name}: a video section's next offer has no orientation:\nm={video}");
+            }
             pc.close();
         }
     });

@@ -518,7 +518,10 @@ export function writeAnswer(offer: Description, remote: Remote, answered: Answer
     const direction: Direction = !flowing ? "inactive" : role.sends ? "recvonly" : "sendonly";
     const listed = flowing ? codecs : section.codecs;
     lines.push(`m=${section.media} 9 UDP/TLS/RTP/SAVPF ${listed.map((codec) => codec.pt).join(" ")}`, "c=IN IP4 0.0.0.0", "a=rtcp:9 IN IP4 0.0.0.0", ...transport, `a=mid:${section.mid}`);
-    if (flowing) for (const extension of extensions) lines.push(`a=extmap:${extension.id} ${extension.uri}`);
+    // A quiet section keeps every header extension it was offered: WebRTC offers a section again
+    // with only those its last answer had, so one left out is gone for good, as the picture's
+    // orientation was once, when the other side's camera came back on.
+    for (const extension of flowing ? extensions : section.extensions) lines.push(`a=extmap:${extension.id} ${extension.uri}`);
     lines.push(`a=${direction}`, "a=rtcp-mux", "a=rtcp-rsize");
     if (direction === "sendonly" && content) lines.push(`a=msid:${streamName(content)} ${trackName(content)}`);
     for (const codec of listed) {
