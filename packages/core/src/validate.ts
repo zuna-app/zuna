@@ -25,6 +25,11 @@ const MAX_THUMB_LENGTH = 22 << 10;
 /** Enough for a file far beyond any server's limit, in 1 MiB chunks. */
 const MAX_CHUNKS = 1 << 24;
 const MAX_PICTURE_SIDE = 1 << 20;
+/**
+ * A person's or a group's picture is small, as the apps crop one before it's sent, and it's
+ * fetched without being asked for, by everyone who can see it: so one that's larger isn't one.
+ */
+const MAX_AVATAR_CHUNKS = 8;
 /** Past this a location says nothing useful, in meters: about the distance around the Earth. */
 const MAX_ACCURACY = 40_075_000;
 
@@ -64,6 +69,13 @@ const isString = (value: unknown, max: number): value is string => typeof value 
 const absent = (value: unknown): value is null | undefined => value === undefined || value === null;
 
 
+/**
+ * Whether a file's type says it's an SVG. An SVG is a document that can name other files, which
+ * some of what draws one would go and open, so it's never drawn as a picture someone else sent:
+ * it's a file, to save.
+ */
+const isDrawing = (mime: string): boolean => mime.split(";")[0]!.trim().toLowerCase() === "image/svg+xml";
+
 /** A picture's side, kept only if it makes sense: nothing depends on it but the layout. */
 const side = (value: unknown): number | undefined => (typeof value === "number" && value > 0 && value <= MAX_PICTURE_SIDE ? value : undefined);
 
@@ -96,7 +108,8 @@ function parseAttachment(value: unknown): Attachment | null {
   const attachment: Attachment = { fileId, key, prefix, chunks, name: plainName(name), mime: mime || "application/octet-stream", size };
   const width = side(value.width);
   const height = side(value.height);
-  if (width && height) {
+  // Without a size it can't be laid out, so every app shows it as a file, which an SVG always is.
+  if (width && height && !isDrawing(attachment.mime)) {
     attachment.width = width;
     attachment.height = height;
   }
@@ -117,7 +130,7 @@ export function parseAvatarRef(value: unknown): AvatarRef | null {
   const { fileId, key, prefix, chunks, mime } = value;
   if (!isString(fileId, MAX_ID_LENGTH) || !FILE_ID.test(fileId) || fileId === "") return null;
   if (!isString(key, 256) || !BASE64.test(key) || !isString(prefix, 256) || !BASE64.test(prefix)) return null;
-  if (!isCount(chunks, MAX_CHUNKS) || !isString(mime, MAX_MIME_LENGTH)) return null;
+  if (!isCount(chunks, MAX_AVATAR_CHUNKS) || !isString(mime, MAX_MIME_LENGTH) || isDrawing(mime)) return null;
   return { fileId, key, prefix, chunks, mime };
 }
 

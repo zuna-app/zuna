@@ -8,6 +8,7 @@ import { migrate, type LocalDb } from "../src/db";
 import type { MessageView } from "../src/types";
 import { readFileSync } from "node:fs";
 import { TestApp, sleep, waitFor } from "./helpers";
+import { attachmentKind } from "../src/media";
 import { startServer, DatabaseSync, server, alice, bob, carol, invite, waitForMessage } from "./e2e-setup";
 
 startServer();
@@ -661,6 +662,31 @@ describe("attachments", () => {
     expect(last).toEqual(content.subarray(2 << 20));
     await expect(bob.session.downloadChunk(shortened, 1)).rejects.toThrow();
     await expect(bob.session.downloadChunk(attachment, 3)).rejects.toThrow();
+  });
+
+  // Z-79: the desktop app drew a picture as what its sender said it was, and its SVG renderer
+  // opened any path an SVG named, a network path among them. So nothing typed as an SVG reaches
+  // an app as a photo or as someone's picture, whatever its sender's app says.
+  it("never hands an app an SVG as a photo or as someone's picture", async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64" height="64"><image width="64" height="64" xlink:href="//203.0.113.5/share/x.png"/></svg>`;
+    await carol.session.sendWithAttachments(`user:${bob.userId}`, [{ blob: new Blob([svg], { type: "image/svg+xml" }), name: "holiday.png", mime: "image/svg+xml", width: 640, height: 480 }], { text: "look" }, { keepMetadata: true });
+    await waitFor(() => bob.texts(`user:${carol.userId}`).includes("look"), "delivery");
+    const groupId = bob.session.getConversations().find((item) => item.key === `user:${carol.userId}`)!.groupId!;
+    const attachment = (await bob.session.loadMessages(groupId)).messages.find((item) => item.text === "look")!.attachments[0]!;
+    expect(attachment).toMatchObject({ name: "holiday.png", mime: "image/svg+xml" });
+    expect(attachment.width).toBeUndefined();
+    expect(attachmentKind(attachment)).toBe("file");
+
+    // As someone's picture it isn't taken at all: a profile with one changes nothing of what
+    // bob knew of carol, and her next one, without it, is taken.
+    const carolSeen = () => bob.session.getUsers().find((user) => user.id === carol.userId)!;
+    const bioBefore = carolSeen().bio;
+    await carol.session.updateProfile({ bio: "with a drawing" }, new Blob([svg], { type: "image/svg+xml" }));
+    await carol.session.updateProfile({ bio: "without one" }, null);
+    await waitFor(() => carolSeen().bio === "without one", "carol's next profile to come");
+    expect(carolSeen().avatar ?? null).toBeNull();
+    await carol.session.updateProfile({ bio: bioBefore });
+    await waitFor(() => carolSeen().bio === bioBefore, "carol's profile as it was");
   });
 
   it("takes out where, when and on what a photo was taken, unless the sender's settings keep it", async () => {

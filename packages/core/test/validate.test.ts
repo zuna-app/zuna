@@ -67,7 +67,13 @@ describe("pieces of a message", () => {
       ["chunks", -1],
       ["chunks", 1.5],
       ["mime", 5],
+      // Z-80: it's fetched without being asked for, so it's small or it isn't one.
+      ["chunks", 9],
+      // Z-79: an SVG can name other files, which what draws it may open, so it's never someone's picture.
+      ["mime", "image/svg+xml"],
+      ["mime", "IMAGE/SVG+XML; charset=utf-8"],
     ]);
+    expect(parseAvatarRef({ ...avatar, chunks: 8, mime: "image/gif" })).toEqual({ ...avatar, chunks: 8, mime: "image/gif" });
   });
 
   it("takes buttons that all open a link or send data back, and nothing if any doesn't", () => {
@@ -188,6 +194,14 @@ describe("a message body", () => {
     expect(one({ mime: "" })?.mime).toBe("application/octet-stream");
     expect(one({ width: 10 })?.width).toBeUndefined();
     expect(one({ width: 0, height: 10 })?.width).toBeUndefined();
+    // Z-79: a file typed as an SVG has no size, so no app lays it out as a photo: it's a file to save.
+    expect(one({ mime: "image/png", width: 10, height: 20 })).toMatchObject({ width: 10, height: 20 });
+    for (const mime of ["image/svg+xml", "Image/SVG+XML", "image/svg+xml;charset=utf-8"]) {
+      const drawing = one({ mime, width: 10, height: 20 });
+      expect(drawing?.mime).toBe(mime);
+      expect(drawing?.width).toBeUndefined();
+      expect(drawing?.height).toBeUndefined();
+    }
     expect(one({ thumb: "https://evil.example/x.png" })?.thumb).toBeUndefined();
     expect(one({ duration: -1 })?.duration).toBeUndefined();
     expect(one({ duration: Infinity })?.duration).toBeUndefined();
