@@ -821,6 +821,45 @@ describe("sending, and what Telegram refuses", () => {
     await expect(session.sendWithAttachments(`user:${GRACE}`, [file("a.txt", "text/plain")], { text: "" }, { keepMetadata: true })).rejects.toThrow("You can't send messages to this person.");
   });
 
+  it("is back from a send once TDLib has the files, as an app takes its copy away then", async () => {
+    // As the iPhone's app does with a picture it staged, and both apps with a recording.
+    const removed = new Set<Blob>();
+    const files: FileAdapter = {
+      size: (blob) => blob.size,
+      type: (blob) => blob.type,
+      read: async (blob, start, end) => {
+        if (removed.has(blob)) throw new Error("No such file");
+        return new Uint8Array(await blob.slice(start, end).arrayBuffer());
+      },
+      assemble: async (parts, mime) => new Blob(parts as BlobPart[], { type: mime }),
+    };
+    const { engine, session } = await ready({ files });
+    const picture = (length: number, seed: number, mime: string) => new Blob([Uint8Array.from({ length }, (_, index) => (index * seed) % 251)], { type: mime });
+    const photo = picture(700_000, 7, "image/jpeg");
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: photo, name: "photo.jpg", mime: "image/jpeg" }], { text: "" }, { keepMetadata: true });
+    removed.add(photo);
+    const written = [...engine.generated.entries()].find(([path]) => path.endsWith("/photo.jpg"))![1];
+    expect(written).toMatchObject({ finished: true, error: null });
+    expect(atob(written.data).length).toBe(700_000);
+
+    // An album's, and each of files sent one after another.
+    const album = [picture(600_000, 3, "image/png"), picture(900, 5, "image/png")];
+    await session.sendWithAttachments(`user:${GRACE}`, album.map((blob, index) => ({ blob, name: `${index}.png`, mime: "image/png" })), { text: "" }, { keepMetadata: true });
+    const loose = [picture(600_000, 11, "application/pdf"), picture(800, 13, "text/plain")];
+    await session.sendWithAttachments(`user:${GRACE}`, loose.map((blob, index) => ({ blob, name: `${index}.bin`, mime: blob.type })), { text: "" }, { keepMetadata: true });
+    for (const blob of [...album, ...loose]) removed.add(blob);
+    const done = [...engine.generated.entries()].filter(([path]) => /\/[01]\.(png|bin)$/.test(path)).map(([, file]) => file);
+    expect(done).toHaveLength(4);
+    expect(done.every((file) => file.finished && file.error === null)).toBe(true);
+
+    // A file TDLib stops asking for, or a message it gave no number, waits for nothing.
+    engine.stopAfterBytes = 1;
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: picture(600_000, 17, "application/pdf"), name: "gone.pdf", mime: "application/pdf" }], { text: "" }, { keepMetadata: true });
+    engine.stopAfterBytes = null;
+    engine.answer("sendMessage", { "@type": "message", id: 0, chat_id: GRACE });
+    await session.sendWithAttachments(`user:${GRACE}`, [{ blob: picture(10, 19, "application/pdf"), name: "none.pdf", mime: "application/pdf" }], { text: "" }, { keepMetadata: true });
+  });
+
   it("strips a picture's metadata unless asked not to, and tells TDLib when a file can't be read", async () => {
     const files: FileAdapter = {
       size: (blob) => blob.size,

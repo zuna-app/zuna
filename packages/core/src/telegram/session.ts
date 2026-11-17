@@ -228,6 +228,12 @@ export class TelegramSession {
    * writing stops. The file stays in `outgoing`, as TDLib may ask for it again.
    */
   private stopped = new Set<string>();
+  /**
+   * Files being sent that TDLib isn't done with, by their names in `outgoing`: the message each
+   * is in, once Telegram has numbered it, whether it's being written now, and what's told once
+   * TDLib has it, refused it or won't ask for it, which `sendWithAttachments` waits for.
+   */
+  private reading = new Map<string, { message: number | null; busy: boolean; done: () => void }>();
   /** A group's people, as last asked of TDLib, for its details. */
   private members = new Map<number, GroupMemberView[]>();
   /**
@@ -268,12 +274,14 @@ export class TelegramSession {
   stop(): void {
     this.ended = true;
     this.calls.reset();
+    this.doneReadingAll();
     this.engine.stop(false);
   }
 
   /** Signs out at Telegram, if it can, and erases everything of the account's here. Says whether it signed out. */
   unlink(): Promise<boolean> {
     this.calls.reset();
+    this.doneReadingAll();
     return new Promise((resolve) => {
       this.unlinking = resolve;
       this.signingOut = true;
@@ -548,6 +556,7 @@ export class TelegramSession {
         const old = idOf(update.old_message_id);
         if (!isObject(message) || !old) return;
         const chatId = idOf(message.chat_id);
+        this.doneWith(old);
         if (!chatId) return;
         this.messages.get(chatId)?.delete(old);
         this.remember(message);
@@ -557,6 +566,7 @@ export class TelegramSession {
       case "updateMessageSendFailed": {
         const message = update.message;
         const old = idOf(update.old_message_id);
+        if (old) this.doneWith(old);
         if (!isObject(message)) return;
         const chatId = idOf(message.chat_id);
         const replaced = chatId && old && old !== idOf(message.id) ? old : undefined;
@@ -584,6 +594,7 @@ export class TelegramSession {
         for (const raw of list(update.message_ids, 10_000)) {
           const id = idOf(raw);
           if (!id) continue;
+          this.doneWith(id);
           this.messages.get(chatId)?.delete(id);
           this.options.onEvent({ type: "message_removed", serverId: TELEGRAM_ID, groupId: String(chatId), id: String(id) });
         }
@@ -612,12 +623,15 @@ export class TelegramSession {
   /** TDLib asks for a file being sent: it's written there a part at a time, from the app's copy. */
   private async generate(update: TdObject): Promise<void> {
     const generation = str(update.generation_id, 24);
-    const source = this.outgoing.get(str(update.original_path, 300));
+    const path = str(update.original_path, 300);
+    const source = this.outgoing.get(path);
     if (!/^\d+$/.test(generation)) return;
     if (!source || str(update.conversion, 16) !== "zuna") {
       await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: "That file isn't being sent" } }).catch(() => undefined);
       return;
     }
+    const reading = this.reading.get(path);
+    if (reading) reading.busy = true;
     try {
       for (let offset = 0; offset < source.size; offset += UPLOAD_PART) {
         if (this.stopped.delete(generation)) return;
@@ -627,12 +641,38 @@ export class TelegramSession {
         await this.engine.request({ "@type": "writeGeneratedFilePart", generation_id: generation, offset, data: btoa(binary) });
       }
       await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: null });
-      this.outgoing.delete(str(update.original_path, 300));
+      this.outgoing.delete(path);
     } catch (error) {
       await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: String(error) } }).catch(() => undefined);
     } finally {
       this.stopped.delete(generation);
+      this.doneReading(path);
     }
+  }
+
+  /** Waits until TDLib is done with a file being sent (`reading`). */
+  private untilRead(name: string): Promise<void> {
+    return new Promise((done) => this.reading.set(name, { message: null, busy: false, done }));
+  }
+
+  /** TDLib is done with a file being sent, or nothing waits for it any more. */
+  private doneReading(name: string): void {
+    const reading = this.reading.get(name);
+    this.reading.delete(name);
+    reading?.done();
+  }
+
+  /**
+   * A message TDLib won't ask for files for any more, as it was sent, failed or deleted: its files
+   * are done with, but for one being written now, which is once it's written.
+   */
+  private doneWith(message: number): void {
+    for (const [name, reading] of this.reading) if (reading.message === message && !reading.busy) this.doneReading(name);
+  }
+
+  /** The engine is going away, and with it whatever it would still ask for. */
+  private doneReadingAll(): void {
+    for (const name of [...this.reading.keys()]) this.doneReading(name);
   }
 
   /** What the broker says about the engine itself. */
@@ -1128,42 +1168,62 @@ export class TelegramSession {
     const chatId = await this.chatForKey(groupKey);
     const caption = (body.text ?? "").trim();
     const contents: TdObject[] = [];
+    const names: string[] = [];
     for (const [index, file] of files.entries()) {
       const whole: ByteSource = { size: reader.size(file.blob), read: (start, end) => reader.read(file.blob, start, end) };
       // What the Privacy switch says goes for Telegram too: a voice or video message is recorded here, and holds nothing of it.
       const source = options.keepMetadata || file.voice || file.round ? whole : await withoutMetadata(whole, file.mime, file.name);
-      contents.push(this.inputContent(file, source, index === 0 ? caption : ""));
+      const name = uploadName(file.name);
+      names.push(name);
+      contents.push(this.inputContent(file, name, source, index === 0 ? caption : ""));
     }
     const replyTo = body.replyTo && /^\d+$/.test(body.replyTo) ? { "@type": "inputMessageReplyToMessage", message_id: Number(body.replyTo), quote: null } : null;
     // Pictures and videos together go as one album, of up to ten, as Telegram's apps send them.
     const album = contents.length > 1 && contents.length <= 10 && contents.every((content) => content["@type"] === "inputMessagePhoto" || content["@type"] === "inputMessageVideo");
+    // TDLib asks for each file only once its message is out (`generate`), and an app takes its
+    // copy away once this is back, as the iPhone's does with a picture it staged and both apps
+    // with a recording: so this is back once TDLib has every file, as a server's send is once
+    // they're uploaded.
+    const read = Promise.all(names.map((name) => this.untilRead(name)));
     const sent: TdObject[] = [];
-    if (album) {
-      const answer = await this.engine.request({ "@type": "sendMessageAlbum", chat_id: chatId, topic_id: null, reply_to: replyTo, options: null, input_message_contents: contents }).catch((error) => {
-        throw explain(error);
-      });
-      sent.push(...list(answer.messages, 10).filter(isObject));
-    } else {
-      for (const [index, content] of contents.entries()) {
-        const message = await this.engine
-          .request({ "@type": "sendMessage", chat_id: chatId, topic_id: null, reply_to: index === 0 ? replyTo : null, options: null, reply_markup: null, input_message_content: content })
-          .catch((error) => {
-            throw explain(error);
-          });
-        sent.push(message);
+    try {
+      if (album) {
+        const answer = await this.engine.request({ "@type": "sendMessageAlbum", chat_id: chatId, topic_id: null, reply_to: replyTo, options: null, input_message_contents: contents }).catch((error) => {
+          throw explain(error);
+        });
+        sent.push(...list(answer.messages, 10).filter(isObject));
+      } else {
+        for (const [index, content] of contents.entries()) {
+          const message = await this.engine
+            .request({ "@type": "sendMessage", chat_id: chatId, topic_id: null, reply_to: index === 0 ? replyTo : null, options: null, reply_markup: null, input_message_content: content })
+            .catch((error) => {
+              throw explain(error);
+            });
+          sent.push(message);
+        }
       }
+    } catch (error) {
+      for (const name of names) this.doneReading(name);
+      throw error;
     }
     for (const message of sent) {
       this.remember(message);
       const view = this.view(message);
       if (view) this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
     }
+    // Each file is in the message sent with it. One TDLib gave no number is one it won't ask for.
+    for (const [index, name] of names.entries()) {
+      const id = sent.length === names.length ? idOf(sent[index]!.id) : undefined;
+      const reading = this.reading.get(name);
+      if (reading && id) reading.message = id;
+      else if (!reading?.busy) this.doneReading(name);
+    }
+    await read;
     return String(idOf(sent[0]?.id) ?? "");
   }
 
-  /** How one file goes to Telegram: as the engine will ask for it by a name made for this send. */
-  private inputContent(file: OutgoingFile, source: ByteSource, caption: string): TdObject {
-    const name = uploadName(file.name);
+  /** How one file goes to Telegram: as the engine will ask for it by the name made for this send. */
+  private inputContent(file: OutgoingFile, name: string, source: ByteSource, caption: string): TdObject {
     this.outgoing.set(name, source);
     const input = { "@type": "inputFileGenerated", original_path: name, conversion: "zuna", expected_size: source.size };
     const text = { "@type": "formattedText", ...fromMarkup(caption) };
