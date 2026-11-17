@@ -94,7 +94,8 @@ impl VoiceStage {
         open_menu_with_header(position, header, entries, false, cx);
     }
 
-    pub(super) fn person_tile(&mut self, member: &VoiceMember, camera: Option<&VideoTile>, size: (f32, f32), cx: &mut Context<Self>) -> AnyElement {
+    /// A person in the stage: their camera, cut to the tile's 16:9 unless `whole`, or their picture.
+    pub(super) fn person_tile(&mut self, member: &VoiceMember, camera: Option<&VideoTile>, size: (f32, f32), whole: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let state = self.state.read(cx);
         let Some(server) = state.servers.get(&self.room.server_id) else { return div().into_any_element() };
@@ -110,7 +111,7 @@ impl VoiceStage {
             self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
         });
         let content = match camera {
-            Some(tile) => self.video(tile, false, size.0 / size.1),
+            Some(tile) => self.video(tile, whole, size.0 / size.1),
             None => avatar(AvatarProps { name: name.clone(), seed: member.user_id.clone(), image, size: 84., online: false, rounded: false, dot_border: theme.bg2 }, cx).into_any_element(),
         };
         let user_id = member.user_id.clone();

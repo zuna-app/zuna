@@ -217,9 +217,9 @@ fn fit_shape(cell_width: f32, cell_height: f32, shape: f32) -> (f32, f32) {
 /// name and its buttons room beside each other.
 const SCREEN_MIN_WIDTH: f32 = 200.;
 
-/// A shared screen's tile, in the shape of its picture, as large as fits a cell: a phone's screen
-/// held upright is tall, where a 16:9 tile would leave it a strip down the middle. 16:9 until its
-/// first picture comes.
+/// A shared screen's tile, or a camera's in a call on Telegram, in the shape of its picture, as
+/// large as fits a cell: a phone's screen held upright is tall, where a 16:9 tile would leave it a
+/// strip down the middle. 16:9 until its first picture comes.
 fn fit_screen(tile: &VideoTile, cell_width: f32, cell_height: f32) -> (f32, f32) {
     let shape = tile.feed.lock().as_ref().filter(|frame| frame.width > 0 && frame.height > 0).map(|frame| frame.width as f32 / frame.height as f32).unwrap_or(16. / 9.).clamp(0.25, 4.);
     let (width, height) = fit_shape(cell_width, cell_height, shape);
@@ -347,9 +347,16 @@ impl Render for VoiceStage {
                         .into_any_element(),
                 );
             }
+            // A call on Telegram shows a camera whole, in a tile of its picture's shape, as Telegram's
+            // apps do: a phone held upright sends a tall picture, which a 16:9 tile cut to a strip.
+            let whole = self.room.server_id == crate::voice::telegram::TELEGRAM;
             for member in &members {
                 let camera = cameras.get(&member.user_id).cloned();
-                tiles.push(self.person_tile(member, camera.as_ref(), tile_size, cx));
+                let size = match &camera {
+                    Some(tile) if whole && !strip => fit_screen(tile, cell.0, cell.1),
+                    _ => tile_size,
+                };
+                tiles.push(self.person_tile(member, camera.as_ref(), size, whole, cx));
             }
             for user in &ringing {
                 tiles.push(self.ringing_tile(user, tile_size, cx));
