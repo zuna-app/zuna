@@ -205,6 +205,7 @@ The app's control channel listens on the phone's loopback only, so it's reached 
   - `xcrun simctl keychain <udid> reset` (the simulator keychain survives uninstalling);
   - grant photo permissions up front;
   - add an interruption monitor for any system alert.
+- **Chinese and Japanese:** the iOS 26.0 simulator runtime (23A343) can't load its own PingFang, so it draws every Han character in the system font as a box, in any app, the language picker's 日本語 and 简体中文 and chat text alike. The 26.4 and 27 runtimes draw them, so check such text on one of those.
 - **Fixtures**, generated with macOS tools and committed so later runs need nothing extra:
   - photos with `sips` (JPEG, PNG, HEIC);
   - videos with `avconvert` (H.264, HEVC);
