@@ -605,10 +605,16 @@ export class ZunaClient {
   /**
    * The language the app shows, by its tag, with its catalog from packages/i18n/locales, so
    * that what the core words itself, its errors and notifications, and the server's messages
-   * read the same. English needs no catalog.
+   * read the same. English needs no catalog. The interface is told to read every server's chats and
+   * people again, as what the core words in them, such as a chat with oneself, reads differently now.
    */
   setLanguage(tag: string, catalog: unknown): void {
     useCatalog(tag, catalog);
+    const servers = [...this.sessions.keys(), ...(this.telegram ? [TELEGRAM_ID] : [])];
+    for (const serverId of servers) {
+      this.options.onEvent({ type: "conversations", serverId });
+      this.options.onEvent({ type: "users", serverId });
+    }
   }
 
   /**

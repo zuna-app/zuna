@@ -3,6 +3,7 @@
 // what's kept apart from Zuna's chats, the mapping's checks, and media, stickers, drafts, the
 // archive and groups. No server takes part.
 
+import polish from "@zuna/i18n/locales/pl.json";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ZunaClient } from "../src/client";
 import { serveCore, type RpcPort } from "../src/rpc";
@@ -337,6 +338,24 @@ describe("a linked account's chats", () => {
         [GROUP, false],
       ]),
     );
+  });
+
+  it("calls the chat with oneself by the language shown, and has the list read again when it changes", async () => {
+    const { engine, events, client, session } = await ready();
+    const listed = [{ "@type": "chatPosition", list: { "@type": "chatListMain" }, order: "8000", is_pinned: false }];
+    engine.emit({ "@type": "updateNewChat", chat: { "@type": "chat", id: SELF, type: { "@type": "chatTypePrivate", user_id: SELF }, title: "Ada Lovelace", positions: listed } });
+    const saved = () => session.getConversations().find((chat) => chat.key === `user:${SELF}`)?.title;
+    expect(await until(saved, "Saved messages")).toBe("Saved messages");
+    const seen = events.length;
+    try {
+      client.setLanguage("pl", polish);
+      expect(saved()).toBe("Zapisane wiadomości");
+      // The interface holds the list it read, so it's told to read it again.
+      expect(events.slice(seen)).toEqual(expect.arrayContaining([{ type: "conversations", serverId: TELEGRAM_ID }, { type: "users", serverId: TELEGRAM_ID }]));
+    } finally {
+      client.setLanguage("en", null);
+    }
+    expect(saved()).toBe("Saved messages");
   });
 });
 
