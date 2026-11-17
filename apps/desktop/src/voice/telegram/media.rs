@@ -534,6 +534,16 @@ impl TelegramMedia {
     }
 }
 
+#[cfg(test)]
+impl TelegramMedia {
+    /// The other side's picture, as if its track had come, with no frame in it yet.
+    pub(crate) fn picture_arrived(&self) {
+        let task = crate::host::tokio().spawn(async {}).abort_handle();
+        self.shared.remotes.lock().insert("picture".into(), Remote { mixer_id: None, feed: Some(Arc::new(Mutex::new(None))), task });
+        self.shared.events.unbounded_send(MediaEvent::Media).ok();
+    }
+}
+
 impl Drop for TelegramMedia {
     fn drop(&mut self) {
         self.close();

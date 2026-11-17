@@ -102,6 +102,18 @@ fn a_telegram_call_rings_is_answered_shown_and_ended(cx: &mut TestAppContext) {
     assert!(!app.drawn(cx, "share-control") && !app.drawn(cx, "watch-control"), "nothing Telegram's calls haven't");
     assert!(app.read(cx, |state| state.servers[TELEGRAM].voice.values().any(|member| member.user_id == GRACE)), "the other person is drawn as in the call");
 
+    // The other side's picture comes before it says its camera's on, as Telegram's apps say it:
+    // shown once it does, and gone once it says it's off.
+    let pictures = |cx: &mut TestAppContext| voice(cx).read_with(cx, |voice, _| voice.videos.iter().filter(|video| !video.local).count());
+    voice(cx).read_with(cx, |voice, _| voice.telegram_media.clone()).expect("the call's peer connection").picture_arrived();
+    app.settle(cx, |_| true);
+    assert_eq!(pictures(cx), 0, "nothing's shown before the other side says its camera's on");
+    let camera = |on: bool| json!({ "emoji": ["🐶", "🚗", "🌵", "🎻"], "connectedAt": 1_700_000_000_000.0, "remote": { "muted": false, "camera": on, "screen": false, "lowBattery": false } });
+    said(&app, cx, call("on", camera(true)));
+    assert_eq!(pictures(cx), 1, "the other side's picture shows once it says its camera's on");
+    said(&app, cx, call("on", camera(false)));
+    assert_eq!(pictures(cx), 0, "and goes once it says it's off");
+
     // Muting tells the core, which tells the other side.
     voice(cx).update(cx, |voice, cx| voice.toggle_mute(cx));
     app.run(cx);

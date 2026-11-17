@@ -203,6 +203,12 @@ impl Voice {
             }
             _ => {}
         }
+        // The other side's picture shows while it says it's sending one, which Telegram's apps
+        // say after the picture has come, and again once it's back on the same stream.
+        let showing = |call: &Option<TelegramCallView>| call.as_ref().map(|call| (call.remote.camera, call.remote.screen));
+        if self.telegram_media.is_some() && showing(&before) != showing(&call) {
+            self.sync_videos(cx);
+        }
         self.update_ringing(cx);
         cx.notify();
     }
