@@ -10,6 +10,9 @@
 //
 //   npm run build -w @zuna/web && node apps/desktop/test/linux-voice-check.mjs [screenshot-dir]
 //
+// With ZUNA_TEST_TCP=1, LiveKit offers its TCP port alone, as a network that blocks UDP leaves
+// an app with, and all of it goes over TCP (`liveKitTcpOnly` in scripts/lib.mjs).
+//
 // Needs Playwright's Chromium: npx playwright-core install chromium
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -20,7 +23,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { createServer as createTlsServer } from "node:tls";
 import { chromium } from "playwright-core";
-import { LIVEKIT_CONFIG, ensureLiveKit, liveKitLogProblems } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, TCP_ONLY_CONFIG, ensureLiveKit, lanAddress, liveKitLogProblems, liveKitTcpOnly, liveKitWays } from "../../../scripts/lib.mjs";
 import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
@@ -196,8 +199,11 @@ try {
   // Its media on ports of its own too, under the `rtc` LIVEKIT_CONFIG ends with: LiveKit's own,
   // 7881 and 7882, are taken while `npm run dev:server` runs, whose LiveKit binds UDP on every
   // address, and then this one exits at once.
-  const liveKitConfig = `${LIVEKIT_CONFIG}  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n`;
-  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", liveKitConfig], process.env, "livekit");
+  // For TCP alone, on this machine's address on its network, as a TCP connection to loopback finds none of its candidates.
+  const liveKitConfig = `${LIVEKIT_CONFIG}  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n${liveKitTcpOnly ? TCP_ONLY_CONFIG : ""}`;
+  const liveKitAddress = liveKitTcpOnly ? lanAddress() : "127.0.0.1";
+  const liveKitBinds = liveKitTcpOnly ? ["--bind", liveKitAddress, "--bind", "127.0.0.1"] : ["--bind", "127.0.0.1"];
+  const liveKit = start(ensureLiveKit(), ["--dev", ...liveKitBinds, "--node-ip", liveKitAddress, "--port", String(liveKitPort), "--config-body", liveKitConfig], process.env, "livekit");
   const certificates = mkdtempSync(join(work, "tls-"));
   const run = (...args) => execFileSync("openssl", args, { cwd: certificates, stdio: "ignore" });
   const key = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"];
@@ -798,6 +804,10 @@ try {
   // --- What the media server kept of all that, at debug ---
   const kept = liveKitLogProblems(liveKit.output);
   check("LiveKit's log keeps nothing of who joined, from where or on what", kept.length === 0, kept.slice(0, 5).join(" | "));
+  if (liveKitTcpOnly) {
+    const ways = liveKitWays(liveKit.output);
+    check("with only TCP offered, every participant's media went over TCP", ways.length >= 4 && ways.every((way) => way === "tcp"), ways.join(", "));
+  }
 } catch (caught) {
   failed = caught;
 }

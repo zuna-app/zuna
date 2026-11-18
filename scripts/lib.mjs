@@ -107,6 +107,35 @@ rtc:
 `;
 
 /**
+ * With ZUNA_TEST_TCP=1, a voice check's LiveKit offers its TCP port alone, as a network that
+ * blocks UDP leaves an app with, so that every call in the check has to connect over TCP. These
+ * lines go under the `rtc` LIVEKIT_CONFIG ends with, beside the check's own `tcp_port`.
+ *
+ * LiveKit is then on this machine's address on its network (`lanAddress`), given as its node IP,
+ * never on loopback. Its TCP candidates are made from the machine's addresses, as it found them
+ * when it started, each saying the node IP in place of its own, and a connection that arrives on
+ * an address none was made from finds no candidate and is dropped: one to 127.0.0.1 always is. A
+ * connection a router or a VM forwards to a server arrives on the address its candidate was made
+ * from, so this is only the checks' trap, never a server's.
+ */
+export const liveKitTcpOnly = process.env.ZUNA_TEST_TCP === "1";
+export const TCP_ONLY_CONFIG = "  force_tcp: true\n";
+
+/** This machine's IPv4 address on its network, where a LiveKit carrying calls over TCP has to be. */
+export function lanAddress() {
+  const address = Object.values(networkInterfaces())
+    .flat()
+    .find((item) => item.family === "IPv4" && !item.internal)?.address;
+  if (!address) throw new Error("This machine has no address on a network, which LiveKit has to be on to carry calls over TCP.");
+  return address;
+}
+
+/** How each participant's media reached a LiveKit from `ensureLiveKit`, from its log: "udp" or "tcp". */
+export function liveKitWays(output) {
+  return [...output.matchAll(/participant active\t\{[^\n]*?"connectionType": "(\w+)"/g)].map((match) => match[1]);
+}
+
+/**
  * Where LiveKit is built from: the commit `deploy/livekit/version` names, with Zuna's patch, which
  * keeps what LiveKit learns about the people who join out of its log ("Voice channels" in docs/SECURITY_DETAILS.md).
  */

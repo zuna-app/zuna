@@ -11,23 +11,32 @@
 // a client in Node signs in as the owner's second device (second-device.ts) and says it's in
 // the voice channel, where the app asks before it comes in and takes that device out. Before
 // the share, both watch a video together in a fake of YouTube's player (packages/watch/fake).
+//
+// With ZUNA_TEST_TCP=1, LiveKit offers its TCP port alone, as a network that blocks UDP leaves
+// an app with, and all of it goes over TCP (`liveKitTcpOnly` in scripts/lib.mjs).
 
 import { spawn } from "node:child_process";
 import { copyFileSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { build, here, root, session, sleep, until } from "./mac-session.mjs";
-import { LIVEKIT_CONFIG, ensureLiveKit, viteNodeArgs } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, TCP_ONLY_CONFIG, ensureLiveKit, lanAddress, liveKitTcpOnly, liveKitWays, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const { server: serverBinary } = build();
 const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
 
-/** A LiveKit of its own on ports nothing else here takes, as the test server's media server. */
+/**
+ * A LiveKit of its own on ports nothing else here takes, as the test server's media server: on
+ * loopback, or for TCP alone on this Mac's address on its network, as a TCP connection to
+ * loopback finds none of its candidates.
+ */
 function startLiveKit() {
   const port = 30000 + Math.floor(Math.random() * 20000);
+  const address = liveKitTcpOnly ? lanAddress() : "127.0.0.1";
   // The ports go under the `rtc` LIVEKIT_CONFIG ends with.
-  const config = `${LIVEKIT_CONFIG}  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\nport: ${port}\n`;
-  const media = start(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--config-body", config], process.env, "livekit");
+  const config = `${LIVEKIT_CONFIG}  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\n${liveKitTcpOnly ? TCP_ONLY_CONFIG : ""}port: ${port}\n`;
+  const binds = liveKitTcpOnly ? ["--bind", address, "--bind", "127.0.0.1"] : ["--bind", "127.0.0.1"];
+  const media = start(ensureLiveKit(), ["--dev", ...binds, "--node-ip", address, "--config-body", config], process.env, "livekit");
   return { media, url: `ws://127.0.0.1:${port}` };
 }
 
@@ -320,6 +329,12 @@ try {
   await sleep(1500);
   await first.shot("new-device-security");
   thief.kill();
+
+  // --- With TCP alone, everything above went over it, as LiveKit says ---
+  if (liveKitTcpOnly) {
+    const ways = liveKitWays(media.output);
+    check("with only TCP offered, every participant's media went over TCP", ways.length >= 4 && ways.every((way) => way === "tcp"), ways.join(", "));
+  }
 } catch (error) {
   check("the check ran to its end", false, error.message);
 } finally {
