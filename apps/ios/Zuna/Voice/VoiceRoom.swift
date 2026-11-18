@@ -37,6 +37,14 @@ struct CallVideo: Identifiable, Equatable {
     let sound: Bool
 
     static func == (a: CallVideo, b: CallVideo) -> Bool { a.id == b.id && Feed.same(a.feed, b.feed) && a.sound == b.sound && a.source == b.source }
+
+    /// The other side's picture in a call on Telegram, which is shown whole, as Telegram's own apps
+    /// and the desktop show it: it may be a phone's camera held upright, or a computer's screen,
+    /// which Telegram Desktop's share came as, said to be its camera.
+    var whole: Bool {
+        if case .telegram = feed { return !local }
+        return false
+    }
 }
 
 /// A video as a tile draws it, whichever kind of call it's from.

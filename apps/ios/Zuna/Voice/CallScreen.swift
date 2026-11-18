@@ -417,7 +417,8 @@ private struct PersonTile: View {
         let name = user?.displayName ?? t("notify.someone")
         ZStack(alignment: .bottomLeading) {
             if let camera {
-                CallVideoView(video: camera, fill: true, mirror: camera.local && voice.cameraFront)
+                if camera.whole { Color.black }
+                CallVideoView(video: camera, fill: !camera.whole, mirror: camera.local && voice.cameraFront)
             } else {
                 Theme.avatarColor(member.userId).opacity(0.16)
                     .background(Theme.bg2)
