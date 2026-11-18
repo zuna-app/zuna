@@ -23,6 +23,11 @@
 // as its system would take this Mac's own addresses around it. LiveKit is on this Mac's
 // address on its network, as it takes no media from loopback. Then the phone comes into
 // the channel again with the proxy refusing UDP, and is heard over TCP.
+//
+// With ZUNA_TEST_TCP=1, LiveKit offers its TCP port alone, as a network that blocks UDP
+// leaves an app with, and all of it, the channel and the call, has to go over TCP. It's on
+// this Mac's address on its network then too, as a TCP connection that reaches it on
+// loopback finds none of its candidates (`liveKitTcpOnly` in scripts/lib.mjs).
 
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -69,8 +74,12 @@ const speech = join(fixtures, "speech.wav");
 execFileSync("say", ["-o", speech, "--data-format=LEI16@48000", "Testing the voice channel from the desktop. Can the phone hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers."]);
 
 const elsewhere = process.env.ZUNA_VOICE_SETUP_LINK;
+const testTcp = process.env.ZUNA_TEST_TCP === "1";
+if (testTcp && (testSocks || elsewhere)) throw new Error("ZUNA_TEST_TCP takes LiveKit's UDP away from a LiveKit of the run's own, without a proxy");
 const liveKitPort = 17900 + Math.floor(Math.random() * 50);
 let liveKit: ReturnType<typeof spawn> | null = null;
+/** What LiveKit has logged, for how each participant's media reached it. */
+let liveKitOutput = "";
 // Through the proxy, LiveKit is on this Mac's address on its network, and named for the proxy alone.
 const lan = Object.values(networkInterfaces()).flat().find((item) => item?.family === "IPv4" && !item.internal)?.address;
 const liveKitName = "zuna-livekit.localhost";
@@ -91,12 +100,16 @@ if (testSocks) {
 if (!elsewhere) {
   const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim();
   const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
-  const where = testSocks ? ["--bind", lan!, "--bind", "127.0.0.1", "--node-ip", lan!] : ["--bind", "127.0.0.1", "--node-ip", "127.0.0.1"];
-  const ports = testSocks ? `  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n` : "";
+  if (testTcp && !lan) throw new Error("This Mac has no address on a network, which LiveKit has to be on to carry calls over TCP.");
+  const where = testSocks || testTcp ? ["--bind", lan!, "--bind", "127.0.0.1", "--node-ip", lan!] : ["--bind", "127.0.0.1", "--node-ip", "127.0.0.1"];
+  // TCP alone, as `TCP_ONLY_CONFIG` in scripts/lib.mjs has it.
+  const ports = testSocks || testTcp ? `  tcp_port: ${liveKitPort + 1}\n  udp_port: ${liveKitPort + 2}\n${testTcp ? "  force_tcp: true\n" : ""}` : "";
   liveKit = spawn(liveKitBinary, ["--dev", ...where, "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig + ports], { stdio: ["ignore", "pipe", "pipe"] });
   const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
   liveKit.stdout!.pipe(liveKitLog);
   liveKit.stderr!.pipe(liveKitLog);
+  liveKit.stdout!.on("data", (chunk: Buffer) => (liveKitOutput += chunk));
+  liveKit.stderr!.on("data", (chunk: Buffer) => (liveKitOutput += chunk));
 }
 // The app's own log and LiveKit's in it, with everything LiveKit says (-ZunaVoiceLog).
 const phoneLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--style", "compact", "--level", "debug", "--predicate", 'subsystem == "chat.zuna" OR subsystem == "io.livekit.sdk"'], { stdio: ["ignore", "pipe", "ignore"] });
@@ -500,6 +513,12 @@ try {
   await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 })
     .then(() => check("the phone hanging up ends the call on the desktop", true))
     .catch(() => check("the phone hanging up ends the call on the desktop", false));
+
+  // --- With TCP alone: the channel and the call went over it, as LiveKit says (`liveKitWays` in scripts/lib.mjs) ---
+  if (testTcp) {
+    const ways = [...liveKitOutput.matchAll(/participant active\t\{[^\n]*?"connectionType": "(\w+)"/g)].map((match) => match[1]);
+    check("with only TCP offered, every participant's media went over TCP", ways.length >= 4 && ways.every((way) => way === "tcp"), ways.join(", "));
+  }
 } catch (error) {
   console.error(error);
   failures.push(`the run stopped: ${(error as Error).message}`);
