@@ -2723,6 +2723,7 @@
   "telegram.theirPrivacySettingsOnTelegram": "Les réglages de confidentialité de cette personne empêchent de l’ajouter.",
   "telegram.theresNothingToSend": "Rien à envoyer.",
   "telegram.theyreInAsManyGroups": "Cette personne a atteint la limite de groupes Telegram.",
+  "telegram.thisMessageCantBeShown": "Ce message ne peut pas être affiché sur cet appareil",
   "telegram.thoseFilesWereUploadedTo": "Les fichiers envoyés à un serveur Zuna ne peuvent pas être envoyés à Telegram.",
   "telegram.tookAScreenshot": "{name} a fait une capture d’écran",
   "telegram.unknown": "Inconnu",

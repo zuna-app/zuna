@@ -2644,6 +2644,7 @@
   "telegram.theirPrivacySettingsOnTelegram": "相手の Telegram のプライバシー設定により、追加できません。",
   "telegram.theresNothingToSend": "送信する内容がありません。",
   "telegram.theyreInAsManyGroups": "相手は Telegram のグループ参加数上限に達しています。",
+  "telegram.thisMessageCantBeShown": "このメッセージはこのデバイスでは表示できません",
   "telegram.thoseFilesWereUploadedTo": "Zuna サーバーにアップロードされたファイルは Telegram に送信できません。",
   "telegram.tookAScreenshot": "{name} がスクリーンショットを撮りました",
   "telegram.unknown": "不明",

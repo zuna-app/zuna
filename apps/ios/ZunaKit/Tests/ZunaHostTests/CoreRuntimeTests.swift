@@ -128,8 +128,9 @@ final class CoreRuntimeTests: XCTestCase {
     }
 
     func testTheBundleKnowsWhatTheHostOffers() async {
-        let offered = await evaluate("[!!__zunaHost.listsBots, !!__zunaHost.testHooks, typeof __zunaTest.setClockOffset].join(',')")
-        XCTAssertEqual(offered, "true,true,function")
+        let offered = await evaluate("[!!__zunaHost.listsBots, !!__zunaHost.testHooks, typeof __zunaTest.setClockOffset, !!__zunaHost.telegramRestricted].join(',')")
+        // Withholding what Telegram restricts is the App Store's rule, on in every iPhone and iPad host.
+        XCTAssertEqual(offered, "true,true,function,true")
     }
 
     func testNotificationsOnAServerThisDeviceHasntJoinedAreRefused() async throws {

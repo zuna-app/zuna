@@ -2879,6 +2879,7 @@
   "telegram.theirPrivacySettingsOnTelegram": "Ustawienia prywatności tej osoby w Telegramie nie pozwalają jej dodać.",
   "telegram.theresNothingToSend": "Nie ma czego wysłać.",
   "telegram.theyreInAsManyGroups": "Ta osoba osiągnęła limit grup w Telegramie.",
+  "telegram.thisMessageCantBeShown": "Tej wiadomości nie można wyświetlić na tym urządzeniu",
   "telegram.thoseFilesWereUploadedTo": "Plików przesłanych na serwer Zuny nie można wysłać do Telegrama.",
   "telegram.tookAScreenshot": "Zrzut ekranu wykonany przez {name}",
   "telegram.unknown": "Nieznane",

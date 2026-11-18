@@ -28,13 +28,21 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
   }
 }
 
-async function linkedClient(options: { authorized?: boolean; password?: string } = {}) {
-  const engine = new FakeTdlib();
+async function linkedClient(options: { authorized?: boolean; password?: string; restricted?: boolean; calls?: boolean; engine?: FakeTdlib } = {}) {
+  const engine = options.engine ?? new FakeTdlib();
   engine.authorized = options.authorized ?? false;
   engine.password = options.password ?? null;
   const events: CoreEvent[] = [];
   const db = new MemoryDbProvider();
-  const client = new ZunaClient({ db, deviceKey: new Uint8Array(32).fill(3), deviceName: "Test", onEvent: (event) => events.push(event), telegram: engine });
+  const client = new ZunaClient({
+    db,
+    deviceKey: new Uint8Array(32).fill(3),
+    deviceName: "Test",
+    onEvent: (event) => events.push(event),
+    telegram: engine,
+    telegramRestricted: options.restricted,
+    telegramCalls: options.calls,
+  });
   await client.open();
   const link = () => [...events].reverse().find((event): event is Extract<CoreEvent, { type: "telegram" }> => event.type === "telegram")?.link;
   return { engine, events, client, db, link };
@@ -700,5 +708,184 @@ describe("media, stickers and groups", () => {
     expect(await session.deleteChoices(String(GRACE), String(serverId(1)))).toEqual({ forEveryone: false, forSelf: true });
     await session.deleteMessages(String(GRACE), [String(serverId(1))], false);
     expect(engine.requests("deleteMessages")[0]).toMatchObject({ chat_id: GRACE, message_ids: [serverId(1)], revoke: false });
+  });
+});
+
+describe("what an app held to an app store's rules withholds", () => {
+  // An 18+ bot, a group Telegram restricts on iOS, one it hasn't told of, and a group of its own
+  // with a message it marks, a reply to it, and messages from or by way of what's restricted.
+  const ADULT_BOT = 4000;
+  const RESTRICTED = -1004200;
+  const CLEAN = -1004300;
+  const UNTOLD = -1004400;
+  const sensitive = { "@type": "restrictionInfo", restriction_reason: "", has_sensitive_content: true };
+  const reason = { "@type": "restrictionInfo", restriction_reason: "This group can't be displayed because it violated local laws.", has_sensitive_content: false };
+  const file = (id: number, unique: string) => ({ "@type": "file", id, size: 1000, remote: { "@type": "remoteFile", unique_id: unique } });
+  const photo = (chat: number, id: number, from: number, caption: string, picture: ReturnType<typeof file>, extra: Record<string, unknown> = {}) => ({
+    ...textMessage(chat, id, from, ""),
+    content: { "@type": "messagePhoto", caption: { "@type": "formattedText", text: caption, entities: [] }, photo: { "@type": "photo", sizes: [{ "@type": "photoSize", type: "y", photo: picture, width: 800, height: 600 }] } },
+    ...extra,
+  });
+  const chat = (id: number, type: Record<string, unknown>, title: string, order: string, extra: Record<string, unknown> = {}, pinned = false) => ({
+    "@type": "chat",
+    id,
+    type,
+    title,
+    positions: [{ "@type": "chatPosition", list: { "@type": "chatListMain" }, order, is_pinned: pinned }],
+    unread_count: 0,
+    notification_settings: { "@type": "chatNotificationSettings", use_default_mute_for: false, mute_for: 0 },
+    ...extra,
+  });
+
+  function world(): FakeTdlib {
+    const engine = new FakeTdlib();
+    engine.users.set(ADULT_BOT, { ...engine.users.get(BOT)!, id: ADULT_BOT, first_name: "After dark", restriction_info: sensitive });
+    engine.supergroups.set(4200, { "@type": "supergroup", id: 4200, is_channel: false, restriction_info: reason });
+    engine.supergroups.set(4300, { "@type": "supergroup", id: 4300, is_channel: false, restriction_info: null });
+    engine.chats.set(ADULT_BOT, chat(ADULT_BOT, { "@type": "chatTypePrivate", user_id: ADULT_BOT }, "After dark", "6000"));
+    const inside = photo(RESTRICTED, serverId(1), GRACE, "Inside", file(63, "group63"));
+    engine.chats.set(
+      RESTRICTED,
+      chat(RESTRICTED, { "@type": "chatTypeSupergroup", supergroup_id: 4200, is_channel: false }, "After hours", "6100", { photo: { "@type": "chatPhotoInfo", small: file(64, "grouppic64") }, last_message: inside }, true),
+    );
+    engine.history.set(RESTRICTED, [inside]);
+    engine.chats.set(UNTOLD, chat(UNTOLD, { "@type": "chatTypeSupergroup", supergroup_id: 4400, is_channel: false }, "Untold", "6200"));
+    engine.chats.set(CLEAN, chat(CLEAN, { "@type": "chatTypeSupergroup", supergroup_id: 4300, is_channel: false }, "Book club", "6300"));
+    engine.history.set(CLEAN, [
+      photo(CLEAN, serverId(1), GRACE, "Look", file(61, "clean61")),
+      photo(CLEAN, serverId(2), GRACE, "Hidden caption", file(62, "hidden62"), { restriction_info: sensitive, link_preview: { "@type": "linkPreview", url: "https://example.com/x", title: "Hidden title" } }),
+      textMessage(CLEAN, serverId(3), GRACE, "Reply", { reply_to: { "@type": "messageReplyToMessage", chat_id: CLEAN, message_id: serverId(2) } }),
+      textMessage(CLEAN, serverId(4), GRACE, "Via bot", { via_bot_user_id: ADULT_BOT }),
+      textMessage(CLEAN, serverId(5), GRACE, "Forwarded", { forward_info: { "@type": "messageForwardInfo", origin: { "@type": "messageOriginChannel", chat_id: RESTRICTED, message_id: serverId(1), author_signature: "" }, date: 1_700_000_000 } }),
+      textMessage(CLEAN, serverId(6), ADULT_BOT, "From the bot"),
+    ]);
+    return engine;
+  }
+
+  async function linked(restricted: boolean) {
+    const result = await linkedClient({ authorized: true, restricted, calls: true, engine: world() });
+    result.client.linkTelegram();
+    const session = result.client.telegramSession;
+    await until(() => session.getConversations().some((each) => each.key === `group:${CLEAN}`), "the list");
+    await settle();
+    return { ...result, session };
+  }
+
+  const keys = (session: { getConversations(): { key: string }[] }) => session.getConversations().map((each) => each.key);
+  const WITHHELD = "*This message can't be shown on this device*";
+
+  it("lists no chat Telegram restricts, opens none, and names nobody it restricts", async () => {
+    const { engine, session } = await linked(true);
+    expect(keys(session)).toEqual(expect.arrayContaining([`user:${GRACE}`, `group:${GROUP}`, `user:${BOT}`, `group:${CLEAN}`]));
+    // The 18+ bot, the restricted group, and a group whose supergroup TDLib hasn't told of.
+    for (const key of [`user:${ADULT_BOT}`, `group:${RESTRICTED}`, `group:${UNTOLD}`]) expect(keys(session)).not.toContain(key);
+    expect(session.getPreferences().pinned).not.toContain(`group:${RESTRICTED}`);
+    await expect(session.loadMessages(String(RESTRICTED))).rejects.toThrow("Telegram chat isn't available here");
+    await expect(session.loadMessages(String(ADULT_BOT))).rejects.toThrow("Telegram chat isn't available here");
+    await expect(session.sendMessage(`user:${ADULT_BOT}`, { text: "hi" })).rejects.toThrow("Telegram chat isn't available here");
+    const users = session.getUsers().map((user) => user.id);
+    expect(users).toContain(String(GRACE));
+    expect(users).not.toContain(String(ADULT_BOT));
+    expect(users).not.toContain(`chat:${RESTRICTED}`);
+    // The app's list of pins doesn't have it, and it stays pinned on Telegram.
+    expect(session.getPreferences().pinned).toEqual([`group:${GROUP}`]);
+    await session.setPinnedChats([`group:${GROUP}`]);
+    await session.updatePreferences({ hidden: [] });
+    expect(engine.requests("toggleChatIsPinned")).toEqual([]);
+    expect(engine.requests("addChatToList")).toEqual([]);
+  });
+
+  it("shows a line in place of what Telegram restricts, and never downloads its files", async () => {
+    const { engine, events, session } = await linked(true);
+    const { messages } = await session.loadMessages(String(CLEAN));
+    const byId = new Map(messages.map((message) => [Number(message.id), message]));
+    expect(byId.get(serverId(1))).toMatchObject({ text: "Look", attachments: [{ fileId: "tg:61:clean61" }] });
+    // Marked by Telegram itself: no caption, picture or preview.
+    expect(byId.get(serverId(2))).toMatchObject({ text: WITHHELD, attachments: [], preview: null });
+    // A reply quotes nothing of it.
+    expect(byId.get(serverId(3))).toMatchObject({ text: "Reply", reply: { text: "This message can't be shown on this device", hasAttachment: false } });
+    // By way of the bot, forwarded from the restricted group, from the bot itself.
+    for (const id of [4, 5, 6]) expect(byId.get(serverId(id))).toMatchObject({ text: WITHHELD, forwarded: null });
+    expect(JSON.stringify(messages)).not.toMatch(/Hidden|Via bot|Forwarded|From the bot/);
+
+    expect(await (await session.downloadFile({ fileId: "tg:61:clean61", mime: "image/jpeg" })).text()).toBe("C:/zuna/telegram/photos/61.jpg");
+    for (const fileId of ["tg:62:hidden62", "tg:63:group63", "tg:64:grouppic64"]) await expect(session.downloadFile({ fileId, mime: "image/jpeg" })).rejects.toThrow("This file is no longer available.");
+    expect(engine.requests("downloadFile").map((request) => request.file_id)).toEqual([61]);
+
+    // Nothing is found by what it holds, and nothing withheld is passed on.
+    expect((await session.search("Via")).length).toBe(0);
+    expect((await session.search("Reply")).map((found) => found.message.id)).toEqual([String(serverId(3))]);
+    await expect(session.forwardMessages(String(CLEAN), [String(serverId(2))], `user:${GRACE}`)).rejects.toThrow("This message can't be shown on this device");
+    expect(engine.requests("forwardMessages")).toEqual([]);
+
+    // What comes: nothing of the restricted group, a line and no notification for a marked message.
+    const notified = () => events.filter((event): event is Extract<CoreEvent, { type: "notify" }> => event.type === "notify");
+    const shown = () => events.filter((event): event is Extract<CoreEvent, { type: "message" }> => event.type === "message").map((event) => event.message);
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(RESTRICTED, serverId(20), GRACE, "In the restricted group") });
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(CLEAN, serverId(21), GRACE, "Marked", { restriction_info: sensitive }) });
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(CLEAN, serverId(22), GRACE, "Fine") });
+    await until(() => notified().length === 1, "the one notification");
+    expect(notified()[0]).toMatchObject({ groupId: String(CLEAN), body: "Grace Hopper: Fine" });
+    expect(shown().map((message) => [message.id, message.text])).toEqual([
+      [String(serverId(21)), WITHHELD],
+      [String(serverId(22)), "Fine"],
+    ]);
+  });
+
+  it("withholds a group Telegram restricts later, and the files seen in it", async () => {
+    const { engine, session } = await linked(true);
+    await session.loadMessages(String(CLEAN));
+    engine.emit({ "@type": "updateSupergroup", supergroup: { "@type": "supergroup", id: 4300, is_channel: false, restriction_info: reason } });
+    await until(() => !keys(session).includes(`group:${CLEAN}`), "the group gone from the list");
+    await expect(session.downloadFile({ fileId: "tg:61:clean61", mime: "image/jpeg" })).rejects.toThrow("This file is no longer available.");
+    expect(engine.requests("downloadFile")).toEqual([]);
+  });
+
+  it("shows 18+ media where the account lets it through, and never what's restricted for a reason", async () => {
+    const { engine, events, session } = await linked(true);
+    const option = (name: string, value: boolean) => engine.emit({ "@type": "updateOption", name, value: { "@type": "optionValueBoolean", value } });
+    const message = async (id: number) => (await session.loadMessages(String(CLEAN))).messages.find((each) => each.id === String(serverId(id)));
+    // Telegram allows it, but the person hasn't chosen it: still withheld.
+    option("can_ignore_sensitive_content_restrictions", true);
+    await settle();
+    expect(keys(session)).not.toContain(`user:${ADULT_BOT}`);
+    expect((await message(2))?.text).toBe(WITHHELD);
+    // Chosen on another device too: the 18+ bot, its messages and the marked picture show.
+    option("ignore_sensitive_content_restrictions", true);
+    await until(() => keys(session).includes(`user:${ADULT_BOT}`), "the bot listed");
+    expect(await message(2)).toMatchObject({ text: "Hidden caption", attachments: [{ fileId: "tg:62:hidden62" }] });
+    expect((await message(4))?.text).toBe("Via bot");
+    expect((await message(6))?.text).toBe("From the bot");
+    expect(await (await session.downloadFile({ fileId: "tg:62:hidden62", mime: "image/jpeg" })).text()).toBe("C:/zuna/telegram/photos/62.jpg");
+    // What's restricted for a reason stays withheld: the group, what's forwarded from it, its files.
+    expect(keys(session)).not.toContain(`group:${RESTRICTED}`);
+    expect((await message(5))?.text).toBe(WITHHELD);
+    await expect(session.downloadFile({ fileId: "tg:63:group63", mime: "image/jpeg" })).rejects.toThrow("This file is no longer available.");
+    // Turned off again: withheld again, and the chat shown is told so.
+    events.length = 0;
+    option("ignore_sensitive_content_restrictions", false);
+    await until(() => !keys(session).includes(`user:${ADULT_BOT}`), "the bot gone");
+    const told = events.filter((event): event is Extract<CoreEvent, { type: "message" }> => event.type === "message" && event.message.id === String(serverId(2)));
+    expect(told.at(-1)?.message.text).toBe(WITHHELD);
+    await expect(session.downloadFile({ fileId: "tg:62:hidden62", mime: "image/jpeg" })).rejects.toThrow("This file is no longer available.");
+  });
+
+  it("rings for no call from someone Telegram restricts", async () => {
+    const { engine, session } = await linked(true);
+    engine.ringFrom(ADULT_BOT);
+    await settle();
+    expect(session.getTelegramCall()).toBeNull();
+    engine.ringFrom(GRACE);
+    await until(() => session.getTelegramCall(), "Grace's call");
+  });
+
+  it("shows all of it where the app isn't held to those rules, as the desktop's isn't", async () => {
+    const { session } = await linked(false);
+    expect(keys(session)).toEqual(expect.arrayContaining([`user:${ADULT_BOT}`, `group:${RESTRICTED}`, `group:${UNTOLD}`, `group:${CLEAN}`]));
+    const { messages } = await session.loadMessages(String(CLEAN));
+    expect(messages.find((message) => message.id === String(serverId(2)))).toMatchObject({ text: "Hidden caption", attachments: [{ fileId: "tg:62:hidden62" }], preview: { title: "Hidden title" } });
+    expect(messages.find((message) => message.id === String(serverId(4)))?.text).toBe("Via bot");
+    expect(await (await session.downloadFile({ fileId: "tg:62:hidden62", mime: "image/jpeg" })).text()).toBe("C:/zuna/telegram/photos/62.jpg");
+    expect((await session.loadMessages(String(RESTRICTED))).messages[0]?.text).toBe("Inside");
   });
 });

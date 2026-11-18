@@ -117,6 +117,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     calls: true,
     bots: !!__zunaHost.listsBots,
     telegramCalls: !!__zunaHost.telegramCalls,
+    telegramRestricted: !!__zunaHost.telegramRestricted,
     sealedFetch: (url, init) => g.__zunaSealedFetch(url, init),
     pinServer: async (url, pin) => {
       if (!__zunaHost.pinServer(url, pin)) throw new Error("That isn't a server's pin.");

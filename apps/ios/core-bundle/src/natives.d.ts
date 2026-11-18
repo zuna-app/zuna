@@ -8,6 +8,8 @@ declare const __zunaHost: {
   listsBots?: boolean;
   /** True where the app has calls on a linked Telegram account, which the native desktop app does. One that doesn't hears nothing of them, and Telegram's own app takes them. */
   telegramCalls?: boolean;
+  /** True where the app is held to an app store's rules, which the iPhone's is to Apple's: what TDLib restricts on a linked Telegram account is withheld, and 18+ media unless the account lets it through. The native desktop app isn't in a store, and shows it. */
+  telegramRestricted?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;

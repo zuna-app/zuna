@@ -336,6 +336,10 @@ public final class CoreRuntime: @unchecked Sendable {
         if options.telegramCalls {
             host.setObject(true, forKeyedSubscript: "telegramCalls" as NSString)
         }
+        // The App Store's rules: what TDLib restricts on a linked Telegram account is withheld on
+        // every iPhone and iPad, with no way to lift it, and 18+ media unless the account lets it
+        // through from another device (docs/TELEGRAM.md).
+        host.setObject(true, forKeyedSubscript: "telegramRestricted" as NSString)
         #if DEBUG
         // Turns on the bundle's test hooks (a movable clock, access to the client). Release builds leave them off.
         host.setObject(true, forKeyedSubscript: "testHooks" as NSString)

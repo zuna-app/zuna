@@ -38,6 +38,18 @@ Zuna makes no account: a number Telegram doesn't know is sent to sign up in Tele
 - Nothing passes between Telegram and Zuna's own chats: nothing is forwarded either way, and no plugin reaches anything of Telegram's.
 - Changing your account: its name, password, sessions, contacts and payments are Telegram's app's.
 
+## What the iPhone and iPad leave out
+
+The App Store's rules don't let an app show what Telegram restricts on iOS. Telegram's code says which, and on an iPhone or iPad Zuna withholds it, with no way to lift it:
+
+- **Chats** with a person, a bot or a group Telegram restricts: they aren't in the list, and can't be opened or joined from Zuna.
+- **Messages** Telegram restricts, and any from, forwarded from or sent by way of someone or a group it restricts: each says "This message can't be shown on this device", with none of its text, pictures, files or link, and isn't found by searching, passed on or notified about. Their pictures and files are never downloaded.
+- **Calls** from someone Telegram restricts don't ring in Zuna.
+- **18+ media** Telegram marks as sensitive is withheld the same way, unless your account allows it: it shows on the iPhone only once you've turned it on in Telegram on another device, as Telegram's own iPhone app has it. Zuna has no switch for it, and what's restricted on iOS for other reasons stays withheld.
+- **Notifications with Zuna closed** are worded from Telegram's push alone, so one from a restricted chat may still name it and show its words. That hasn't been seen yet.
+
+The desktop app isn't in any app store, and shows everything Telegram gives it.
+
 ## Unlinking
 
 The menu under Telegram's name at the top of its list, or Settings, Connections, Unlink. Zuna signs out, which ends its session at Telegram, then erases everything it kept of the account on this computer. Ending Zuna's session from another device, under Devices, does the same here.

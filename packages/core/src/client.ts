@@ -104,6 +104,12 @@ export interface ZunaClientOptions {
    * rings in it and can be made from it. One that doesn't hears nothing of them.
    */
   telegramCalls?: boolean;
+  /**
+   * The app is held to an app store's rules, as the iPhone's is to Apple's: what TDLib restricts on
+   * the linked Telegram account is withheld, and 18+ media unless the account lets it through
+   * (`restricted` on TelegramSession).
+   */
+  telegramRestricted?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -485,6 +491,7 @@ export class ZunaClient {
     const session: TelegramSession = new TelegramSession(adapter, {
       linking,
       calls: this.options.telegramCalls === true,
+      restricted: this.options.telegramRestricted === true,
       files: this.options.files,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);

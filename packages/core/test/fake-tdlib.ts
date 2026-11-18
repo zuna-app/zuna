@@ -108,6 +108,8 @@ export class FakeTdlib implements TelegramAdapter {
   /** The account has two-step verification, with this password. */
   password: string | null = null;
   users = new Map<number, Td>();
+  /** Supergroups, which TDLib tells of before the chats they're in. */
+  supergroups = new Map<number, Td>();
   chats = new Map<number, Td>();
   history = new Map<number, Td[]>();
   /** What the adapter wrote of each file the engine asked it for, by the name the adapter gave it. */
@@ -202,6 +204,7 @@ export class FakeTdlib implements TelegramAdapter {
       case "loadChats":
         if (this.loaded) return fail(404, "Not Found");
         this.loaded = true;
+        for (const supergroup of this.supergroups.values()) this.emit({ "@type": "updateSupergroup", supergroup });
         for (const chat of this.chats.values()) this.emit({ "@type": "updateNewChat", chat: { ...chat, positions: [] } });
         for (const chat of this.chats.values()) for (const each of chat.positions ?? []) this.emit({ "@type": "updateChatPosition", chat_id: chat.id, position: each });
         return ok();

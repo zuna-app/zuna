@@ -52,6 +52,11 @@ import {
   str,
   userView,
   waveformToTelegram,
+  restrictionOf,
+  withheldView,
+  RESTRICTED,
+  SENSITIVE,
+  type Restriction,
 } from "./map";
 import { fromMarkup, toMarkup } from "./markup";
 import { TelegramCalls } from "./calls/call";
@@ -96,6 +101,8 @@ const MEDIA_ASKS = 10;
 const KEPT_PER_CHAT = 400;
 /** How many files' sources are kept, the latest shown, for finding each again after the engine starts again. */
 const MOST_SOURCES = 20_000;
+/** How many withheld files are remembered as such, the latest seen, beyond whether what brought each is withheld now. */
+const MOST_WITHHELD = 50_000;
 /** How long typing shows for, as Telegram's apps show it, unless it's cancelled. */
 const TYPING_MS = 6000;
 /** How often this device says it's typing, at most. */
@@ -110,6 +117,8 @@ const HANDLED = new Set([
   "updateConnectionState",
   "updateUser",
   "updateUserStatus",
+  "updateSupergroup",
+  "updateOption",
   "updateNewChat",
   "updateChatTitle",
   "updateChatPhoto",
@@ -189,6 +198,14 @@ export interface TelegramSessionOptions {
   files?: FileAdapter;
   /** The app has calls (calls/call.ts). Without it, a call is nobody's here, and Telegram's own apps take it. */
   calls?: boolean;
+  /**
+   * The app is held to an app store's rules, as the iPhone's is to Apple's: whatever TDLib marks
+   * restricted is withheld (`restrictionOf`), and what it marks 18+ too, unless the account lets
+   * it through. A chat whose user or supergroup is marked isn't listed and can't be opened, a
+   * message that is, or comes from or by way of someone who is, shows one line saying so, and no
+   * file of either is downloaded. Without it, all of it shows, as TDLib gives it for its platform.
+   */
+  restricted?: boolean;
 }
 
 export class TelegramSession {
@@ -198,6 +215,18 @@ export class TelegramSession {
   private connection: ConnectionState = "connecting";
   private readonly chats = new Map<number, TdObject>();
   private readonly users = new Map<number, TdObject>();
+  /** Supergroups, which say whether a group is restricted, as TDLib tells of each before its chat. */
+  private readonly supergroups = new Map<number, TdObject>();
+  /**
+   * Telegram's lasting IDs of the files in what's restricted here (`restricted`), with how much,
+   * which aren't downloaded while that's withheld, whatever else they're in.
+   */
+  private readonly withheldFiles = new Map<string, Restriction>();
+  /**
+   * TDLib's options for 18+ media: Telegram allows this account to see it, and the person chose
+   * to, which they do in Telegram on another device. Both, and it's shown (`showsSensitive`).
+   */
+  private sensitive = { allowed: false, chosen: false };
   /** chat ID -> message ID -> message, the newest a chat has shown or been sent. */
   private readonly messages = new Map<number, Map<number, TdObject>>();
   private selfId: number | null = null;
@@ -517,9 +546,30 @@ export class TelegramSession {
         const id = idOf((user as TdObject | undefined)?.id);
         if (id && isObject(user)) {
           this.users.set(id, user);
-          this.note(user.profile_photo, { "@type": "getUser", user_id: id });
+          this.note(user.profile_photo, { "@type": "getUser", user_id: id }, this.userLevel(id));
           this.queueUsers();
+          this.queueConversations();
         }
+        return;
+      }
+      case "updateSupergroup": {
+        const supergroup = update.supergroup;
+        const id = idOf((supergroup as TdObject | undefined)?.id);
+        if (id && isObject(supergroup)) {
+          this.supergroups.set(id, supergroup);
+          this.queueUsers();
+          this.queueConversations();
+        }
+        return;
+      }
+      case "updateOption": {
+        const name = str(update.name, 64);
+        if (name !== "can_ignore_sensitive_content_restrictions" && name !== "ignore_sensitive_content_restrictions") return;
+        const on = kindOf(update.value) === "optionValueBoolean" && (update.value as TdObject).value === true;
+        const before = this.showsSensitive();
+        if (name === "can_ignore_sensitive_content_restrictions") this.sensitive.allowed = on;
+        else this.sensitive.chosen = on;
+        if (this.options.restricted && this.showsSensitive() !== before) this.sensitiveChanged();
         return;
       }
       case "updateUserStatus": {
@@ -536,7 +586,7 @@ export class TelegramSession {
         const id = idOf((chat as TdObject | undefined)?.id);
         if (id && isObject(chat)) {
           this.chats.set(id, chat);
-          this.note(chat.photo, { "@type": "getChat", chat_id: id });
+          this.note(chat.photo, { "@type": "getChat", chat_id: id }, this.chatLevel(chat));
           if (isObject(chat.last_message)) this.remember(chat.last_message);
           this.queueConversations();
         }
@@ -610,7 +660,7 @@ export class TelegramSession {
         return;
       }
       case "updateCall":
-        if (this.options.calls) this.calls.onUpdate(update.call);
+        if (this.options.calls && !this.withheldCall(update.call)) this.calls.onUpdate(update.call);
         return;
       case "updateNewCallSignalingData":
         if (this.options.calls) this.calls.onSignalingData(update.call_id, update.data);
@@ -686,6 +736,9 @@ export class TelegramSession {
           const signedOut = update.signedOut === true;
           this.chats.clear();
           this.users.clear();
+          this.supergroups.clear();
+          this.withheldFiles.clear();
+          this.sensitive = { allowed: false, chosen: false };
           this.messages.clear();
           this.setLink({ step: "unlinked", signedOut });
           this.unlinking?.(signedOut);
@@ -723,7 +776,7 @@ export class TelegramSession {
         break;
       case "updateChatPhoto":
         chat.photo = update.photo;
-        this.note(update.photo, { "@type": "getChat", chat_id: idOf(update.chat_id) });
+        this.note(update.photo, { "@type": "getChat", chat_id: idOf(update.chat_id) }, this.chatLevel(chat));
         break;
       case "updateChatLastMessage":
         chat.last_message = update.last_message;
@@ -793,7 +846,7 @@ export class TelegramSession {
     const message = chatId && id ? this.messages.get(chatId)?.get(id) : undefined;
     if (!message) return;
     patch(message);
-    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id });
+    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id }, this.messageLevel(message));
     this.emitMessage(message, false);
   }
 
@@ -801,7 +854,7 @@ export class TelegramSession {
     const chatId = idOf(message.chat_id);
     const id = idOf(message.id);
     if (!chatId || !id) return;
-    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id });
+    this.note(message, { "@type": "getMessage", chat_id: chatId, message_id: id }, this.messageLevel(message));
     let kept = this.messages.get(chatId);
     if (!kept) this.messages.set(chatId, (kept = new Map()));
     kept.set(id, message);
@@ -816,24 +869,152 @@ export class TelegramSession {
   }
 
   private view(message: TdObject): MessageView | null {
-    return messageView(message, {
+    const view = messageView(message, {
       selfId: this.selfId,
       now: Date.now(),
       find: (chatId, messageId) => this.find(chatId, messageId),
       nameOf: (senderId) => this.nameOf(senderId),
+      withheld: (original) => this.withheldMessage(original),
     });
+    return view && this.withheldMessage(message) ? withheldView(view) : view;
   }
 
   private nameOf(senderId: string): string {
+    if (this.withheldSender(senderId)) return "Someone";
     if (senderId.startsWith("chat:")) return str(this.chats.get(Number(senderId.slice(5)))?.title, 256) || "Someone";
     const user = this.users.get(Number(senderId));
     return user ? displayName(user) : "Someone";
   }
 
-  /** Whether a chat is one the list shows: a person or a group, never a channel or a secret chat. */
+  /**
+   * Whether a chat is one the list shows: a person or a group, never a channel or a secret chat,
+   * nor one withheld here (`restricted`).
+   */
   private listed(chatId: number): TdObject | undefined {
     const chat = this.chats.get(chatId);
-    return chat && chatKind(chat) ? chat : undefined;
+    return chat && chatKind(chat) && !this.withheldChat(chat) ? chat : undefined;
+  }
+
+  // --- Restrictions ---
+  // Only where the app is held to an app store's rules (`restricted`): elsewhere nothing is withheld.
+  // What's restricted for a reason is always withheld; 18+ media only while the account doesn't let
+  // it through (`showsSensitive`). What TDLib hasn't told of yet counts as restricted, as it tells
+  // of every user and supergroup before anything names them.
+
+  /** Whether the account lets 18+ media through: Telegram allows it, and the person chose it on another device. */
+  private showsSensitive(): boolean {
+    return this.sensitive.allowed && this.sensitive.chosen;
+  }
+
+  /** Whether what's restricted this much is withheld now. */
+  private withholds(level: Restriction): boolean {
+    return level === RESTRICTED || (level === SENSITIVE && !this.showsSensitive());
+  }
+
+  private userLevel(id: number | null): Restriction {
+    if (!this.options.restricted) return 0;
+    const user = id ? this.users.get(id) : undefined;
+    return user ? restrictionOf(user) : RESTRICTED;
+  }
+
+  private supergroupLevel(id: number | null): Restriction {
+    if (!this.options.restricted) return 0;
+    const supergroup = id ? this.supergroups.get(id) : undefined;
+    return supergroup ? restrictionOf(supergroup) : RESTRICTED;
+  }
+
+  /** A chat as restricted as its user or its supergroup. A basic group has no restrictions. */
+  private chatLevel(chat: TdObject | undefined): Restriction {
+    if (!this.options.restricted) return 0;
+    switch (kindOf(chat?.type)) {
+      case "chatTypePrivate":
+      case "chatTypeSecret":
+        return this.userLevel(idOf((chat!.type as TdObject).user_id));
+      case "chatTypeSupergroup":
+        return this.supergroupLevel(idOf((chat!.type as TdObject).supergroup_id));
+      case "chatTypeBasicGroup":
+        return 0;
+      default:
+        return RESTRICTED;
+    }
+  }
+
+  /** Who sent something, as `senderOf` gives it: a user, or a chat speaking as itself. */
+  private senderLevel(senderId: string): Restriction {
+    if (!this.options.restricted) return 0;
+    if (senderId.startsWith("chat:")) return this.chatLevel(this.chats.get(Number(senderId.slice(5))));
+    return this.userLevel(Number(senderId) || null);
+  }
+
+  /** A message as restricted as itself, its chat, or whoever it's from, forwarded from or sent by way of. */
+  private messageLevel(message: TdObject): Restriction {
+    if (!this.options.restricted) return 0;
+    const sender = senderOf(message.sender_id);
+    const viaBot = idOf(message.via_bot_user_id);
+    const origin = (message.forward_info as TdObject | undefined)?.origin as TdObject | undefined;
+    const levels = [restrictionOf(message), this.chatLevel(this.chats.get(idOf(message.chat_id) ?? 0)), sender ? this.senderLevel(sender) : 0, viaBot ? this.userLevel(viaBot) : 0];
+    switch (kindOf(origin)) {
+      case "messageOriginUser":
+        levels.push(this.userLevel(idOf(origin!.sender_user_id)));
+        break;
+      case "messageOriginChat":
+        levels.push(this.senderLevel(`chat:${idOf(origin!.sender_chat_id) ?? 0}`));
+        break;
+      case "messageOriginChannel":
+        levels.push(this.senderLevel(`chat:${idOf(origin!.chat_id) ?? 0}`));
+        break;
+    }
+    return Math.max(...levels) as Restriction;
+  }
+
+  /** What brought a file, as `sources` keeps it. */
+  private sourceLevel(source: TdObject): Restriction {
+    if (!this.options.restricted) return 0;
+    switch (source["@type"]) {
+      case "getMessage": {
+        const message = this.find(idOf(source.chat_id) ?? 0, idOf(source.message_id) ?? 0);
+        return message ? this.messageLevel(message) : this.chatLevel(this.chats.get(idOf(source.chat_id) ?? 0));
+      }
+      case "getUser":
+        return this.userLevel(idOf(source.user_id));
+      case "getChat":
+        return this.chatLevel(this.chats.get(idOf(source.chat_id) ?? 0));
+      default:
+        return 0;
+    }
+  }
+
+  private withheldUser(id: number | null): boolean {
+    return this.withholds(this.userLevel(id));
+  }
+
+  private withheldChat(chat: TdObject): boolean {
+    return this.withholds(this.chatLevel(chat));
+  }
+
+  private withheldSender(senderId: string): boolean {
+    return this.withholds(this.senderLevel(senderId));
+  }
+
+  private withheldMessage(message: TdObject): boolean {
+    return this.withholds(this.messageLevel(message));
+  }
+
+  /** A call from someone withheld here rings nowhere on this device, and Telegram's own apps take it. One going on stays. */
+  private withheldCall(call: unknown): boolean {
+    if (!this.options.restricted || !isObject(call)) return false;
+    if (this.calls.current()?.id === call.id) return false;
+    return this.withheldUser(idOf(call.user_id));
+  }
+
+  /**
+   * The account let 18+ media through, or stopped: the list and the users are asked for again, and
+   * every message kept whose showing turns on that is told again, as it's shown now.
+   */
+  private sensitiveChanged(): void {
+    this.queueConversations();
+    this.queueUsers();
+    for (const kept of this.messages.values()) for (const message of kept.values()) if (this.messageLevel(message) === SENSITIVE) this.emitMessage(message, false);
   }
 
   /**
@@ -861,6 +1042,7 @@ export class TelegramSession {
     const chat = chatId ? this.listed(chatId) : undefined;
     if (!chat || !(positionIn(chat, "chatListMain") || positionIn(chat, "chatListArchive"))) return;
     if (muteFor(chat, this.defaults) > 0 && raw.contains_unread_mention !== true) return;
+    if (this.withheldMessage(raw)) return;
     const message = this.view(raw);
     const key = chatKey(chat);
     if (!message || !key) return;
@@ -941,11 +1123,14 @@ export class TelegramSession {
 
   getUsers(): UserView[] {
     const now = Date.now();
-    const views = [...this.users.values()].map((user) => userView(user, this.selfId, now)).filter((view): view is UserView => !!view);
+    const views = [...this.users.values()]
+      .filter((user) => !this.withheldUser(idOf(user.id)))
+      .map((user) => userView(user, this.selfId, now))
+      .filter((view): view is UserView => !!view);
     // Chats that speak as themselves in groups.
     for (const chat of this.chats.values()) {
       const id = idOf(chat.id);
-      if (id && kindOf(chat.type) === "chatTypeSupergroup") views.push(chatSenderView(id, str(chat.title, 256)));
+      if (id && kindOf(chat.type) === "chatTypeSupergroup" && !this.withheldChat(chat)) views.push(chatSenderView(id, str(chat.title, 256)));
     }
     return views;
   }
@@ -959,6 +1144,7 @@ export class TelegramSession {
     const now = Date.now();
     const placed: { view: ConversationView; archived: boolean; order: bigint }[] = [];
     for (const [id, chat] of this.chats) {
+      if (this.withheldChat(chat)) continue;
       const last = isObject(chat.last_message) ? this.view(chat.last_message) : null;
       const view = conversationView(chat, { selfId: this.selfId, now, defaults: this.defaults, users: this.users, lastMessage: last, members: this.members.get(id) ?? [] });
       if (!view) continue;
@@ -987,7 +1173,7 @@ export class TelegramSession {
       const key = chatKey(chat);
       const position = positionIn(chat, "chatListMain");
       const archived = positionIn(chat, "chatListArchive");
-      if (!key || !(position || archived)) continue;
+      if (!key || !(position || archived) || this.withheldChat(chat)) continue;
       if (position?.pinned) pinned.push({ key, order: position.order });
       if (!position && archived) hidden.push(key);
       const mute = muteFor(chat, this.defaults);
@@ -1114,6 +1300,12 @@ export class TelegramSession {
     const found = ref.fileId.match(TELEGRAM_FILE);
     if (!found) throw new Error(t("telegram.thatIsntOneOfTelegrams"));
     const [, number, lasting] = found;
+    // Nothing withheld here is downloaded (`restricted`), by what it was in when seen, or is in now.
+    if (lasting && this.options.restricted) {
+      const source = this.sources.get(lasting);
+      const level = Math.max(this.withheldFiles.get(lasting) ?? 0, source ? this.sourceLevel(source) : 0) as Restriction;
+      if (this.withholds(level)) throw new Error(t("telegram.thatFileIsntHereAny"));
+    }
     let fileId = Number(number);
     // A number from before the engine last started may be another file's now, which is never
     // given in its place: the file is found again by what brought it, under its new number.
@@ -1130,17 +1322,25 @@ export class TelegramSession {
     return await this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
   }
 
-  /** Notes what brings back each file in something the engine sent, the latest kept (`sources`). */
-  private note(value: unknown, source: TdObject): void {
+  /**
+   * Notes what brings back each file in something the engine sent, the latest kept (`sources`),
+   * and, of what's restricted here, how much, for its files (`withheldFiles`).
+   */
+  private note(value: unknown, source: TdObject, level: Restriction = 0): void {
     for (const file of filesIn(value)) {
       const lasting = lastingFileId(file);
       if (!lasting) continue;
       this.sources.delete(lasting);
       this.sources.set(lasting, source);
+      if (level > (this.withheldFiles.get(lasting) ?? 0)) this.withheldFiles.set(lasting, level);
     }
     for (const oldest of this.sources.keys()) {
       if (this.sources.size <= MOST_SOURCES) break;
       this.sources.delete(oldest);
+    }
+    for (const oldest of this.withheldFiles.keys()) {
+      if (this.withheldFiles.size <= MOST_WITHHELD) break;
+      this.withheldFiles.delete(oldest);
     }
   }
 
@@ -1291,7 +1491,7 @@ export class TelegramSession {
       more = true;
     }
     for (const message of found) this.remember(message);
-    return { messages: this.views(found), hasMore: more };
+    return { messages: this.views(found.filter((message) => !this.withheldMessage(message))), hasMore: more };
   }
 
   // --- Messages ---
@@ -1358,6 +1558,8 @@ export class TelegramSession {
       const chat = this.listed(idOf(raw.chat_id) ?? 0);
       const key = chat ? chatKey(chat) : null;
       this.remember(raw);
+      // A withheld message isn't found by what it holds.
+      if (this.withheldMessage(raw)) continue;
       const message = this.view(raw);
       if (message && key) results.push({ message, conversationKey: key });
     }
@@ -1411,6 +1613,7 @@ export class TelegramSession {
       const id = idOf(chat.id);
       if (!id) throw new Error(t("telegram.thatChatIsntOnTelegram"));
       if (!this.chats.has(id)) this.chats.set(id, chat);
+      if (this.withheldChat(this.chats.get(id)!)) throw new Error(t("telegram.thatChatIsntOnTelegram"));
       return id;
     }
     const group = key.match(/^group:(-?\d+)$/);
@@ -1566,7 +1769,8 @@ export class TelegramSession {
     for (const chat of this.chats.values()) {
       const key = chatKey(chat);
       const position = positionIn(chat, "chatListMain");
-      if (!key || !position || position.pinned === wanted.has(key)) continue;
+      // One withheld here isn't in the list the app sends, and stays as it is on Telegram.
+      if (!key || !position || position.pinned === wanted.has(key) || this.withheldChat(chat)) continue;
       await this.engine.request({ "@type": "toggleChatIsPinned", chat_list: { "@type": "chatListMain" }, chat_id: chat.id, is_pinned: wanted.has(key) }).catch((error) => {
         throw explain(error);
       });
@@ -1589,7 +1793,7 @@ export class TelegramSession {
     const wanted = new Set(keys);
     for (const chat of this.chats.values()) {
       const key = chatKey(chat);
-      if (!key) continue;
+      if (!key || this.withheldChat(chat)) continue;
       const archived = !!positionIn(chat, "chatListArchive");
       if (archived === wanted.has(key) || (!archived && !positionIn(chat, "chatListMain"))) continue;
       const target = wanted.has(key) ? "chatListArchive" : "chatListMain";
@@ -1622,8 +1826,14 @@ export class TelegramSession {
   /** Forwards messages to another of Telegram's chats, saying whose they were, as Telegram does. */
   async forwardMessages(groupId: string, ids: string[], toKey: string): Promise<void> {
     const fromChat = this.chatOf(groupId);
-    const toChat = await this.chatForKey(toKey);
     const messageIds = ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    // What's withheld here isn't passed on from here either, nor what this device hasn't seen.
+    const withheld = (id: number) => {
+      const known = this.find(fromChat, id);
+      return !known || this.withheldMessage(known);
+    };
+    if (this.options.restricted && messageIds.some(withheld)) throw new Error(t("telegram.thisMessageCantBeShown"));
+    const toChat = await this.chatForKey(toKey);
     await this.engine
       .request({ "@type": "forwardMessages", chat_id: toChat, topic_id: null, from_chat_id: fromChat, message_ids: messageIds, options: null, send_copy: false, remove_caption: false })
       .catch((error) => {
@@ -1633,7 +1843,7 @@ export class TelegramSession {
 
   /** What Telegram has for a chat as written but not sent, on any device of the account. */
   getDraft(key: string): string {
-    const chat = [...this.chats.values()].find((candidate) => chatKey(candidate) === key);
+    const chat = [...this.chats.values()].find((candidate) => chatKey(candidate) === key && !this.withheldChat(candidate));
     const content = (chat?.draft_message as TdObject | undefined)?.content as TdObject | undefined;
     if (kindOf(content) !== "draftMessageContentText") return "";
     return toMarkup(formatted(content?.text));
@@ -1801,6 +2011,9 @@ export class TelegramSession {
     if (isObject(info.subscription_info)) throw new Error(t("telegram.thatGroupRequiresAPayment"));
     const known = idOf(info.chat_id);
     if (known && this.listed(known)) return String(known);
+    // A group withheld here isn't joined from here, where it can't be shown.
+    const knownChat = known ? this.chats.get(known) : undefined;
+    if (knownChat && this.withheldChat(knownChat)) throw new Error(t("telegram.thatChatIsntOnTelegram"));
     const joined = await this.engine.request({ "@type": "joinChatByInviteLink", invite_link: url }).catch((error) => {
       throw explain(error);
     });
@@ -1809,6 +2022,9 @@ export class TelegramSession {
     if (result === "chatJoinResultGuardBotApprovalRequired") throw new Error(t("telegram.thatGroupsBotNeedsTo"));
     const chatId = result === "chatJoinResultSuccess" ? idOf(joined.chat_id) : null;
     if (!chatId) throw new Error(t("telegram.telegramDidntLetYouIn"));
+    // Joined, and only then known to be withheld here: the account is in it, and Telegram's own apps show it.
+    const joinedChat = this.chats.get(chatId);
+    if (joinedChat && this.withheldChat(joinedChat)) throw new Error(t("telegram.thatChatIsntOnTelegram"));
     return String(chatId);
   }
 
@@ -1831,7 +2047,7 @@ export class TelegramSession {
       members.filter(isObject).flatMap((member) => {
         const userId = senderOf(member.member_id);
         const status = kindOf(member.status);
-        if (!userId || status === "chatMemberStatusLeft" || status === "chatMemberStatusBanned") return [];
+        if (!userId || status === "chatMemberStatusLeft" || status === "chatMemberStatusBanned" || this.withheldSender(userId)) return [];
         return [{ userId, role: status === "chatMemberStatusCreator" || status === "chatMemberStatusAdministrator" ? ("admin" as const) : ("member" as const), joinedAt: int(member.joined_chat_date, 0, 2 ** 31, 0) * 1000 }];
       }),
     );

@@ -2644,6 +2644,7 @@
   "telegram.theirPrivacySettingsOnTelegram": "此人的 Telegram 隐私设置不允许你添加对方。",
   "telegram.theresNothingToSend": "没有可发送的内容。",
   "telegram.theyreInAsManyGroups": "对方已达到 Telegram 群聊数量上限。",
+  "telegram.thisMessageCantBeShown": "此消息无法在此设备上显示",
   "telegram.thoseFilesWereUploadedTo": "上传到 Zuna 服务器的文件无法发送至 Telegram。",
   "telegram.tookAScreenshot": "{name} 截取了屏幕",
   "telegram.unknown": "未知",

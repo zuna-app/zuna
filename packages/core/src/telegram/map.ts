@@ -75,6 +75,31 @@ export function formatted(value: unknown): { text: string; entities: TdEntity[] 
   return { text, entities };
 }
 
+// --- Restrictions ---
+
+/** How much TDLib restricts something: not at all, 18+ media an account may let through, or restricted. */
+export type Restriction = 0 | 1 | 2;
+export const SENSITIVE = 1;
+export const RESTRICTED = 2;
+
+/**
+ * How much TDLib says a user, a supergroup or a message is restricted on this platform
+ * (`restrictionInfo`): a reason access to it must be restricted, or only media to hide as 18+.
+ * TDLib gives null where there's nothing; anything else it can't be read as is restricted.
+ */
+export function restrictionOf(value: unknown): Restriction {
+  const info = field(value, "restriction_info");
+  if (info === undefined || info === null) return 0;
+  const reason = field(info, "restriction_reason");
+  if (!isObject(info) || typeof reason !== "string" || reason !== "") return RESTRICTED;
+  return info.has_sensitive_content === true ? SENSITIVE : 0;
+}
+
+/** A message an app held to an app store's rules withholds: one line saying so, and nothing of what it held. */
+export function withheldView(view: MessageView): MessageView {
+  return { ...view, text: `*${t("telegram.thisMessageCantBeShown")}*`, emotes: {}, attachments: [], mentions: [], system: null, preview: null, forwarded: null, location: null, buttons: [] };
+}
+
 // --- Files ---
 
 /**
@@ -510,6 +535,8 @@ export interface MessageContext {
   find: (chatId: number, messageId: number) => TdObject | undefined;
   /** Whose name a sender ID has, for lines about people. */
   nameOf: (senderId: string) => string;
+  /** A message withheld here (`withheldView`), which a reply to it quotes nothing of. */
+  withheld?: (message: TdObject) => boolean;
 }
 
 /**
@@ -671,6 +698,7 @@ function replyPreview(message: TdObject, context: MessageContext): ReplyPreview 
   if (!target || !chatId) return null;
   const original = context.find(chatId, target);
   if (!original) return { id: String(target), senderId: "", text: "", hasAttachment: false, deleted: false };
+  if (context.withheld?.(original)) return { id: String(target), senderId: "", text: t("telegram.thisMessageCantBeShown"), hasAttachment: false, deleted: false };
   const content = contentText(original.content);
   return {
     id: String(target),
