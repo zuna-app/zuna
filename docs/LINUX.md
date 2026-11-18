@@ -93,7 +93,7 @@ The domains are where people reach Zuna through your proxy. The server puts its 
 - the relay listens on port 8090;
 - the web app listens on port 8081;
 - all of them listen only on this machine, unless you say otherwise with `--listen`;
-- LiveKit listens on port 7880 for the server alone, on this machine whatever `--listen` says, and on 7881/tcp and 7882/udp for calls' media, on every address.
+- LiveKit listens on port 7880 for the server alone, on this machine whatever `--listen` says, and on 7881/tcp and 7882/udp for calls' media: 7881 on every address, and 7882 on each address the machine has when LiveKit starts, which waits for the network to have a default route.
 
 The script prints the addresses to point the proxy at. When the server starts for the first time, the script also prints a one-time setup link. Once the proxy is set up, paste the link into the Zuna app to create the owner account, as in [Finish setup](SELF_HOSTING.md#finish-setup). If you miss it:
 
@@ -323,6 +323,7 @@ journalctl -u zuna-livekit -f
 - **The build runs out of memory:** add swap, or build on a bigger machine. The web app's encryption core needs the most.
 - **Voice channels can't be joined:** check that `/etc/zuna/zuna.env` has the `ZUNA_LIVEKIT_` settings, which `--voice on` adds, and that `zuna-livekit` is running.
 - **People join a call but hear nothing:** media can't reach the machine. Check that 7881/tcp and 7882/udp are open to everyone, and forwarded if it's behind a router. LiveKit's log says which public address it found when it started.
+- **No call connects, from anywhere, and LiveKit's log has `removing participant without connection`:** check that LiveKit has 7882/udp open, with `sudo ss -ulpn | grep livekit`. It opens it on the machine's addresses as it starts, and never on one that comes later, so if the machine's address changed since, restart it with `sudo systemctl restart zuna-livekit`.
 - **The web app says it has to be opened over HTTPS:** reach it through the proxy, at `https://web.chat.example.com`, not at its port.
 - **Phones don't get notifications:**
   - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.zuna.chat`, and the script sets it to the relay on the same machine;

@@ -6,6 +6,12 @@ Wants=network-online.target
 [Service]
 User=zuna-livekit
 Group=zuna-livekit
+# LiveKit opens 7882/udp on each of the machine's addresses once, as it starts, and never on one
+# that comes later, while 7881/tcp listens on all of them. Started before DHCP has given the
+# machine its address, which network-online.target doesn't wait for under ifupdown with dhcpcd,
+# it has no UDP at all, and no call connects. So it waits for a default route in the family apps
+# reach it in, its node_ip's or else IPv4, and fails after a minute without one, to start again.
+ExecStartPre=/bin/sh -c 'family=-4; grep -q "^ *node_ip: .*:" /etc/zuna/livekit.yaml && family=-6; for _ in $$(seq 60); do [ -n "$$(ip $$family route show default)" ] && exit 0; sleep 1; done; echo "no default route yet, so no address to open the UDP port on" >&2; exit 1'
 ExecStart=/usr/local/bin/livekit-server --config /etc/zuna/livekit.yaml
 Restart=on-failure
 RestartSec=3
