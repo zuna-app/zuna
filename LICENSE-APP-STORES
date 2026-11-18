@@ -1,0 +1,36 @@
+                 Zuna: an additional permission for app stores
+
+Zuna is licensed under the GNU Affero General Public License, version 3, in
+the file LICENSE (the "License"). Its copyright holders add the following
+permission to it, as section 7 of the License allows.
+
+1. You may convey Zuna, or a work based on it, in object code form through an
+   app store or a similar distribution service, such as Apple's App Store,
+   even where that service's terms, usage rules or technical measures, such
+   as digital rights management or a limit on the devices an app may be
+   installed on, restrict what recipients may do with the copy they get.
+   Those restrictions don't count as further restrictions you impose under
+   section 10 of the License, and agreeing to them in order to use the
+   service doesn't count as accepting conditions that contradict the License
+   under section 12, provided that:
+
+   a. they're restrictions the service puts on the apps it distributes, and
+      you add none of your own;
+
+   b. the Corresponding Source of the work you convey is available to every
+      recipient, at no charge and under the License with this permission, as
+      section 6 of the License requires, with clear directions to it in the
+      app or in its listing on the service; and
+
+   c. nothing you do keeps recipients from getting, running, changing and
+      conveying the work under the License outside the service.
+
+2. This permission changes nothing else in the License. It's given for the
+   code whose copyright Zuna's copyright holders hold. Third-party code in
+   Zuna keeps its own license.
+
+3. Anyone who conveys a copy of Zuna, or of a work based on it, may remove
+   this permission from that copy, as section 7 of the License allows. The
+   copy and the works based on it are then under the License alone.
+
+Contributions to Zuna are accepted under the License with this permission.

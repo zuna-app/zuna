@@ -98,4 +98,4 @@ Everyone taking part in the project follows the [Code of Conduct](CODE_OF_CONDUC
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the [AGPL-3.0](LICENSE).
+By contributing, you agree that your contributions are licensed under the [AGPL-3.0](LICENSE) with the [additional permission for app stores](LICENSE-APP-STORES).

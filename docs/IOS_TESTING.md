@@ -260,4 +260,3 @@ A feature counts as done when its scenario passes against the desktop peer in bo
 - **Real pushes:** a push from APNs, which would run the notification extension on the simulator too, needs the app's APNs key and the deployed relay.
 - **Signing:** distribution needs your Apple Developer team. Simulator builds need no signing.
 - **The out-of-process photo picker** is tested by one UI test; the rest go through the Debug injection path.
-- **Licensing on the App Store** is a decision, not a test.

@@ -152,4 +152,4 @@ npm test               # crypto, server and core tests, against a real server
 
 ## License
 
-[AGPL-3.0](LICENSE). Use, change and host Zuna freely. If you distribute a modified version, or run one that others use over a network, publish its source under the same license.
+[AGPL-3.0](LICENSE), with an [additional permission](LICENSE-APP-STORES) for app stores such as Apple's, as the AGPL's section 7 allows. Use, change and host Zuna freely. If you distribute a modified version, or run one that others use over a network, publish its source under the same license.
