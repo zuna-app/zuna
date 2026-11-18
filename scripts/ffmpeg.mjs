@@ -66,8 +66,9 @@ function buildFromSource(source, dir) {
 }
 
 // Tried a few times, waiting longer each time: ffmpeg.org reset a runner's connection once, before
-// a byte of it came.
-async function download(url, file) {
+// a byte of it came, and NSIS's first try after the app's build, which blocks the event loop, met
+// a connection to GitHub left from before it, which had died (scripts/windows-app.mjs).
+export async function download(url, file) {
   const partial = `${file}.partial`;
   for (let attempt = 1; ; attempt++) {
     try {
