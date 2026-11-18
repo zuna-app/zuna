@@ -7,9 +7,11 @@ on:
 # Releases the native app, for Windows, Linux and macOS, which
 # scripts/release.mjs tagged: v1.2.3 is a stable release, and
 # v1.2.3-nightly.1108 a nightly. A nightly also sends the iPhone app to
-# TestFlight. Each app is built only when something it's built from changed
-# since it last shipped. docs/RELEASES.md says how it all fits together. The
-# server, zuna-web and their images aren't released here yet (docs/ROADMAP.md).
+# TestFlight, for the team's own testers, and a stable release to App Store
+# Connect, for the App Store. A nightly builds each app only when something
+# it's built from changed since it last shipped. docs/RELEASES.md says how it
+# all fits together. The server, zuna-web and their images aren't released
+# here yet (docs/ROADMAP.md).
 #
 # Nothing runs with more than it needs. Each app is built by a job that holds no
 # secret but Telegram's api_id, which every installer carries anyway (the windows
@@ -37,8 +39,7 @@ jobs:
   # What the tag releases. Fails unless it's annotated, on main, and agrees with
   # the version in package.json and, for a nightly, with its commit's number.
   # Says which apps to build, from the deployments of the environments that
-  # ship each: a stable release always has the installers, and the iPhone app
-  # only goes out with nightlies.
+  # ship each: a stable release always has the installers and the iPhone app.
   plan:
     runs-on: ubuntu-latest
     permissions:
@@ -376,17 +377,22 @@ jobs:
           if-no-files-found: error
 
   # Signs the archive for the App Store, checks every bundle's signature, build
-  # and entitlements, and uploads it to TestFlight, marked for the team's own
-  # testers. Runs in the testflight environment, which only nightly tags reach
-  # and which holds the distribution certificate, the App Store profiles and an
-  # App Store Connect key. Builds nothing, and runs nothing from npm, Cargo or
-  # Swift's packages: only Xcode and scripts/ios-dist.mjs, which needs no npm
-  # install.
+  # and entitlements, and uploads it to App Store Connect: a nightly's marked for
+  # the team's own testers on TestFlight, and a stable release's for the App
+  # Store, which a person then submits for review there. Runs in the testflight
+  # environment, which only v* tags reach and which holds the distribution
+  # certificate, the App Store profiles and an App Store Connect key. Builds
+  # nothing, and runs nothing from npm, Cargo or Swift's packages: only Xcode and
+  # scripts/ios-dist.mjs, which needs no npm install. A stable release's waits
+  # for the checks, as publishing does.
   testflight:
-    needs: [ios]
+    needs: [plan, checks, ios]
+    if: ${{ !cancelled() && needs.ios.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && needs.plan.outputs.channel == 'nightly')) }}
     environment: testflight
     runs-on: xcode-27
     timeout-minutes: 30
+    env:
+      ZUNA_CHANNEL: ${{ needs.plan.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
@@ -401,7 +407,7 @@ jobs:
           name: ios
           path: artifacts
       - run: ditto -x -k artifacts/Zuna.xcarchive.zip artifacts
-      - name: Sign, check and upload to TestFlight
+      - name: Sign, check and upload to App Store Connect
         env:
           IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
           IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}

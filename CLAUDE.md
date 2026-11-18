@@ -30,7 +30,7 @@ Claude MUST follow these in every commit, with no exceptions. They replace the s
 
 ## Releases
 
-Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer, the Linux packages and the macOS DMG, signed with the Developer ID and notarized on CI (`scripts/macos-dist.mjs`). A nightly that changes the iPhone app also sends it to TestFlight, for the team's own testers, from `release.yml` and `scripts/ios-dist.mjs`: never upload one by hand, as its build number would be the next nightly's. `docs/RELEASES.md` says how all of it works.
+Only the native app is released: on GitHub Releases, as nightlies and stable releases, which it updates itself from on Windows. Each carries the Windows installer, the Linux packages and the macOS DMG, signed with the Developer ID and notarized on CI (`scripts/macos-dist.mjs`). A nightly that changes the iPhone app also sends it to TestFlight, for the team's own testers, and a stable release to App Store Connect, for the App Store, where someone submits it for review, from `release.yml` and `scripts/ios-dist.mjs`: never upload one by hand, as its build number would be the next release's. `docs/RELEASES.md` says how all of it works.
 
 A version is `MAJOR.MINOR.PATCH` and a build number, which is how many commits `main` has at the commit released, and is what an update is compared by. A nightly is `0.11.1-nightly.1112`, tagged `v0.11.1-nightly.1112`, and a stable release is `0.11.0`, tagged `v0.11.0`. The three-part number is what the next stable release will be called: the last one's, raised once by the highest level among the commits since it, and at least a patch. Until the first stable release it stays `0.1.0`, which becomes that release.
 
@@ -205,7 +205,7 @@ Rules the core depends on:
 | The kinds of push Telegram sends a linked iPhone (https://core.telegram.org/api/config.json, "push") | `apps/ios/Zuna/Resources/en.lproj/Localizable.strings`, written again by `node apps/ios/scripts/telegram-push-texts.mjs`, and `TelegramPush` in `Zuna/Shared/TelegramPush.swift` for a kind it words itself |
 | GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `zuna-app/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
 | What the native app is built from | `APP_PATHS` in `scripts/release.mjs`, or a session that only touched the new place cuts no nightly |
-| What the iPhone app is built from | `IOS_PATHS` in `scripts/release.mjs`, or a change only there never reaches TestFlight |
+| What the iPhone app is built from | `IOS_PATHS` in `scripts/release.mjs`, or a change only there never reaches TestFlight or the App Store |
 | An app extension, or a bundle's identifier, in `apps/ios/project.yml` | `PROFILES` in `scripts/ios-dist.mjs`, an App Store profile for it in the `testflight` environment (`node scripts/ios-dist.mjs secrets`), and the upload step's secrets in `release.yml` |
 | The iPhone app's entitlements (the `.entitlements` files in `apps/ios`) | The App IDs' capabilities on the developer site, and new App Store profiles in the `testflight` environment, or the next upload fails its check |
 | Which files say the version: a new workspace's `package.json`, or a new crate | `CRATES` and `versionFiles` in `scripts/release.mjs`, which keeps them the same |

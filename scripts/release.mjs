@@ -1,4 +1,5 @@
-// Releases the native app, and with each nightly the iPhone app to TestFlight: works out the next
+// Releases the native app, and the iPhone app to TestFlight with each nightly and to App Store Connect
+// with each stable release: works out the next
 // version from a changelog, tags it, and leaves the build and the publishing to
 // .github/workflows/release.yml, which also calls this for what a release builds, is checked and
 // signed with. docs/RELEASES.md says how it all fits together.
@@ -82,7 +83,8 @@ export const NOT_APP_PATHS = ["apps/desktop/test/", "packages/core/test/", "pack
 
 /**
  * What the iPhone app is built from. A commit that touches any of it makes a nightly too, which
- * goes to TestFlight (scripts/ios-dist.mjs). The version is the native app's, so in the changelog
+ * goes to TestFlight (scripts/ios-dist.mjs), and a stable release takes it to App Store Connect, for
+ * the App Store. The version is the native app's, so in the changelog
  * such a commit is still only "Under the hood" unless it reaches the native app as well.
  */
 export const IOS_PATHS = [
@@ -350,7 +352,10 @@ export function appKeys(source) {
 
 // --- The version's files ---
 
-/** Every file that says the version: the workspaces' package.json, their lock, the crates and theirs. */
+/** The XcodeGen spec whose MARKETING_VERSION is the iPhone app's version, which App Store Connect closes once it's released. */
+const IOS_SPEC = "apps/ios/project.yml";
+
+/** Every file that says the version: the workspaces' package.json, their lock, the crates and theirs, and the iPhone app's spec. */
 export function versionFiles(dir) {
   const packages = ["package.json"];
   for (const pattern of JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).workspaces) {
@@ -360,13 +365,14 @@ export function versionFiles(dir) {
   }
   const crates = CRATES.filter((crate) => existsSync(join(dir, crate, "Cargo.toml"))).map((crate) => `${crate}/Cargo.toml`);
   const locks = CRATES.filter((crate) => existsSync(join(dir, crate, "Cargo.lock"))).map((crate) => `${crate}/Cargo.lock`);
-  return { packages, crates, locks };
+  const ios = existsSync(join(dir, IOS_SPEC)) ? [IOS_SPEC] : [];
+  return { packages, crates, locks, ios };
 }
 
 /** Sets the version everywhere it's written, and says which files changed. */
 export function setVersion(dir, version) {
   parseVersion(version);
-  const { packages, crates, locks } = versionFiles(dir);
+  const { packages, crates, locks, ios } = versionFiles(dir);
   const changed = [];
   const rewrite = (file, change) => {
     const before = readFileSync(join(dir, file), "utf8");
@@ -395,6 +401,7 @@ export function setVersion(dir, version) {
   for (const file of locks) {
     rewrite(file, (text) => names.reduce((lock, name) => lock.replace(new RegExp(`(name = "${name}"\\r?\\nversion = ")[^"]*(")`), `$1${version}$2`), text));
   }
+  for (const file of ios) rewrite(file, (text) => text.replace(/^(\s*MARKETING_VERSION:\s*")[^"]*(")/m, `$1${version}$2`));
   return changed;
 }
 
@@ -454,9 +461,9 @@ function pendingFor(channel, ref) {
   return { last, stable, commits, reaches: counted.some((commit) => reachesApp(commit.files)), reachesIos: counted.some((commit) => reachesIos(commit.files)) };
 }
 
-/** What a channel's release builds, by which apps changed: the iPhone app only goes out with nightlies. */
-export function changedApps(channel, { reaches, reachesIos: ios }) {
-  return [reaches && "the app", channel === "nightly" && ios && "the iPhone app"].filter(Boolean);
+/** What a channel's release builds, by which apps changed: a nightly takes the iPhone app to TestFlight, and a stable release to App Store Connect. */
+export function changedApps({ reaches, reachesIos: ios }) {
+  return [reaches && "the app", ios && "the iPhone app"].filter(Boolean);
 }
 
 const sentence = (text) => text[0].toUpperCase() + text.slice(1);
@@ -483,10 +490,10 @@ function pending() {
       console.log(`  ${short} ${commit.subject}  [${marks.join(", ")}]`);
       if (channel === "nightly") for (const file of commit.files) console.log(`      ${file}`);
     }
-    const changed = changedApps(channel, pending);
+    const changed = changedApps(pending);
     if (commits.length === 0) console.log("  Nothing to release.");
     else if (changed.length > 0) console.log(`  ${sentence(changed.join(" and "))} changed, so there's a release to cut.`);
-    else console.log(`  Nothing ${channel === "nightly" ? "the app or the iPhone app" : "the app"} is built from changed, so there's no release to cut.`);
+    else console.log("  Nothing the app or the iPhone app is built from changed, so there's no release to cut.");
   }
 }
 
@@ -506,9 +513,9 @@ function cut(channel, args) {
   const { last, stable, commits } = pending;
   const { groups, level, problems } = classify(readFileSync(notesFile, "utf8"), commits);
   if (problems.length > 0) fail(`The notes don't match the ${commits.length} commits since ${last ? last.tag : "releases began"}:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
-  const changed = changedApps(channel, pending);
+  const changed = changedApps(pending);
   if (changed.length === 0) {
-    console.log(`Nothing ${channel === "nightly" ? "the app or the iPhone app" : "the app"} is built from changed since ${last ? last.tag : "releases began"}, so there's no ${channel} release to cut.`);
+    console.log(`Nothing the app or the iPhone app is built from changed since ${last ? last.tag : "releases began"}, so there's no ${channel} release to cut.`);
     return;
   }
 
@@ -605,7 +612,7 @@ function keygen(args) {
   console.log(`The public key, for ${list} in apps/desktop/src/platform/updates.rs:\n${key.public}`);
 }
 
-/** The environment the iPhone app is signed and uploaded to TestFlight in (scripts/ios-dist.mjs). */
+/** The environment the iPhone app is signed and uploaded to App Store Connect in, for TestFlight and the App Store (scripts/ios-dist.mjs). */
 export const TESTFLIGHT = "testflight";
 
 /**
@@ -655,10 +662,11 @@ function plan(args) {
   if (version !== release.version) fail(`${tag} is on a commit whose package.json says ${version}.`);
   const build = buildOf(commit);
   if (release.channel === "nightly" && release.build !== build) fail(`${tag} is on a commit that is build ${build}.`);
-  // A stable release always has the installers. A nightly builds each app only if something it's
-  // built from changed since it last shipped, so one that was cancelled or failed is made up for.
+  // A stable release always has the installers, and the iPhone app for the App Store. A nightly
+  // builds each app only if something it's built from changed since it last shipped, so one that
+  // was cancelled or failed is made up for.
   const desktop = release.channel === "stable" || changedSince(lastShipped(["nightly", "release"]), commit, reachesApp);
-  const ios = release.channel === "nightly" && changedSince(lastShipped([TESTFLIGHT]), commit, reachesIos);
+  const ios = release.channel === "stable" || changedSince(lastShipped([TESTFLIGHT]), commit, reachesIos);
   const outputs = { channel: release.channel, version: release.version, build, label: labelOf({ ...release, build }), commit, environment: release.channel === "stable" ? "release" : "nightly", desktop, ios };
   const lines = Object.entries(outputs).map(([name, value]) => `${name}=${value}`).join("\n");
   if (process.env.GITHUB_OUTPUT) writeFileSync(process.env.GITHUB_OUTPUT, `${lines}\n`, { flag: "a" });

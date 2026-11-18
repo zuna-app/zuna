@@ -103,12 +103,11 @@ test("only what the iPhone app is built from reaches it", () => {
   assert.ok(!reachesIos([]));
 });
 
-test("a nightly builds whichever app changed, and a stable release only the native one", () => {
-  assert.deepEqual(changedApps("nightly", { reaches: true, reachesIos: true }), ["the app", "the iPhone app"]);
-  assert.deepEqual(changedApps("nightly", { reaches: false, reachesIos: true }), ["the iPhone app"]);
-  assert.deepEqual(changedApps("nightly", { reaches: false, reachesIos: false }), []);
-  assert.deepEqual(changedApps("stable", { reaches: true, reachesIos: true }), ["the app"]);
-  assert.deepEqual(changedApps("stable", { reaches: false, reachesIos: true }), []);
+test("a release builds whichever app changed, the iPhone app included", () => {
+  assert.deepEqual(changedApps({ reaches: true, reachesIos: true }), ["the app", "the iPhone app"]);
+  assert.deepEqual(changedApps({ reaches: false, reachesIos: true }), ["the iPhone app"]);
+  assert.deepEqual(changedApps({ reaches: true, reachesIos: false }), ["the app"]);
+  assert.deepEqual(changedApps({ reaches: false, reachesIos: false }), []);
 });
 
 test("a commit only in the iPhone app is still under the hood", () => {
@@ -250,8 +249,9 @@ test("the version is set everywhere it's written, and nowhere else", () => {
     write("package-lock.json", JSON.stringify({ name: "zuna", version: "0.10.0", packages: { "": { name: "zuna", version: "0.10.0" }, "packages/core": { name: "@zuna/core", version: "0.10.0" }, "node_modules/other": { version: "0.10.0" } } }, null, 2) + "\n");
     write("crypto/Cargo.toml", '[package]\nname = "zuna-crypto"\nversion = "0.10.0"\n\n[dependencies]\nother = { version = "0.10.0" }\n');
     write("crypto/Cargo.lock", '[[package]]\nname = "other"\nversion = "0.10.0"\n\n[[package]]\nname = "zuna-crypto"\nversion = "0.10.0"\ndependencies = [\n "other",\n]\n');
-    assert.deepEqual(versionFiles(dir), { packages: ["package.json", "packages/core/package.json"], crates: ["crypto/Cargo.toml"], locks: ["crypto/Cargo.lock"] });
-    assert.deepEqual(setVersion(dir, "0.11.0").sort(), ["crypto/Cargo.lock", "crypto/Cargo.toml", "package-lock.json", "package.json", "packages/core/package.json"]);
+    write("apps/ios/project.yml", 'settings:\n  base:\n    MARKETING_VERSION: "0.10.0"\n    CURRENT_PROJECT_VERSION: "21"\ntargets:\n  Zuna:\n    info:\n      properties:\n        CFBundleShortVersionString: $(MARKETING_VERSION)\n');
+    assert.deepEqual(versionFiles(dir), { packages: ["package.json", "packages/core/package.json"], crates: ["crypto/Cargo.toml"], locks: ["crypto/Cargo.lock"], ios: ["apps/ios/project.yml"] });
+    assert.deepEqual(setVersion(dir, "0.11.0").sort(), ["apps/ios/project.yml", "crypto/Cargo.lock", "crypto/Cargo.toml", "package-lock.json", "package.json", "packages/core/package.json"]);
     assert.equal(JSON.parse(read("package.json")).version, "0.11.0");
     assert.equal(JSON.parse(read("package.json")).devDependencies.other, "0.10.0");
     assert.equal(read("packages/core/package.json"), '{\r\n  "name": "@zuna/core",\r\n  "version": "0.11.0",\r\n  "dependencies": { "x": "0.10.0" }\r\n}\r\n');
@@ -259,6 +259,8 @@ test("the version is set everywhere it's written, and nowhere else", () => {
     assert.deepEqual([lock.version, lock.packages[""].version, lock.packages["packages/core"].version, lock.packages["node_modules/other"].version], ["0.11.0", "0.11.0", "0.11.0", "0.10.0"]);
     assert.equal(read("crypto/Cargo.toml"), '[package]\nname = "zuna-crypto"\nversion = "0.11.0"\n\n[dependencies]\nother = { version = "0.10.0" }\n');
     assert.equal(read("crypto/Cargo.lock"), '[[package]]\nname = "other"\nversion = "0.10.0"\n\n[[package]]\nname = "zuna-crypto"\nversion = "0.11.0"\ndependencies = [\n "other",\n]\n');
+    // The iPhone app's version, and not its development build number.
+    assert.equal(read("apps/ios/project.yml"), 'settings:\n  base:\n    MARKETING_VERSION: "0.11.0"\n    CURRENT_PROJECT_VERSION: "21"\ntargets:\n  Zuna:\n    info:\n      properties:\n        CFBundleShortVersionString: $(MARKETING_VERSION)\n');
     // Set to what it is already, nothing changes.
     assert.deepEqual(setVersion(dir, "0.11.0"), []);
     assert.throws(() => setVersion(dir, "0.11"));

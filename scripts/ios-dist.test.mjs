@@ -1,10 +1,11 @@
-// What scripts/ios-dist.mjs decides before it lets a build go to TestFlight: which profiles may
-// sign it and whether its entitlements came through the export. Run with `npm run test:release`.
+// What scripts/ios-dist.mjs decides before it lets a build go to App Store Connect: where it may
+// go, which profiles may sign it and whether its entitlements came through the export. Run with
+// `npm run test:release`.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { entitlementProblems, filled, plist, PROFILES, profileProblem, SECRETS } from "./ios-dist.mjs";
+import { entitlementProblems, exportOptions, filled, forAppStore, plist, PROFILES, profileProblem, SECRETS } from "./ios-dist.mjs";
 
 const profile = (changes = {}) => ({
   uuid: "6a1f3c2e-0000-4000-8000-000000000000",
@@ -29,6 +30,15 @@ test("only an App Store profile of the bundle, the team and the certificate sign
   assert.match(profileProblem(profile({ certificates: ["B".repeat(40)] }), wants), /wasn't made with the distribution certificate/);
   // Without a certificate to hold it to, as when only the profile is known.
   assert.equal(profileProblem(profile({ certificates: [] }), { ...wants, certificate: undefined }), null);
+});
+
+test("a nightly's build is for the team's own testers, and only a stable release's goes to the App Store", () => {
+  assert.equal(forAppStore("stable"), true);
+  for (const channel of ["nightly", "", undefined]) assert.equal(forAppStore(channel), false);
+  assert.equal(exportOptions("SGKB9R23YT", false).testFlightInternalTestingOnly, true);
+  assert.equal(exportOptions("SGKB9R23YT", true).testFlightInternalTestingOnly, false);
+  assert.deepEqual({ ...exportOptions("SGKB9R23YT", true), testFlightInternalTestingOnly: undefined }, { ...exportOptions("SGKB9R23YT", false), testFlightInternalTestingOnly: undefined });
+  assert.equal(exportOptions("SGKB9R23YT", true).method, "app-store-connect");
 });
 
 test("every bundle has a profile, and every secret upload needs is named", () => {

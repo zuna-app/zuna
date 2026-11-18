@@ -1,6 +1,8 @@
-// Sends the iPhone app to TestFlight, in two halves that .github/workflows/release.yml runs as two
-// jobs: one builds it holding no secret at all, the other signs and uploads it, running nothing but
-// Xcode and this script. docs/RELEASES.md, "The iPhone app on TestFlight", says how it fits.
+// Sends the iPhone app to App Store Connect, in two halves that .github/workflows/release.yml runs as
+// two jobs: one builds it holding no secret at all, the other signs and uploads it, running nothing
+// but Xcode and this script. A nightly's build is marked for the team's own testers on TestFlight,
+// and a stable release's, with ZUNA_CHANNEL=stable, isn't, so that it can go to the App Store.
+// docs/RELEASES.md, "The iPhone app on TestFlight and the App Store", says how it fits.
 //
 //   node scripts/ios-dist.mjs archive                    archives the app, unsigned, into dist/ios/Zuna.xcarchive
 //   node scripts/ios-dist.mjs upload [archive]           signs it with the testflight environment's secrets, checks it, uploads it
@@ -32,9 +34,17 @@ const iosDir = join(root, "apps", "ios");
 const out = join(root, "dist", "ios");
 const ARCHIVE = join(out, "Zuna.xcarchive");
 
-/** The environment whose secrets sign and upload the app, and the tags that reach it. */
+/** The environment whose secrets sign and upload the app, and the tags that reach it: every release's. */
 const ENVIRONMENT = TESTFLIGHT;
-const TAGS = "v*-nightly.*";
+const TAGS = "v*";
+
+/** Whether this build is a stable release's, for the App Store, rather than a nightly's, for the team's own testers. */
+export const forAppStore = (channel = process.env.ZUNA_CHANNEL) => channel === "stable";
+
+/** How Xcode exports a build for App Store Connect: a nightly's can't go to outside testers or the App Store. */
+export function exportOptions(team, store) {
+  return { method: "app-store-connect", destination: "export", teamID: team, uploadSymbols: true, manageAppVersionAndBuildNumber: false, testFlightInternalTestingOnly: !store };
+}
 
 /** Every bundle the app ships, by its identifier, with the secret its App Store profile is kept in. */
 export const PROFILES = {
@@ -218,8 +228,8 @@ function installSigning(work, teamId) {
   }
 }
 
-/** Fails unless every bundle of the exported app is this build, signed for distribution, with its entitlements. */
-function check(ipa, build, prefix, work) {
+/** Fails unless every bundle of the exported app is this build, signed for distribution, with its entitlements, and marked for where it goes. */
+function check(ipa, build, prefix, work, store) {
   const unpacked = join(work, "ipa");
   run("ditto", ["-x", "-k", ipa, unpacked]);
   const app = join(unpacked, "Payload", "Zuna.app");
@@ -238,9 +248,11 @@ function check(ipa, build, prefix, work) {
     const got = xml ? JSON.parse(read("plutil", ["-convert", "json", "-o", "-", "-"], { input: xml })) : {};
     problems.push(...entitlementProblems(name, file ? filled(plistOf(file), prefix) : {}, got));
   }
-  if (field(join(app, "Info.plist"), "TFInternalTestingOnly") !== "true") problems.push("Zuna.app isn't marked for the team's own testers only (TFInternalTestingOnly).");
-  if (problems.length > 0) fail(`The exported app isn't what TestFlight should get:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
-  console.log(`Checked the exported app: every bundle is build ${build}, signed for distribution, with the entitlements apps/ios asks for and a privacy manifest, and it's for the team's own testers only.`);
+  const internal = field(join(app, "Info.plist"), "TFInternalTestingOnly") === "true";
+  if (!store && !internal) problems.push("Zuna.app isn't marked for the team's own testers only (TFInternalTestingOnly).");
+  if (store && internal) problems.push("Zuna.app is marked for the team's own testers only (TFInternalTestingOnly), so it can't go to the App Store.");
+  if (problems.length > 0) fail(`The exported app isn't what App Store Connect should get:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
+  console.log(`Checked the exported app: every bundle is build ${build}, signed for distribution, with the entitlements apps/ios asks for and a privacy manifest, and it's ${store ? "for the App Store" : "for the team's own testers only"}.`);
 }
 
 /** Exports the archive for App Store Connect, checks it, and uploads it or keeps it in dist/ios. */
@@ -250,11 +262,11 @@ function distribute(path, upload) {
   if (!existsSync(app)) fail(`${archived} isn't an archive of Zuna: it has no Products/Applications/Zuna.app.`);
   const build = field(join(app, "Info.plist"), "CFBundleVersion");
   const teamId = team();
+  const store = forAppStore();
   const work = mkdtempSync(join(tmpdir(), "zuna-ios-"));
   let signing = null;
   try {
-    // Nightlies are for the people on the team: a build marked so can't go to outside testers or the App Store.
-    const options = { method: "app-store-connect", destination: "export", teamID: teamId, uploadSymbols: true, manageAppVersionAndBuildNumber: false, testFlightInternalTestingOnly: true };
+    const options = exportOptions(teamId, store);
     const extra = [];
     if (upload) {
       signing = installSigning(work, teamId);
@@ -268,16 +280,21 @@ function distribute(path, upload) {
     const exported = join(work, "export");
     run("xcodebuild", ["-exportArchive", "-archivePath", archived, "-exportOptionsPlist", optionsFile, "-exportPath", exported, ...extra], { cwd: iosDir });
     const ipa = join(exported, "Zuna.ipa");
-    check(ipa, build, `${teamId}.`, work);
+    check(ipa, build, `${teamId}.`, work, store);
 
+    const version = field(join(app, "Info.plist"), "CFBundleShortVersionString");
     if (upload) {
       run("xcrun", ["altool", "--upload-package", ipa, "--api-key", signing.keyId, "--api-issuer", signing.issuer], { env: { ...env, API_PRIVATE_KEYS_DIR: signing.keys } });
-      console.log(`Uploaded build ${build} to TestFlight. App Store Connect processes it before the team's testers get it.`);
+      console.log(
+        store
+          ? `Uploaded ${version} (${build}) to App Store Connect, for the App Store. Once it's processed, choose it for version ${version} there and submit that for review.`
+          : `Uploaded ${version} (${build}) to TestFlight. App Store Connect processes it before the team's testers get it.`,
+      );
     } else {
       mkdirSync(out, { recursive: true });
-      const kept = join(out, `Zuna-${build}.ipa`);
+      const kept = join(out, `Zuna-${build}${store ? "-app-store" : ""}.ipa`);
       copyFileSync(ipa, kept);
-      console.log(`Exported and checked build ${build}, in ${kept}. Nothing was uploaded: TestFlight gets its builds from release.yml.`);
+      console.log(`Exported and checked ${version} (${build}), in ${kept}. Nothing was uploaded: App Store Connect gets its builds from release.yml.`);
     }
   } finally {
     signing?.remove();
@@ -324,7 +341,7 @@ async function secrets(args) {
   holdEnvironment(ENVIRONMENT, TAGS);
   setSecrets(ENVIRONMENT, Object.fromEntries(SECRETS.map((name) => [name, values[name]])));
   console.log(
-    `\nSet the ${SECRETS.length} secrets of the ${ENVIRONMENT} environment. The next nightly that changes the iPhone app goes to TestFlight.\n` +
+    `\nSet the ${SECRETS.length} secrets of the ${ENVIRONMENT} environment. The next nightly that changes the iPhone app goes to TestFlight, and the next stable release to App Store Connect.\n` +
       `Delete ${basename(p12)} and AuthKey_${key.id}.p8 now: GitHub has them, the certificate's key is in your keychain too, and a lost one is replaced by revoking it and making a new one.`,
   );
 }
