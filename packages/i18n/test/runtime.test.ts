@@ -27,6 +27,13 @@ describe("plural rules", () => {
     for (const source of vectors.badRules) expect(() => compileRule(source), source).toThrow();
   });
 
+  it("read a long run of spaces in time growing with its length", () => {
+    // Each took about 50 s at this length when the rule's expressions backtracked over spaces.
+    const spaces = " ".repeat(100_000);
+    for (const source of [`n${spaces}x`, `c${spaces}x`, `c=${"\t".repeat(100_000)}x`]) expect(() => compileRule(source)).toThrow();
+    expect(compileRule(`n${spaces}=${spaces}1${spaces}or${spaces}n${spaces}=${spaces}2`)(2)).toBe(true);
+  });
+
   it("leave out samples and take negative counts as positive", () => {
     const rules = rulesOf({ one: "i = 1 and v = 0 @integer 1" });
     expect(pluralCategory(rules, 1)).toBe("one");

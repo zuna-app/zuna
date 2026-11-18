@@ -73,9 +73,13 @@ export function countOf(vars?: Vars): number | null {
 export function compileRule(source: string): Rule {
   const text = source.split("@")[0]!.trim();
   if (!text) throw new Error("A plural rule is empty.");
-  const ors = text.split(/\s+or\s+/).map((part) =>
-    part.split(/\s+and\s+/).map((relation) => {
-      const match = /^([niwvftce])\s*(?:%\s*(\d+))?\s*(!=|=)\s*([\d.,\s]+)$/.exec(relation.trim());
+  // Spaces are made single and then taken out of each relation, as the native app and iOS read a
+  // rule, so that no expression here has two ways to match the same spaces: one that did took time
+  // growing with the square of a rule's length.
+  const words = text.split(/\s/).filter(Boolean).join(" ");
+  const ors = words.split(" or ").map((part) =>
+    part.split(" and ").map((relation) => {
+      const match = /^([niwvftce])(?:%(\d+))?(!=|=)([\d.,]+)$/.exec(relation.replace(/ /g, ""));
       if (!match) throw new Error(`A plural rule can't be read: ${source}`);
       const [, operand, modulo, operator, list] = match;
       const ranges = list!.split(",").map((item) => {
