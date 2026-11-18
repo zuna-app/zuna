@@ -1142,7 +1142,15 @@ final class VoiceModel {
     func flipCamera() async {
         if let telegramMedia {
             await telegramMedia.flipCamera()
+            guard self.telegramMedia === telegramMedia else { return }
             cameraFront = telegramMedia.cameraFront
+            // Neither camera would start again, so it's off, and the other side is told.
+            if camera != telegramMedia.cameraOn {
+                camera = telegramMedia.cameraOn
+                systemCall.video(camera)
+                sayTelegram()
+                syncTelegramVideos()
+            }
             return
         }
         await room?.flipCamera()

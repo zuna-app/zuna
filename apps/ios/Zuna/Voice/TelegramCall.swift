@@ -127,6 +127,8 @@ final class TelegramMedia {
     /// What the other side sends, by MID.
     private var remotes: [String: LKRTCMediaStreamTrack] = [:]
     private var camera: Camera?
+    /// The camera is being started, stopped or turned, which another press waits out.
+    private var turning = false
     /// The relays on this device it reaches Telegram's through, with a proxy set.
     private let proxy: CallProxy?
     private var commands: AsyncStream<TelegramCallMedia>.Continuation?
@@ -423,15 +425,18 @@ final class TelegramMedia {
     /// offered yet, which the core offers once it hears of it. Off, it stops sending pictures and
     /// the other side is told, as Telegram's apps do, rather than the stream going.
     func setCamera(_ on: Bool) async throws {
-        guard !closed else { return }
+        guard !closed, !turning else { return }
+        turning = true
+        defer { turning = false }
         if !on {
             guard var camera, camera.on else { return }
-            await withCheckedContinuation { continuation in camera.capturer.stopCapture { continuation.resume() } }
+            await Self.stop(camera.capturer)
             camera.on = false
             self.camera = camera
             events.media()
             return
         }
+        guard camera?.on != true else { return }
         if camera == nil {
             let source = Self.factory.videoSource()
             let track = Self.factory.videoTrack(with: source, trackId: "camera")
@@ -443,22 +448,40 @@ final class TelegramMedia {
         }
         guard var camera else { return }
         try await Self.capture(camera.capturer, front: camera.front)
+        // Ended while the camera was starting: it stops with the call.
+        guard !closed else { return await Self.stop(camera.capturer) }
         camera.on = true
         self.camera = camera
         events.media()
     }
 
-    /// The front camera or the back one.
+    /// The front camera or the back one. LiveKit's WebRTC can't be given another camera while it
+    /// captures: it connects the new one to its output beside the old one, and AVFoundation
+    /// throws, which ended the app. So it stops first, as LiveKit's own capturer does. If the
+    /// other camera won't start, the one it had goes on again, and if neither will, it's off.
     func flipCamera() async {
-        guard var camera, camera.on else { return }
+        guard var camera, camera.on, !closed, !turning else { return }
+        turning = true
+        defer { turning = false }
+        await Self.stop(camera.capturer)
         do {
             try await Self.capture(camera.capturer, front: !camera.front)
             camera.front.toggle()
-            self.camera = camera
-            events.media()
         } catch {
             logger.warning("The camera didn't turn: \(String(describing: error), privacy: .public)")
+            do {
+                try await Self.capture(camera.capturer, front: camera.front)
+            } catch {
+                camera.on = false
+            }
         }
+        guard !closed else { return await Self.stop(camera.capturer) }
+        self.camera = camera
+        events.media()
+    }
+
+    private static func stop(_ capturer: LKRTCCameraVideoCapturer) async {
+        await withCheckedContinuation { continuation in capturer.stopCapture { continuation.resume() } }
     }
 
     /// Captures from a camera at about 720p and 30 frames a second, as a room's camera goes.
