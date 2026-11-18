@@ -47,6 +47,11 @@ installFresh(udid);
 const phone = await new HostApp("phone", { target: "simulator" }).open();
 
 try {
+  // First, before anything has made the calls' factory: CallKit starts a call's audio before its
+  // peer connection is made, and the factory made after it must leave the sound on.
+  const audio = JSON.parse(await phone.hostCommand("telegramCallAudio")) as { enabled?: boolean };
+  check("the first call's sound stays on when its audio started before the factory", audio.enabled === true, JSON.stringify(audio));
+
   const offers = JSON.parse(await phone.hostCommand("telegramCallOffers")) as Record<string, string>;
   for (const name of Object.keys(SHAPES)) {
     const sdp = offers[name] ?? "";

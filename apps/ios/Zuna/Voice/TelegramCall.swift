@@ -35,8 +35,17 @@ enum TelegramAudio {
         session.isAudioEnabled = false
     }
 
+    /// The factory is made before the session is touched, so that its setting the session up
+    /// (`prepare`) never undoes a start. CallKit hands the audio over before the call's peer
+    /// connection is made, and on the first call after the app started, that was before the
+    /// factory too, which then turned the sound off for the whole call.
+    private static func ready() {
+        _ = TelegramMedia.factory
+    }
+
     /// CallKit started the call's audio.
     static func activated(_ session: AVAudioSession) {
+        ready()
         let rtc = LKRTCAudioSession.sharedInstance()
         rtc.audioSessionDidActivate(session)
         rtc.isAudioEnabled = true
@@ -51,6 +60,7 @@ enum TelegramAudio {
 
     /// Without CallKit: the call starts the session itself.
     static func startHere() {
+        ready()
         let rtc = LKRTCAudioSession.sharedInstance()
         guard !rtc.isAudioEnabled else { return }
         rtc.lockForConfiguration()
@@ -639,6 +649,18 @@ enum TelegramCallFixtures {
         TelegramMedia.receive(pc, audio: 1, video: 1)
         if !caller { try await TelegramMedia.answerFirst(pc) }
         return (pc, try await TelegramMedia.offer(pc))
+    }
+
+    /// Whether a call's sound stays on when its audio was started before the factory was made, as
+    /// CallKit starts it on the first call after the app starts, which once left that call silent:
+    /// `{ "enabled": Bool }`. Run before anything else in the process has made the factory.
+    static func audio() -> String {
+        TelegramAudio.startHere()
+        // As the call's peer connection makes it, once the core opens the media.
+        _ = TelegramMedia.factory
+        let enabled = LKRTCAudioSession.sharedInstance().isAudioEnabled
+        TelegramAudio.stop()
+        return "{\"enabled\":\(enabled)}"
     }
 
     /// Each shape's offer, as JSON: `{ shape: sdp }`.

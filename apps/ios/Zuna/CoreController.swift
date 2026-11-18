@@ -683,6 +683,9 @@ final class CoreController {
             return String(decoding: data, as: UTF8.self)
         case "voiceReport":
             return VoiceTesting.report()
+        case "telegramCallAudio":
+            // Whether a call's sound stays on when its audio starts before the call's factory is made.
+            return TelegramCallFixtures.audio()
         case "telegramCallOffers":
             // The offers a Telegram call's peer connection makes here, in each shape, for the core's tests.
             return await TelegramCallFixtures.offers()
