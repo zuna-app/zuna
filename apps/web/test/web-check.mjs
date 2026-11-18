@@ -7,6 +7,9 @@
 //
 // With zuna-bot built too (npm run build:bot), it makes a bot, sets it up and talks to it.
 //
+// With ZUNA_TEST_TCP=1, LiveKit offers its TCP port alone, as a network that blocks UDP leaves a
+// browser with, and every voice channel and call connects over TCP (`liveKitTcpOnly` in scripts/lib.mjs).
+//
 // Needs Playwright's browsers: npx playwright-core install chromium firefox webkit
 // Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder"), so moz-firefox runs
 // the Firefox installed from Mozilla instead, through WebDriver BiDi.
@@ -17,7 +20,7 @@ import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
-import { LIVEKIT_CONFIG, ensureLiveKit, liveKitLogProblems, viteNodeArgs } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, TCP_ONLY_CONFIG, ensureLiveKit, liveKitLogProblems, liveKitTcpOnly, liveKitWays, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -211,7 +214,9 @@ async function runIn(name) {
   const serverPort = randomPort();
   const serverUrl = `http://127.0.0.1:${serverPort}`;
   const liveKitPort = randomPort();
-  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", lanAddress, "--bind", "127.0.0.1", "--node-ip", lanAddress, "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG]);
+  // On this machine's address on its network, which TCP alone needs, as a TCP connection to it on loopback finds none of its candidates.
+  const tcpOnly = liveKitTcpOnly ? `  tcp_port: ${liveKitPort + 1}\n${TCP_ONLY_CONFIG}` : "";
+  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", lanAddress, "--bind", "127.0.0.1", "--node-ip", lanAddress, "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG + tcpOnly]);
   const server = start(join(bin, `zuna-server${exe}`), ["--listen", `127.0.0.1:${serverPort}`, "--data", data, "--public-url", serverUrl, "--auth-burst", "1000", "--push-relays", "off", "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
   const webPort = randomPort();
   const web = start(join(bin, `zuna-web${exe}`), ["--listen", `127.0.0.1:${webPort}`, "--root", dist, "--dev"]);
@@ -1101,6 +1106,10 @@ async function runIn(name) {
     check("no errors in the page", errors.length === 0, errors.slice(0, 5).join(" | "));
     const kept = liveKitLogProblems(liveKit.output());
     check("LiveKit's log keeps nothing of who joined, from where or on what", kept.length === 0, kept.slice(0, 5).join(" | "));
+    if (liveKitTcpOnly) {
+      const ways = liveKitWays(liveKit.output());
+      check("with only TCP offered, every participant's media went over TCP", ways.length > 0 && ways.every((way) => way === "tcp"), ways.join(", "));
+    }
     if (cutOffs) notes.push(`${name}: ${cutOffs} request(s) cut off as the check reloaded, handed over or closed a tab`);
   } catch (error) {
     check("the run finished", false, error.message.split("\n")[0]);
