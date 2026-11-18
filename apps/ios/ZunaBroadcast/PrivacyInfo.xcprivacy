@@ -10,6 +10,15 @@
 	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
+		<!-- LiveKit's SDK, linked into the extension, times the screen's frames by the system's uptime. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
 		<!-- Why a screen share ended, left for the app in the app group. -->
 		<dict>
 			<key>NSPrivacyAccessedAPIType</key>
