@@ -177,7 +177,13 @@ describe("running a server", () => {
     expect(second).toContain("&bot=");
   });
 
-  it("finds the server's emotes among words by their names, and says where a picture of one is", () => {
+  it("finds the server's emotes among words by their names, and says where a picture of one is", async (context) => {
+    // The test server takes its set from 7TV itself, which can be slow or out of reach.
+    const loaded = await waitFor(() => alice.session.getEmotes().emotes.length > 0, "the emote set", 30_000).then(
+      () => true,
+      () => false,
+    );
+    if (!loaded) context.skip("7TV couldn't be reached");
     const [emote] = alice.session.getEmotes().emotes;
     expect(emote).toBeDefined();
     expect(alice.session.emotesIn(`hello ${emote!.name} there`)).toEqual({ [emote!.name]: { id: emote!.id, animated: emote!.animated, zeroWidth: emote!.zero_width, owner: emote!.owner } });
