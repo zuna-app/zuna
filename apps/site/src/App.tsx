@@ -4,7 +4,6 @@ import { useReveal } from "./components/reveal";
 import { Home } from "./pages/Home";
 import { Missing } from "./pages/Missing";
 import { Privacy } from "./pages/Privacy";
-import { Support } from "./pages/Support";
 import { Terms } from "./pages/Terms";
 import type { PageId } from "./pages";
 
@@ -18,7 +17,6 @@ export function App({ page }: { page: PageId }) {
         {page === "home" && <Home />}
         {page === "privacy" && <Privacy />}
         {page === "terms" && <Terms />}
-        {page === "support" && <Support />}
         {page === "missing" && <Missing />}
       </main>
       <Footer />

@@ -321,8 +321,8 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
 .terminal-out { color: #85858d; }
 .extras { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 8px 0 0; padding: 0; list-style: none; }
 .extras li { display: flex; flex-direction: column; gap: 4px; padding: 20px 22px; border: 1px solid var(--line); border-radius: 16px; }
-.extras a, .platform-link, .support-grid a { color: var(--text-1); font-weight: 600; }
-.extras a::after, .platform-link::after, .support-grid a::after { content: " →"; color: var(--text-2); }
+.extras a, .platform-link { color: var(--text-1); font-weight: 600; }
+.extras a::after, .platform-link::after { content: " →"; color: var(--text-2); }
 .extras span { color: var(--text-2); font-size: 14.5px; }
 
 /* Compared */

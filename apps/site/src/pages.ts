@@ -1,7 +1,7 @@
 export const SITE = "https://zuna.chat";
 export const REPO = "https://github.com/zuna-app/zuna";
 
-export type PageId = "home" | "privacy" | "terms" | "support" | "missing";
+export type PageId = "home" | "privacy" | "terms" | "missing";
 
 export interface Page {
   id: PageId;
@@ -35,13 +35,6 @@ export const PAGES: Page[] = [
     file: "terms/index.html",
     title: "Zuna's terms of use",
     description: "The rules for using Zuna: what nobody may post, what happens to those who do, and what running a server asks of you.",
-  },
-  {
-    id: "support",
-    path: "/support/",
-    file: "support/index.html",
-    title: "Help with Zuna",
-    description: "Help with the Zuna apps, with running a server, and with reporting a security problem.",
   },
   {
     id: "missing",

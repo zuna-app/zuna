@@ -55,7 +55,7 @@ export function Terms() {
         <p>
           This page is part of the project's repository, so every change to it is in{" "}
           <a href={`${REPO}/commits/main/apps/site/src/pages/Terms.tsx`}>its history</a>, with a date and a reason. Questions go to the project's{" "}
-          <a href={`${REPO}/issues`}>issues</a>, and anything about your account to your server's admins, as the <a href="/support/">support page</a> says.
+          <a href={`${REPO}/issues`}>issues</a>, and anything about your account to your server's admins.
         </p>
       </div>
     </article>

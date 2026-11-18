@@ -1,4 +1,4 @@
-/* Pages of text: privacy, support and the missing page. */
+/* Pages of text: privacy, terms and the missing page. */
 
 .page { padding: clamp(56px, 8vw, 96px) 0 clamp(80px, 10vw, 120px); }
 .prose-wrap { max-width: 780px; }
@@ -12,12 +12,4 @@
 .prose code { padding: 2px 6px; border-radius: 6px; background: var(--bg-3); color: var(--text-1); font: 0.88em var(--font-mono); }
 .prose .lead { font-size: clamp(17px, 1.6vw, 19.5px); }
 .prose-updated { margin-top: 24px; font: 13px/1.4 var(--font-mono); color: var(--text-2) !important; }
-.support-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 40px; }
-.support-grid .card h2 { margin: 18px 0 8px; font-size: 19px; }
-.support-grid .card p { margin: 0 0 14px; font-size: 15px; }
-.support-grid a { text-decoration: none; }
 .missing { display: flex; align-items: center; min-height: 62vh; }
-
-@media (max-width: 720px) {
-  .support-grid { grid-template-columns: minmax(0, 1fr); }
-}
