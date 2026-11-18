@@ -20,8 +20,8 @@
 // `npm run dev:clean` starts it over with the test server. ZUNA_DATA_DIR puts any of them elsewhere.
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureFfmpeg, nativeAppDeps } from "./ffmpeg.mjs";
@@ -88,8 +88,7 @@ if (packaging) {
   if (telegram) copyFileSync(join(target, "release", "zuna-telegram.exe"), join(staged, "zuna-telegram.exe"));
   // Signed with the release's certificate where it's given: a signed build only takes an update
   // signed the same, besides the manifest's own signature. The encoder is the app's own code, which it loads.
-  const require = createRequire(join(root, "package.json"));
-  const signer = await signing(require);
+  const signer = await signing();
   if (signer) {
     signer(join(staged, "Zuna.exe"));
     signer(join(staged, "lib", "zuna_encoder.dll"));
@@ -97,15 +96,11 @@ if (packaging) {
   }
   const icon = join(dist, "zuna.ico");
   writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));
-  // electron-builder's own NSIS, through app-builder-lib, fetched once if it isn't here.
-  const { getMakeNsisPath, getNsisPluginsPath } = require("app-builder-lib/out/toolsets/windows");
-  const makensis = await getMakeNsisPath(undefined, undefined);
-  // Its plugins too, for WinShell, which gives the shortcuts the app's AppUserModelID.
-  const plugins = await getNsisPluginsPath(undefined, undefined);
+  const nsisDir = await ensureNsis();
   const out = join(dist, windowsInstaller(released));
   const nsis = (defines) => {
-    run(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DBUILD=${stamp.ZUNA_BUILD}`, `-DLABEL=${labelOf(released)}`, `-DICON=${icon}`, `-DPLUGINS=${plugins}`, ...(updateCheck ? ["-DCHECK"] : []), ...defines, join(crate, "installer", "zuna.nsi")], {
-      env: { ...process.env, ...(makensis.env ?? {}) },
+    run(join(nsisDir, "makensis.exe"), ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DBUILD=${stamp.ZUNA_BUILD}`, `-DLABEL=${labelOf(released)}`, `-DICON=${icon}`, ...(updateCheck ? ["-DCHECK"] : []), ...defines, join(crate, "installer", "zuna.nsi")], {
+      env: { ...process.env, NSISDIR: nsisDir },
     });
   };
   // Built twice, as electron-builder builds installers: first a program that only writes the
@@ -184,13 +179,74 @@ function outside(command) {
 }
 
 /**
- * Signs files with the certificate in CSC_LINK (a .pfx as base64, a path or an https address)
- * and CSC_KEY_PASSWORD, as electron-builder reads them, through its own signtool. Null without them.
+ * NSIS, which makes the installer: the bundle of it electron-builder publishes, whose own plugins
+ * hold WinShell, which gives the shortcuts the app's AppUserModelID. It's fetched once into
+ * apps/desktop/.deps and pinned by the SHA-256 app-builder-lib 26.18 pinned it by. Update the
+ * tag and its hash together. Gives the folder NSIS runs from, its NSISDIR.
  */
-async function signing(require) {
+async function ensureNsis() {
+  const tag = "nsis@1.2.1";
+  const name = "nsis-bundle-3.12.tar.gz";
+  const hash = "56997fdefe25e7928a1a68b4583d08b240b66cf660234053b20131a74cc082f4";
+  const dir = join(nativeAppDeps, "nsis");
+  const nsisDir = join(dir, "nsis-bundle", "windows");
+  const stamp = join(dir, ".sha256");
+  if (existsSync(stamp) && readFileSync(stamp, "utf8") === hash) return nsisDir;
+  const url = `https://github.com/electron-userland/electron-builder-binaries/releases/download/${tag}/${name}`;
+  console.log(`Downloading ${url}`);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url} couldn't be fetched: HTTP ${response.status}`);
+  const archive = Buffer.from(await response.arrayBuffer());
+  const actual = createHash("sha256").update(archive).digest("hex");
+  if (actual !== hash) throw new Error(`${name} has SHA-256 ${actual}, expected ${hash}`);
+  const unpacking = `${dir}.unpacking`;
+  rmSync(unpacking, { recursive: true, force: true });
+  mkdirSync(unpacking, { recursive: true });
+  writeFileSync(join(unpacking, name), archive);
+  // Windows' own tar, as the one Git Bash puts first on PATH takes the C: of a path for a host.
+  run(join(process.env.SystemRoot, "System32", "tar.exe"), ["-xzf", join(unpacking, name), "-C", unpacking]);
+  rmSync(join(unpacking, name));
+  writeFileSync(join(unpacking, ".sha256"), hash);
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(unpacking, dir);
+  return nsisDir;
+}
+
+/**
+ * The Windows SDK's signtool, the newest there, which Visual Studio's C++ build tools install
+ * with the SDK the app's build links against.
+ */
+function signtool() {
+  const bin = join(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Windows Kits", "10", "bin");
+  const number = (version) => version.split(".").map(Number);
+  const newestFirst = (a, b) => {
+    const [x, y] = [number(a), number(b)];
+    for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return y[i] - x[i];
+    return 0;
+  };
+  const versions = existsSync(bin) ? readdirSync(bin).filter((name) => /^10\.\d+\.\d+\.\d+$/.test(name)).sort(newestFirst) : [];
+  // x64's runs on Windows on Arm too, where an SDK may have no Arm one.
+  const arches = process.arch === "arm64" ? ["arm64", "x64"] : ["x64"];
+  for (const version of versions) {
+    for (const arch of arches) {
+      const program = join(bin, version, arch, "signtool.exe");
+      if (existsSync(program)) return program;
+    }
+  }
+  console.error(`No signtool.exe in ${bin}. Install the Windows SDK's signing tools, from Visual Studio's installer.`);
+  process.exit(1);
+}
+
+/**
+ * Signs files with the certificate in CSC_LINK (a .pfx as base64, a path or an https address)
+ * and CSC_KEY_PASSWORD, as electron-builder read them, through the Windows SDK's signtool. Null
+ * without them.
+ */
+async function signing() {
   const link = process.env.CSC_LINK;
   const password = process.env.CSC_KEY_PASSWORD;
   if (!link || !password) return null;
+  const program = signtool();
   // The certificate, with its private key, goes in a folder of its own outside the checkout,
   // never dist/, and is deleted however this ends: Ctrl+C or a kill too. The signtool
   // command, which carries the password, is never printed.
@@ -204,10 +260,8 @@ async function signing(require) {
     writeFileSync(pfx, Buffer.from(await response.arrayBuffer()));
   } else if (existsSync(link)) copyFileSync(link, pfx);
   else writeFileSync(pfx, Buffer.from(link, "base64"));
-  const { getSignToolPath } = require("app-builder-lib/out/toolsets/windows");
-  const signtool = await getSignToolPath(undefined, true);
   return (file) => {
-    const signed = spawnSync(signtool.path, ["sign", "/f", pfx, "/p", password, "/fd", "sha256", "/tr", "http://timestamp.digicert.com", "/td", "sha256", "/d", "Zuna", file], { stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, ...(signtool.env ?? {}) } });
+    const signed = spawnSync(program, ["sign", "/f", pfx, "/p", password, "/fd", "sha256", "/tr", "http://timestamp.digicert.com", "/td", "sha256", "/d", "Zuna", file], { stdio: ["ignore", "inherit", "inherit"] });
     if (signed.status !== 0) {
       console.error(`Signing ${file} failed.`);
       process.exit(signed.status ?? 1);

@@ -13,15 +13,7 @@ It's for agents, like `FEATURE_PARITY.md`, so don't link to it from anything wri
 - Swift can't be built on Windows, and the native app only builds for the system it's on. Say in the commit message what you couldn't build.
 - Don't change anything CLAUDE.md's "Decisions to keep" rules out. Several entries remove leftover compatibility code, as its "No backward compatibility" rule asks.
 
-## Files
-
-| File | Area | Entries |
-|---|---|---|
-| `deps-build.md` | dependencies and repo hygiene | 1 |
-
-What's left is a choice, not just a fix:
-
-- **Ask the user first:** dropping `app-builder-lib` for a pinned NSIS download and the Windows SDK's signtool (`deps-build.md`). It's pinned exactly in the meantime.
+Every entry has been carried out or dropped. What's left is the checks they owe.
 
 ## Checks still owed
 

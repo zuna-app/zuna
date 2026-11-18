@@ -15,7 +15,6 @@
 ;   LABEL        what the release is called, as 1.2.3 or 1.2.3-nightly.1108
 ;   ICON         the app's icon
 ;   UNINSTALLER  where the uninstaller is written, and taken from
-;   PLUGINS      electron-builder's NSIS plugins, for WinShell
 ;   CHECK        for the update check's installers: no shortcuts and nothing in the registry, so
 ;                one installed with /D= elsewhere leaves the real install alone
 ;
@@ -30,8 +29,6 @@
 
 Unicode true
 !include "FileFunc.nsh"
-; WinShell, for the shortcuts' AppUserModelID, from electron-builder's NSIS plugins.
-!addplugindir /x86-unicode "${PLUGINS}\x86-unicode"
 SetCompressor /SOLID lzma
 RequestExecutionLevel user
 Name "Zuna"
@@ -119,7 +116,8 @@ Section "Zuna"
 
 !ifndef CHECK
   ; The shortcuts carry the ID the app gives itself (AUMID in platform/windows/mod.rs), so
-  ; Windows takes them for the same app, as Focus Assist's priority list does.
+  ; Windows takes them for the same app, as Focus Assist's priority list does. WinShell, which
+  ; stamps it on them, is one of the plugins of the NSIS that scripts/windows-app.mjs fetches.
   CreateShortCut "$SMPROGRAMS\Zuna.lnk" "$INSTDIR\Zuna.exe"
   WinShell::SetLnkAUMI "$SMPROGRAMS\Zuna.lnk" "chat.zuna.desktop"
   IfSilent +3
