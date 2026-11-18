@@ -1,0 +1,10 @@
+import { createRequire } from "node:module";
+const { chromium } = createRequire(new URL("../../package.json", import.meta.url))("playwright-core");
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1320, height: 2868 } });
+page.on("console", (m) => console.log("console:", m.text()));
+page.on("pageerror", (e) => console.log("error:", e.message));
+await page.goto(process.argv[2]);
+await page.waitForTimeout(800);
+console.log(await page.evaluate(() => document.getElementById("headline").outerHTML.slice(0, 200)));
+await browser.close();

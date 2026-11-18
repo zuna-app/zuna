@@ -1,0 +1,51 @@
+/* What the App Store art in this folder shares: the devices drawn by art.js and the headline's colors. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; -webkit-font-smoothing: antialiased; }
+
+.accent { background: linear-gradient(90deg, #FFB45C, #F06A00); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* A device's size follows --screen-w, which art.js sets on it, and its --rim and --bezel. */
+.device {
+  --screen-h: calc(var(--screen-w) * 2622 / 1206);
+  --rim: 9px;
+  --bezel: 17px;
+  --pad: calc(var(--rim) + var(--bezel));
+  --phone-w: calc(var(--screen-w) + 2 * var(--pad));
+  --phone-h: calc(var(--screen-h) + 2 * var(--pad));
+  --screen-r: calc(var(--screen-w) * 0.13);
+  --phone-r: calc(var(--screen-r) + var(--pad));
+  position: absolute; width: var(--phone-w); height: var(--phone-h);
+}
+/* The iPad: even bezels, gently rounded corners. */
+.device.ipad {
+  --screen-h: calc(var(--screen-w) * 2752 / 2064);
+  --rim: 7px;
+  --bezel: 54px;
+  --screen-r: calc(var(--screen-w) * 0.028);
+}
+.device.ipad.landscape {
+  --screen-h: calc(var(--screen-w) * 2064 / 2752);
+  --screen-r: calc(var(--screen-h) * 0.028);
+}
+
+.slab { position: absolute; inset: 0; border-radius: var(--phone-r); }
+.button { position: absolute; border-radius: 7px; }
+
+.front { position: absolute; inset: 0; border-radius: var(--phone-r);
+  background: linear-gradient(135deg, #c9c9cf 0%, #6c6c74 14%, #34343a 40%, #2a2a30 62%, #6a6a72 86%, #c2c2c8 100%); }
+.front::before { content: ""; position: absolute; inset: 2px; border-radius: calc(var(--phone-r) - 2px);
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); }
+.device.flat .front { box-shadow: 0 60px 120px rgba(0,0,0,.6), 0 20px 40px rgba(0,0,0,.35); }
+.bezel { position: absolute; inset: var(--rim); border-radius: calc(var(--phone-r) - var(--rim)); background: #030303; }
+.screen { position: absolute; left: var(--pad); top: var(--pad); width: var(--screen-w); height: var(--screen-h);
+  border-radius: var(--screen-r); overflow: hidden; background: #000; }
+.screen img { width: 100%; height: 100%; display: block; }
+.glare { position: absolute; inset: 0;
+  background: linear-gradient(118deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,.05) 26%, rgba(255,255,255,0) 42%, rgba(255,255,255,0) 70%, rgba(255,255,255,.04) 100%); }
+.island { position: absolute; left: 50%; top: calc(var(--pad) + var(--screen-w) * 0.027); width: calc(var(--screen-w) * 0.293);
+  height: calc(var(--screen-w) * 0.086); transform: translateX(-50%); border-radius: 999px; background: #000; }
+/* The iPad has its front camera in the bezel of a long edge: on the side when it stands upright, on top when it lies. */
+.camera { position: absolute; right: calc(var(--pad) / 2 - 7px); top: 50%; width: 14px; height: 14px; margin-top: -7px;
+  border-radius: 50%; background: radial-gradient(circle at 35% 35%, #2c3a58, #0b0b10 60%); }
+.device.landscape .camera { right: auto; left: 50%; top: calc(var(--pad) / 2 - 7px); margin: 0 0 0 -7px; }

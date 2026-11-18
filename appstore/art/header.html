@@ -1,0 +1,135 @@
+<!doctype html>
+<!--
+  The App Store's product page header, 3840 x 1646: a message leaves one bubble, crosses the middle as the ciphertext
+  a server holds, and arrives whole in the other. On an iPhone the App Store shows nearly all its width, about 3240 px
+  of it, at a phone's width, with the back and share buttons over its top corners, so everything is drawn large and
+  kept off those corners. The label and the ciphertext's middle stay in Apple's safe area, the middle 1646 x 661
+  (x 1097, y 493), for narrower crops. Query:
+    text     the message
+    from     its sender's name, shown on the received copy
+    avatar   the sender's picture, beside the received copy
+    label    the line over the ciphertext, and sub a smaller one under it
+    guides=1 outlines the safe area and what an iPhone shows, for checking
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face {
+    font-family: "Inter Variable";
+    src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+    font-weight: 100 900;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 3840px; height: 1646px; overflow: hidden; background: #000; -webkit-font-smoothing: antialiased; }
+  .canvas { position: relative; width: 3840px; height: 1646px; overflow: hidden;
+    background: radial-gradient(70% 90% at 50% 45%, #151518 0%, #0b0b0d 55%, #050506 100%); }
+  .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.045) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.045) 2px, transparent 2px);
+    background-size: 160px 160px; background-position: 50% 50%;
+    -webkit-mask-image: radial-gradient(50% 70% at 50% 50%, #000 0%, rgba(0,0,0,.35) 55%, transparent 100%); }
+  .light { position: absolute; inset: 0;
+    background: radial-gradient(36% 52% at 50% 50%, rgba(255,255,255,.08), transparent 72%); }
+  .grain { position: absolute; inset: 0; opacity: .5;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+
+  .label { position: absolute; left: 0; right: 0; top: 330px; text-align: center; font-family: "Inter Variable", sans-serif;
+    font-size: 156px; font-weight: 680; letter-spacing: -0.045em; line-height: 1.05;
+    background: linear-gradient(180deg, #ffffff 40%, rgba(255,255,255,.62)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  .sub { position: absolute; left: 0; right: 0; top: 525px; text-align: center; font-family: "Inter Variable", sans-serif;
+    font-size: 86px; font-weight: 480; letter-spacing: -0.015em; color: #a0a0a6; }
+
+  /* The ciphertext: rows of base64, brightest in the middle, fading out under each bubble. */
+  .cipher { position: absolute; left: 50%; transform: translate(-50%, -50%); font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 66px; line-height: 88px; letter-spacing: 0.04em; white-space: pre; color: #fff;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 76%, transparent 100%); }
+  .cipher span { opacity: var(--o); }
+  .cipher span.hot { text-shadow: 0 0 28px rgba(255,255,255,.75); }
+  .glow { position: absolute; left: 50%; transform: translate(-50%, -50%); width: 2000px; height: 760px;
+    background: radial-gradient(closest-side, rgba(255,255,255,.06), transparent); }
+
+  /* The message, drawn as the app draws a bubble: your own a lighter grey, someone else's darker, with their name
+     and picture. */
+  .bubble { position: absolute; padding: 40px 64px 46px; border-radius: 76px;
+    font-family: -apple-system, "SF Pro Text", sans-serif; font-size: 104px; line-height: 1.15; letter-spacing: -0.01em;
+    white-space: nowrap; box-shadow: 0 40px 110px rgba(0,0,0,.6), inset 0 0 0 2px rgba(255,255,255,.06); }
+  .bubble.own { background: #2f2f33; color: #f2f2f3; }
+  .bubble.other { background: #1d1d20; color: #ececee; }
+  .bubble .name { display: block; font-size: 64px; font-weight: 600; color: #a5a5ab; margin-bottom: 6px; }
+  .avatar { position: absolute; width: 150px; height: 150px; border-radius: 50%; object-fit: cover;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+
+  .guide { position: absolute; outline: 6px dashed #ff3b30; }
+  .guide.phone { outline-color: #30d158; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="grid"></div>
+  <div class="light"></div>
+  <div class="grain"></div>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const canvas = document.querySelector(".canvas");
+  const add = (className, text) => {
+    const element = document.createElement("div");
+    element.className = className;
+    if (text) element.textContent = text;
+    canvas.append(element);
+    return element;
+  };
+  const CY = 1060;
+
+  add("label", params.get("label") || "All your server ever sees.");
+  add("sub", params.get("sub") || "Self-hosted, and end-to-end encrypted.");
+  add("glow").style.top = `${CY}px`;
+
+  // Ciphertext from a fixed seed, so every render is the same.
+  let seed = 20261118;
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const rows = 5, columns = 50;
+  const cipher = add("cipher");
+  for (let r = 0; r < rows; r++) {
+    const middle = 1 - Math.abs(r - (rows - 1) / 2) / ((rows - 1) / 2);
+    for (let c = 0; c < columns; c++) {
+      const span = document.createElement("span");
+      span.textContent = alphabet[Math.floor(random() * alphabet.length)];
+      const hot = random() < 0.04;
+      if (hot) span.className = "hot";
+      span.style.setProperty("--o", (hot ? 0.5 + middle * 0.45 : 0.16 + middle * 0.36 + random() * 0.16).toFixed(2));
+      cipher.append(span);
+    }
+    if (r < rows - 1) cipher.append("\n");
+  }
+  cipher.style.top = `${CY}px`;
+
+  // The two copies of the message: sent on the left, a little high, and received on the right, a little low, beside
+  // its sender's picture as the app shows it.
+  const text = params.get("text") || "Leaving at 6? 🚗";
+  const sent = add("bubble own", text);
+  sent.style.left = "560px";
+  sent.style.top = `${CY - sent.offsetHeight / 2 - 120}px`;
+  const received = add("bubble other");
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = params.get("from") || "Theo Park";
+  received.append(name, text);
+  received.style.left = `${3280 - received.offsetWidth}px`;
+  received.style.top = `${CY - received.offsetHeight / 2 + 110}px`;
+  const avatar = document.createElement("img");
+  avatar.className = "avatar";
+  avatar.src = params.get("avatar");
+  avatar.style.left = `${received.offsetLeft - 150 - 28}px`;
+  avatar.style.top = `${received.offsetTop + received.offsetHeight - 150}px`;
+  canvas.append(avatar);
+
+  if (params.get("guides") === "1") {
+    Object.assign(add("guide").style, { left: "1097px", top: "493px", width: "1646px", height: "661px" });
+    Object.assign(add("guide phone").style, { left: "300px", top: "0px", width: "3240px", height: "1646px" });
+  }
+</script>
+</body>
+</html>

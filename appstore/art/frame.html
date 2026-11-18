@@ -1,0 +1,136 @@
+<!doctype html>
+<!--
+  One App Store screenshot in Zuna's look: graphite, a faint grid, light from above, grain, and a headline in Inter
+  with the site's white gradient, over an iPhone or iPad showing a simulator capture. Query:
+    device  iphone (1320 x 2868) or ipad (2064 x 2752)
+    screen  the capture
+    style   3d (tilted, its edge showing) or flat (larger, straight on)
+    title   the headline's lines, separated by "|"
+    sub     a smaller grey line under it, optional
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="art.css">
+<style>
+  @font-face {
+    font-family: "Inter Variable";
+    src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+    font-weight: 100 900;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  /* Polish and the rest of Latin Extended: ą, ć, ę, ł, ń, ś, ź, ż. */
+  @font-face {
+    font-family: "Inter Variable";
+    src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+    font-weight: 100 900;
+    unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  :root { --w: 1320px; --h: 2868px; }
+  :root.ipad { --w: 2064px; --h: 2752px; }
+  :root.ipad.landscape { --w: 2752px; --h: 2064px; }
+  html, body { width: var(--w); height: var(--h); overflow: hidden; background: #000; }
+  body { font-family: "Inter Variable", -apple-system, sans-serif; }
+
+  .canvas { position: relative; width: var(--w); height: var(--h); overflow: hidden;
+    background: linear-gradient(180deg, #121215 0%, #0b0b0d 38%, #050506 100%); }
+  /* The site's grid, fading out away from the light. */
+  .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.045) 1.5px, transparent 1.5px), linear-gradient(90deg, rgba(255,255,255,.045) 1.5px, transparent 1.5px);
+    background-size: 110px 110px; background-position: 50% 0;
+    -webkit-mask-image: radial-gradient(60% 46% at 50% 14%, #000 0%, rgba(0,0,0,.35) 55%, transparent 100%); }
+  /* Light from above, and a softer one behind the device. */
+  .light { position: absolute; inset: 0;
+    background:
+      radial-gradient(48% 30% at 50% 6%, rgba(255,255,255,.16), transparent 70%),
+      radial-gradient(42% 26% at 50% 58%, rgba(255,255,255,.06), transparent 72%); }
+  .grain { position: absolute; inset: 0; opacity: .5;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    -webkit-mask-image: radial-gradient(75% 60% at 50% 20%, #000, transparent); }
+
+  .headline { position: absolute; top: 190px; left: 0; right: 0; text-align: center; }
+  :root.ipad .headline { top: 170px; }
+  :root.ipad.landscape .headline { top: 120px; }
+  .title { display: inline-block; white-space: nowrap; margin: 0; padding-bottom: .12em;
+    font-size: 126px; font-weight: 680; letter-spacing: -0.045em; line-height: 1.02;
+    background: linear-gradient(180deg, #ffffff 40%, rgba(255,255,255,.62)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  :root.ipad .title { font-size: 132px; }
+  .sub { margin: 30px auto 0; max-width: 1060px; font-size: 44px; font-weight: 450; letter-spacing: -0.01em; line-height: 1.3; color: #a0a0a6; text-wrap: balance; }
+  :root.ipad .sub { max-width: 1500px; font-size: 46px; }
+  :root.ipad.landscape .sub { max-width: 2000px; margin-top: 22px; }
+
+  .floor { position: absolute; left: 50%; top: 2600px; width: 980px; height: 160px; margin-left: -470px;
+    background: radial-gradient(closest-side, rgba(0,0,0,.9), rgba(0,0,0,0)); filter: blur(18px); }
+  :root.flat .floor { display: none; }
+
+  .stage { position: absolute; inset: 0; perspective: 3400px; perspective-origin: 50% 1500px; }
+  .phone { left: 50%; top: 1700px; margin-left: calc(var(--phone-w) / -2); margin-top: calc(var(--phone-h) / -2); }
+  :root.flat .phone { top: calc(var(--top) + var(--phone-h) / 2); }
+  :root.ipad .phone { top: calc(var(--top) + var(--phone-h) / 2); }
+  /* Two phones: a second screen behind and to the left, the first in front and to the right. Not named back and
+     front, as .front is a device's face in art.css. */
+  :root.pair .phone.behind { left: 33%; top: 1560px; }
+  :root.pair .phone.ahead { left: 66%; top: 1820px; }
+  :root.pair .floor { left: 50%; width: 1180px; margin-left: -590px; top: 2690px; }
+  /* A titanium a shade cooler and darker than ProxFleet's, to sit in the graphite. */
+  .device > .front { background: linear-gradient(135deg, #b9b9c0 0%, #5c5c64 14%, #2b2b30 40%, #232328 62%, #5a5a62 86%, #b4b4bb 100%) !important; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="grid"></div>
+  <div class="light"></div>
+  <div class="grain"></div>
+  <div class="headline" id="headline"></div>
+  <div class="floor"></div>
+  <div class="stage" id="stage"></div>
+</div>
+<script src="art.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const ipad = params.get("device") === "ipad";
+  const flat = params.get("style") !== "3d";
+  const landscape = ipad && params.get("landscape") === "1";
+  document.documentElement.classList.toggle("landscape", landscape);
+  document.documentElement.classList.toggle("ipad", ipad);
+  document.documentElement.classList.toggle("flat", flat);
+  const canvas = document.querySelector(".canvas");
+  const width = canvas.offsetWidth;
+
+  const headline = document.getElementById("headline");
+  const title = document.createElement("h1");
+  title.className = "title";
+  const lines = (params.get("title") || "").split("|").filter(Boolean);
+  (ipad ? [lines.join(" ")] : lines).forEach((line, i) => { if (i) title.append(document.createElement("br")); title.append(line); });
+  headline.append(title);
+  const maxWidth = width - (ipad ? 240 : 200);
+  let size = parseFloat(getComputedStyle(title).fontSize);
+  while (title.offsetWidth > maxWidth) title.style.fontSize = `${size -= 2}px`;
+  if (params.get("sub")) {
+    const sub = document.createElement("p");
+    sub.className = "sub";
+    sub.textContent = params.get("sub");
+    headline.append(sub);
+  }
+  // A flat device starts under the headline, however tall it came out.
+  // The same for every screenshot of a set, below the tallest headline with two lines under it.
+  const deviceTop = landscape ? 430 : ipad ? 560 : 720;
+  document.documentElement.style.setProperty("--top", `${deviceTop}px`);
+
+  const stage = document.getElementById("stage");
+  const tilt = "rotateX(8deg) rotateY(-22deg) rotateZ(4deg)";
+  if (params.get("screen2")) {
+    // The second screen first, so the first one is drawn over it.
+    document.documentElement.classList.add("pair");
+    const back = createDevice(stage, { kind: "iphone", screen: params.get("screen2"), screenWidth: 700, flat: false, className: "phone behind" });
+    tiltDevice(back, tilt);
+    const front = createDevice(stage, { kind: "iphone", screen: params.get("screen"), screenWidth: 760, flat: false, className: "phone ahead" });
+    tiltDevice(front, tilt);
+  } else {
+    const screenWidth = landscape ? 1960 : ipad ? 1420 : flat ? 900 : 880;
+    const device = createDevice(stage, { kind: ipad ? "ipad" : "iphone", screen: params.get("screen"), screenWidth, landscape, flat, className: "phone" });
+    if (!flat) tiltDevice(device, tilt);
+  }
+</script>
+</body>
+</html>

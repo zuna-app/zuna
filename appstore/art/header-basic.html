@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  A plain product page header, 3840 x 1646: the app's icon and its name, as the site's brand draws them, in the
+  middle of the graphite. Query:
+    name     the name beside the icon
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face {
+    font-family: "Inter Variable";
+    src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+    font-weight: 100 900;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 3840px; height: 1646px; overflow: hidden; background: #000; -webkit-font-smoothing: antialiased; }
+  .canvas { position: relative; width: 3840px; height: 1646px; overflow: hidden;
+    background: radial-gradient(70% 90% at 50% 45%, #151518 0%, #0b0b0d 55%, #050506 100%); }
+  .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.045) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,.045) 2px, transparent 2px);
+    background-size: 160px 160px; background-position: 50% 50%;
+    -webkit-mask-image: radial-gradient(46% 70% at 50% 50%, #000 0%, rgba(0,0,0,.35) 55%, transparent 100%); }
+  .light { position: absolute; inset: 0;
+    background: radial-gradient(34% 56% at 50% 50%, rgba(255,255,255,.09), transparent 72%); }
+  .grain { position: absolute; inset: 0; opacity: .5;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+
+  .brand { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 110px; }
+  /* The icon: the site's black tile with its white Z, given an edge and a shadow so it shows on the graphite. */
+  .icon { width: 440px; height: 440px; border-radius: 69px; display: block;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.14), 0 50px 120px rgba(0,0,0,.7), 0 0 160px rgba(255,255,255,.05); }
+  .name { font-family: "Inter Variable", sans-serif; font-size: 360px; font-weight: 650; letter-spacing: -0.035em; line-height: 1;
+    padding-bottom: .08em; background: linear-gradient(180deg, #ffffff 40%, rgba(255,255,255,.66)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="grid"></div>
+  <div class="light"></div>
+  <div class="grain"></div>
+  <div class="brand">
+    <svg class="icon" viewBox="0 0 1024 1024" aria-hidden="true">
+      <rect width="1024" height="1024" rx="160" fill="#000000"/>
+      <path d="M248 524V392A144 144 0 0 1 392 248H776L248 776H632A144 144 0 0 0 776 632V500" fill="none" stroke="#ffffff" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="name" id="name"></div>
+  </div>
+</div>
+<script>
+  document.getElementById("name").textContent = new URLSearchParams(location.search).get("name") || "Zuna";
+</script>
+</body>
+</html>
