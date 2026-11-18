@@ -674,6 +674,7 @@ final class CoreController {
                 "speaking": Array(voice.speaking),
                 "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local, "sound": $0.sound] },
                 "systemCall": voice.systemCallReport,
+                "output": CallOutput.shared.report,
                 "watch": voice.watch != nil,
                 "watching": voice.watching != nil,
                 "playerPhase": voice.playerPhase.map { $0 as Any } ?? NSNull(),

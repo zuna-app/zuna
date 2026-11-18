@@ -34,6 +34,14 @@ final class CallTests: XCTestCase {
         (try peer.call("getVoiceMembers") as? [[String: Any]] ?? []).filter { $0["channelId"] as? String == groupId }.compactMap { $0["deviceId"] as? String }
     }
 
+    /// Where the app says the call's sound plays, as the control server's `voiceState` has it.
+    private func output() throws -> [String: Any] {
+        let control = zuna.control!
+        let text = try blocking { try await control.host("voiceState") as? String ?? "{}" }
+        let state = (try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+        return state["output"] as? [String: Any] ?? [:]
+    }
+
     private func signIn() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
@@ -69,6 +77,21 @@ final class CallTests: XCTestCase {
         XCTAssertTrue(zuna.element(A11y.Voice.encrypted).exists)
         XCTAssertFalse(card.exists)
         zuna.screenshot("98-call")
+
+        // It's held to the ear, as a phone call is, until the camera goes on, and then the person picks.
+        let output = zuna.element(A11y.Voice.output)
+        XCTAssertEqual(output.label, "Turn on speaker")
+        XCTAssertEqual(try self.output()["speaker"] as? Bool, false)
+        zuna.element(A11y.Voice.camera).tap()
+        try waitFor("the camera to move it to the loudspeaker") { try self.output()["speaker"] as? Bool == true }
+        XCTAssertEqual(output.label, "Turn off speaker")
+        output.tap()
+        try waitFor("the sound at the ear again") { try self.output()["speaker"] as? Bool == false }
+        zuna.element(A11y.Voice.camera).tap()
+        zuna.element(A11y.Voice.camera).tap()
+        try waitFor("the camera back on") { self.zuna.element(A11y.Voice.camera).label == "Turn off camera" }
+        XCTAssertEqual(try self.output()["speaker"] as? Bool, false, "the camera moved what the person picked")
+        zuna.element(A11y.Voice.camera).tap()
 
         // The other one hanging up ends a direct message's call.
         try alice.call("setVoiceState", [NSNull(), NSNull()])

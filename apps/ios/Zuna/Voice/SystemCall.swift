@@ -371,15 +371,17 @@ extension SystemCall: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        // As a call this device starts has it.
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay, .defaultToSpeaker])
+        // A call answered here is held to the ear, as a phone call is (`CallOutput`), where there's a receiver.
+        let (mode, options) = CallOutput.preset(speaker: !MainActor.assumeIsolated { CallOutput.hasReceiver })
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: mode, options: options)
         let id = action.callUUID
         if MainActor.assumeIsolated({ answeredBySystem(id) }) { action.fulfill() } else { action.fail() }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
-        // As LiveKit has it with the speaker, which is where the app's calls have always played.
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay, .defaultToSpeaker])
+        // On the loudspeaker or at the ear, as the call began (`CallOutput`).
+        let (mode, options) = MainActor.assumeIsolated { CallOutput.shared.preset }
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: mode, options: options)
         provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: nil)
         action.fulfill()
     }

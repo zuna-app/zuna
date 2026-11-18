@@ -22,14 +22,10 @@ enum TelegramAudio {
     /// Whether the call started the session itself, and so stops it.
     private static var startedHere = false
 
-    /// Set before the factory's audio is made: the session as a call of Zuna's has it, with the
-    /// speaker, and nothing started until CallKit says so.
+    /// Set before the factory's audio is made: the session as a call of Zuna's has it, on the
+    /// loudspeaker or at the ear (`CallOutput`), and nothing started until CallKit says so.
     static func prepare() {
-        let configuration = LKRTCAudioSessionConfiguration.webRTC()
-        configuration.category = AVAudioSession.Category.playAndRecord.rawValue
-        configuration.mode = AVAudioSession.Mode.videoChat.rawValue
-        configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay, .defaultToSpeaker]
-        LKRTCAudioSessionConfiguration.setWebRTC(configuration)
+        CallOutput.shared.prepareWebRTC()
         let session = LKRTCAudioSession.sharedInstance()
         session.useManualAudio = true
         session.isAudioEnabled = false

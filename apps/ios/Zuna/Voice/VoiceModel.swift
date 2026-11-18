@@ -103,7 +103,10 @@ final class VoiceModel {
     enum Status: Equatable { case idle, connecting, connected, reconnecting }
 
     private(set) var status: Status = .idle {
-        didSet { CallAudio.active = status != .idle }
+        didSet {
+            CallAudio.active = status != .idle
+            if status == .idle { CallOutput.shared.end() }
+        }
     }
     private(set) var serverId: String?
     /// The voice channel, or the group of the conversation whose call it is.
@@ -392,6 +395,8 @@ final class VoiceModel {
         isCall = channel == nil
         ringOnAnnounce = ring && isCall
         cameraOnJoin = camera
+        // A voice channel plays on the loudspeaker, and a call at the ear unless it's with the camera.
+        CallOutput.shared.begin(speaker: !isCall || camera)
         refreshIncoming()
         let title = channel?.title ?? server?.conversation(groupId: channelId)?.title ?? t("voice.panel.voiceChannel")
         let actions = SystemCall.Actions(
@@ -1040,6 +1045,7 @@ final class VoiceModel {
             camera = on
             cameraFront = room.cameraFacingFront
             systemCall.video(on)
+            if on { CallOutput.shared.cameraOn() }
             announce()
         } catch {
             app?.toast(t("voice.camera.none"), .error)
@@ -1447,6 +1453,7 @@ extension VoiceModel {
         channelId = groupId
         isCall = true
         telegramCamera = camera
+        CallOutput.shared.begin(speaker: camera, telegram: true)
         refreshIncoming()
         showTelegramMembers()
         let title = app?.servers[ServerEntry.telegram]?.conversation(groupId: groupId)?.title ?? t("telegram.call.label")
@@ -1624,6 +1631,7 @@ extension VoiceModel {
             camera = media.cameraOn
             cameraFront = media.cameraFront
             systemCall.video(camera)
+            if camera { CallOutput.shared.cameraOn() }
         } catch {
             app?.toast(t("voice.camera.none"), .error)
         }

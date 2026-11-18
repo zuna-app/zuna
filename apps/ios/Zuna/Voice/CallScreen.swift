@@ -603,10 +603,15 @@ private struct CallControls: View {
                 .disabled(!voice.watchAllowed)
                 .opacity(voice.watchAllowed ? 1 : 0.45)
             }
-            SwiftUIAudioRoutePickerButton()
-                .frame(width: size, height: size)
-                .background(Theme.bg3, in: .circle)
-                .accessibilityLabel(t("voice.controls.audioRoute"))
+            if CallOutput.hasReceiver {
+                output(size: size)
+            } else {
+                // An iPad has no receiver to choose, so the system's picker chooses among the rest, AirPlay too.
+                SwiftUIAudioRoutePickerButton()
+                    .frame(width: size, height: size)
+                    .background(Theme.bg3, in: .circle)
+                    .accessibilityLabel(t("voice.controls.audioRoute"))
+            }
             control("bubble.left.fill", label: t("voice.controls.showChat"), dot: (chat?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
                 guard let chatKey, let serverId = voice.serverId else { return }
                 voice.stageShown = false
@@ -628,20 +633,68 @@ private struct CallControls: View {
         .padding(.horizontal, 12)
     }
 
-    private func control(_ symbol: String, label: String, off: Bool = false, on: Bool = false, dot: Bool = false, size: CGFloat, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.37, weight: .semibold))
-                .foregroundStyle(off ? Theme.red : on ? Theme.bg0 : Theme.text1)
-                .frame(width: size, height: size)
-                .background(on ? Theme.text1 : off ? Theme.red.opacity(0.18) : Theme.bg3, in: .circle)
-                .overlay(alignment: .topTrailing) {
-                    if dot {
-                        Circle().fill(Theme.red).frame(width: 10, height: 10).offset(x: -4, y: 4)
+    /// Where the call's sound plays on an iPhone (`CallOutput`): a tap moves it between the receiver and the
+    /// loudspeaker, and while headphones or a device are there, a menu picks among them all.
+    @ViewBuilder
+    private func output(size: CGFloat) -> some View {
+        let output = CallOutput.shared
+        if output.devices.isEmpty {
+            control("speaker.wave.3.fill", label: output.speaker ? t("voice.controls.speakerOff") : t("voice.controls.speakerOn"), on: output.speaker, size: size, id: A11y.Voice.output) {
+                output.toggleSpeaker()
+            }
+        } else {
+            Menu {
+                Picker(t("voice.controls.audioRoute"), selection: Binding(get: { output.selected }, set: { output.pick($0) })) {
+                    Label(UIDevice.current.localizedModel, systemImage: "iphone").tag(CallOutput.receiverChoice)
+                    Label(t("voice.output.speaker"), systemImage: "speaker.wave.3.fill").tag(CallOutput.speakerChoice)
+                    ForEach(output.devices) { device in
+                        Label(device.name, systemImage: device.symbol).tag(device.id)
                     }
                 }
+                .pickerStyle(.inline)
+            } label: {
+                controlLabel(outputSymbol(output.route), on: output.route == .speaker, size: size)
+            }
+            .accessibilityLabel(t("voice.controls.audioRoute"))
+            .accessibilityValue(outputName(output.route))
+            .accessibilityIdentifier(A11y.Voice.output)
+        }
+    }
+
+    private func outputSymbol(_ route: CallOutput.Route) -> String {
+        switch route {
+        case .receiver: "iphone"
+        case .speaker: "speaker.wave.3.fill"
+        case let .device(_, symbol): symbol
+        }
+    }
+
+    private func outputName(_ route: CallOutput.Route) -> String {
+        switch route {
+        case .receiver: UIDevice.current.localizedModel
+        case .speaker: t("voice.output.speaker")
+        case let .device(name, _): name
+        }
+    }
+
+    private func control(_ symbol: String, label: String, off: Bool = false, on: Bool = false, dot: Bool = false, size: CGFloat, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            controlLabel(symbol, off: off, on: on, dot: dot, size: size)
         }
         .accessibilityLabel(label)
         .accessibilityIdentifier(id)
+    }
+
+    private func controlLabel(_ symbol: String, off: Bool = false, on: Bool = false, dot: Bool = false, size: CGFloat) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.37, weight: .semibold))
+            .foregroundStyle(off ? Theme.red : on ? Theme.bg0 : Theme.text1)
+            .frame(width: size, height: size)
+            .background(on ? Theme.text1 : off ? Theme.red.opacity(0.18) : Theme.bg3, in: .circle)
+            .overlay(alignment: .topTrailing) {
+                if dot {
+                    Circle().fill(Theme.red).frame(width: 10, height: 10).offset(x: -4, y: 4)
+                }
+            }
     }
 }

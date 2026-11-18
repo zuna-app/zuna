@@ -47,6 +47,11 @@ final class VoiceTests: XCTestCase {
         return (try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
     }
 
+    /// Where the app says the call's sound plays.
+    private func output() throws -> [String: Any] {
+        try voiceState()["output"] as? [String: Any] ?? [:]
+    }
+
     func testComesIntoAVoiceChannelAndSaysWhatItsDoing() throws {
         let alice = try Peer("alice")
         let carol = try Peer("carol")
@@ -93,6 +98,17 @@ final class VoiceTests: XCTestCase {
         try alice.call("voiceMute", [lounge, bobId, false])
         XCTAssertTrue(zuna.toast(startingWith: "An admin unmuted you").waitForExistence(timeout: 10))
         try waitFor("the microphone to be back") { self.zuna.element(A11y.Voice.mute).isEnabled }
+
+        // A voice channel plays on the loudspeaker, which a tap moves to the ear and back.
+        let output = zuna.element(A11y.Voice.output)
+        XCTAssertEqual(output.label, "Turn off speaker")
+        XCTAssertEqual(try self.output()["speaker"] as? Bool, true)
+        output.tap()
+        try waitFor("the sound at the ear") { try self.output()["speaker"] as? Bool == false }
+        XCTAssertEqual(output.label, "Turn on speaker")
+        XCTAssertEqual(try self.output()["livekitSpeaker"] as? Bool, false)
+        output.tap()
+        try waitFor("the sound on the loudspeaker again") { try self.output()["speaker"] as? Bool == true }
 
         // A call that's only heard leaves the screen to dim and lock as Auto-Lock says.
         XCTAssertEqual(try voiceState()["awake"] as? Bool, false)
