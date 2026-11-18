@@ -92,6 +92,10 @@ On Linux, `dev/build.sh` rebuilds the encryption core and then makes the native 
 
 Please read [SECURITY.md](SECURITY.md), [docs/SECURITY_DETAILS.md](docs/SECURITY_DETAILS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and add an end-to-end test in `packages/core/test` for the behavior you're changing. Don't add cryptographic constructions when an established one exists.
 
+## Code of conduct
+
+Everyone taking part in the project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the [AGPL-3.0](LICENSE).
