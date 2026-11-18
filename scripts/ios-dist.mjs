@@ -231,6 +231,8 @@ function check(ipa, build, prefix, work) {
     if (!/^Authority=Apple Distribution: /m.test(spawnSync("codesign", ["-dvv", bundle], { encoding: "utf8" }).stderr)) problems.push(`${name} isn't signed with an Apple Distribution certificate.`);
     const version = field(join(bundle, "Info.plist"), "CFBundleVersion");
     if (version !== build) problems.push(`${name} is build ${version}, not ${build}.`);
+    // App Store Connect refuses a bundle that calls an API Apple wants a reason for without saying it.
+    if (!existsSync(join(bundle, "PrivacyInfo.xcprivacy"))) problems.push(`${name} has no privacy manifest, PrivacyInfo.xcprivacy.`);
     const file = entitlementsFile(bundle);
     const xml = read("codesign", ["-d", "--entitlements", "-", "--xml", bundle]).trim();
     const got = xml ? JSON.parse(read("plutil", ["-convert", "json", "-o", "-", "-"], { input: xml })) : {};
@@ -238,7 +240,7 @@ function check(ipa, build, prefix, work) {
   }
   if (field(join(app, "Info.plist"), "TFInternalTestingOnly") !== "true") problems.push("Zuna.app isn't marked for the team's own testers only (TFInternalTestingOnly).");
   if (problems.length > 0) fail(`The exported app isn't what TestFlight should get:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
-  console.log(`Checked the exported app: every bundle is build ${build}, signed for distribution, with the entitlements apps/ios asks for, and it's for the team's own testers only.`);
+  console.log(`Checked the exported app: every bundle is build ${build}, signed for distribution, with the entitlements apps/ios asks for and a privacy manifest, and it's for the team's own testers only.`);
 }
 
 /** Exports the archive for App Store Connect, checks it, and uploads it or keeps it in dist/ios. */
