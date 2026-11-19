@@ -81,11 +81,21 @@ is_private() {
   return 1
 }
 
+# A value from what update.sh set up here. Its file is shell, each value quoted with
+# printf %q, so it's read back as update.sh reads it: sourced, here in a subshell.
+setup_value() {
+  (
+    unset "$1"
+    . /etc/zuna/update.conf >/dev/null 2>&1
+    printf '%s' "${!1-}"
+  ) || true
+}
+
 # A machine that has the relay already only needs updating, and one with a chat
 # server is update.sh's to change.
 if [ -r /etc/zuna/update.conf ]; then
-  server="$(sed -n 's/^SERVER_DOMAIN="\(.*\)"$/\1/p' /etc/zuna/update.conf)"
-  relay="$(sed -n 's/^RELAY_DOMAIN="\(.*\)"$/\1/p' /etc/zuna/update.conf)"
+  server="$(setup_value SERVER_DOMAIN)"
+  relay="$(setup_value RELAY_DOMAIN)"
   if [ -n "$server" ]; then
     fail "this machine runs a chat server, at $server. Add the relay to it with: sudo zuna-update --relay push.example.com --apns-key AuthKey_….p8 --apns-key-id …"
   fi

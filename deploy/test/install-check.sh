@@ -223,6 +223,7 @@ scenario_update() {
   in_vm debian test -f /etc/zuna/update.conf || scenario_caddy >/dev/null
   checkout debian
   in_vm debian /opt/zuna/deploy/install.sh --yes >"$log" 2>&1 || { echo "updating failed"; return; }
+  grep -q "set up here already, at $DOMAIN" "$log" || echo "running it again didn't find the server update.sh set up"
   grep -q "zuna is running" "$log" || echo "the server wasn't restarted"
   in_vm debian zuna-update --no-pull >>"$log" 2>&1 || echo "zuna-update failed"
 }
@@ -285,9 +286,13 @@ scenario_nat() {
 
 scenario_relay() {
   local log="$OUT/relay.log" address
-  # Where a chat server is, it's update.sh's to add the relay.
+  # Where a chat server is, it's update.sh's to add the relay. Its file, as update.sh
+  # writes it: each value quoted for the shell with printf %q, a domain with no quotes.
   fresh fedora
-  in_vm fedora sh -c 'mkdir -p /etc/zuna && echo SERVER_DOMAIN=\"chat.example.com\" >/etc/zuna/update.conf'
+  {
+    echo "# What deploy/update.sh set up on this machine. Change it with the script's options."
+    printf '%s=%q\n' SERVER_DOMAIN chat.example.com RELAY_DOMAIN "" WEB_DOMAIN "" LISTEN 127.0.0.1
+  } | in_vm fedora sh -c 'mkdir -p /etc/zuna && cat >/etc/zuna/update.conf'
   relay_keys "$OUT/relay-server.log" "" ""
   grep -q "runs a chat server" "$OUT/relay-server.log" || echo "it didn't turn down a machine with a chat server"
   fresh fedora

@@ -413,10 +413,21 @@ check_machine() {
   if [ -n "$user80" ] && [ -n "$user443" ] && [ "$user80" != "$user443" ]; then PROXY_KIND=other; PROXY_FOUND="$user443 and $user80"; fi
 }
 
+# A value from what update.sh set up here. Its file is shell, each value quoted with
+# printf %q, so it's read back as update.sh reads it: sourced, here in a subshell.
+setup_value() {
+  [ -r /etc/zuna/update.conf ] || return 0
+  (
+    unset "$1"
+    . /etc/zuna/update.conf >/dev/null 2>&1
+    printf '%s' "${!1-}"
+  ) || true
+}
+
 # A server set up here already: update it, or go through the questions again.
 check_existing() {
-  local existing=""
-  [ -r /etc/zuna/update.conf ] && existing="$(sed -n 's/^SERVER_DOMAIN="\(.*\)"$/\1/p' /etc/zuna/update.conf)"
+  local existing
+  existing="$(setup_value SERVER_DOMAIN)"
   [ -n "$existing" ] || return 0
   if [ -z "$DOMAIN$IP" ]; then
     if is_ip "$existing"; then IP="$existing"; else DOMAIN="$existing"; fi
