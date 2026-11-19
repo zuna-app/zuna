@@ -2,7 +2,8 @@ name: CI
 
 on:
   # Each stable release: the Release workflow runs the jobs it names first, and
-  # signs and publishes nothing unless they pass.
+  # signs and publishes nothing unless they pass. And each push to main, for
+  # which main.yml runs the test job alone.
   workflow_call:
     inputs:
       jobs:
@@ -10,7 +11,7 @@ on:
         type: string
         default: all
   pull_request:
-  # By hand, as nothing runs on a push to main: gh workflow run ci.yml -f jobs=desktop
+  # By hand, for the jobs a push to main doesn't run: gh workflow run ci.yml -f jobs=desktop
   workflow_dispatch:
     inputs:
       jobs:
@@ -46,6 +47,9 @@ jobs:
       - run: npm run test:server
       - run: npm run build:crypto
       - run: npm run typecheck
+      - run: npm run test:release
+      - run: npm run test:i18n
+      - run: npm run test:plugin
       - run: npm run test:core
       - run: npm run build -w @zuna/web
 
