@@ -69,17 +69,23 @@ If a chat server or another site already uses ports 80 and 443, run `zuna-web` o
 zuna-web --listen 127.0.0.1:8081 --trust-proxy --server https://chat.example.com
 ```
 
-`deploy/docker-compose.web-proxy.yml` and `deploy/zuna-web.service` (systemd) do the same. For Caddy:
+`deploy/docker-compose.web-proxy.yml` and `deploy/zuna-web.service` (systemd) do the same. Keep no access log for it, nor one of errors: the link someone previews is in the address their tab asks for. For Caddy:
 
 ```
 web.chat.example.com {
 	reverse_proxy 127.0.0.1:8081
+	handle_errors {
+		respond "{err.status_code} {err.status_text}"
+	}
 }
 ```
 
 For nginx, inside a `server` block for the web app's domain with your certificates:
 
 ```
+access_log off;
+error_log /dev/null;
+
 location / {
     proxy_pass http://127.0.0.1:8081;
     proxy_set_header X-Forwarded-For $remote_addr;
@@ -107,6 +113,7 @@ Each setting is a flag or an environment variable.
 | `--behind-cloudflare` | `ZUNA_WEB_BEHIND_CLOUDFLARE` | Takes a request from Cloudflare's proxy to be from whoever it names in `CF-Connecting-IP`, as the server does ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)) |
 | `--server` | `ZUNA_WEB_SERVER` | A server address filled in on the sign-in form |
 | `--servers` | `ZUNA_WEB_SERVERS` | If set, the only servers the app may connect to, separated by commas. The browser enforces it |
+| `--media-servers` | `ZUNA_WEB_MEDIA_SERVERS` | With `--servers`, the LiveKit servers those servers' voice channels use, when apps reach them at an address of their own |
 | `--previews` | `ZUNA_WEB_PREVIEWS` | `off` stops `zuna-web` fetching pages for link previews |
 | `--root` | `ZUNA_WEB_ROOT` | Serves the app from a folder instead of the copy inside the program |
 
@@ -128,4 +135,4 @@ It fetches every file and fails if any differs, or if the page loads a file the 
 
 ## Upgrading
 
-Replace the program, or pull the new image, and restart it. Open tabs notice the new version within 30 minutes, or when they're next focused, and offer a reload. An older version may not understand local data a newer one has already updated, so upgrade, don't downgrade.
+Replace the program, or build the image again, and restart it. Open tabs notice the new version within 30 minutes, or when they're next focused, and offer a reload. An older version may not understand local data a newer one has already updated, so upgrade, don't downgrade.
