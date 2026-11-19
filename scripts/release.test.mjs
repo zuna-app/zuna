@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { appKeys, bump, changedApps, classify, compareVersions, headingsIn, labelOf, manifestOf, newKey, newPqKey, nextVersion, parseNotes, parseTag, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
+import { appKeys, branchOf, bump, changedApps, classify, compareVersions, headingsIn, labelOf, lineOf, lineOfBranch, manifestOf, newKey, newPqKey, nextVersion, parseNotes, parseTag, patchVersion, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
 
 const commit = (hash, subject, ...files) => ({ hash: hash.padEnd(40, "0"), subject, files });
 const app = "apps/desktop/src/main.rs";
@@ -53,6 +53,33 @@ test("until the first stable release the version stands", () => {
 
 test("a major release only comes when asked for", () => {
   assert.equal(nextVersion({ lastStable: "0.12.0", current: "0.12.1", level: "major" }), "1.0.0");
+});
+
+test("each line of stable releases has a branch", () => {
+  assert.equal(lineOf("0.11.0"), "0.11");
+  assert.equal(lineOf("0.11.4"), "0.11");
+  assert.equal(branchOf("1.2.3"), "release/1.2");
+  assert.equal(lineOfBranch("release/0.11"), "0.11");
+  for (const other of ["main", "release/0.11.0", "release/0", "release/x.1", "releases/0.11", "release/0.11/fix"]) assert.equal(lineOfBranch(other), null);
+});
+
+test("a patch on a line's branch is the next after the newest stable release", () => {
+  assert.deepEqual(patchVersion({ line: "0.11", newestStable: "0.11.0", level: "patch" }), { version: "0.11.1" });
+  assert.deepEqual(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "build" }), { version: "0.11.2" });
+  // Nothing new goes out from a line's branch.
+  assert.ok(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "minor" }).problem);
+  assert.ok(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "major" }).problem);
+  // Only the newest line takes patches.
+  assert.ok(patchVersion({ line: "0.11", newestStable: "0.12.0", level: "patch" }).problem);
+  assert.ok(patchVersion({ line: "0.11", newestStable: null, level: "patch" }).problem);
+});
+
+test("main never releases in a line whose branch had a patch of its own", () => {
+  // 0.11.1 was cut on release/0.11, and main has fixes alone since 0.11.0.
+  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch" }), "0.11.2");
+  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch", closed: ["0.11"] }), "0.12.0");
+  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.12.0", level: "minor", closed: ["0.11"] }), "0.12.0");
+  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch", closed: ["0.11", "0.12"] }), "0.13.0");
 });
 
 test("tags are read and written the same way", () => {
@@ -171,6 +198,10 @@ test("the commit that sets the version needs no line", () => {
   assert.deepEqual(sorted.problems, []);
   assert.equal(sorted.level, "patch");
   assert.equal(sorted.groups[2].commits[0].subject, "release: numbered the next release 0.11.1");
+  // Nor does the one that gives a stable release a build no nightly had.
+  const own = classify("## Fixed and changed\n- aaaaaaa\n", [...commits, commit("ccccccc", "release: gave a build of its own to 0.11.1")]);
+  assert.deepEqual(own.problems, []);
+  assert.equal(own.groups[2].commits.length, 2);
 });
 
 test("a published changelog reads back as it was written", () => {

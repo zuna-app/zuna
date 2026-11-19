@@ -36,8 +36,9 @@ concurrency:
   cancel-in-progress: ${{ contains(github.ref_name, '-nightly.') }}
 
 jobs:
-  # What the tag releases. Fails unless it's annotated, on main, and agrees with
-  # the version in package.json and, for a nightly, with its commit's number.
+  # What the tag releases. Fails unless it's annotated, on main or, for a stable
+  # release, on its line's branch (release/X.Y), and agrees with the version in
+  # package.json and, for a nightly, with its commit's number.
   # Says which apps to build, from the deployments of the environments that
   # ship each: a stable release always has the installers and the iPhone app.
   plan:
@@ -62,7 +63,7 @@ jobs:
         with:
           fetch-depth: 0
       # The checkout leaves the tag pointing at its commit, without its message.
-      - run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" "+refs/heads/main:refs/remotes/origin/main"
+      - run: git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/release/*:refs/remotes/origin/release/*"
       - id: plan
         run: node scripts/release.mjs plan "$GITHUB_REF_NAME"
 

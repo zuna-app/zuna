@@ -6,7 +6,8 @@
 //
 //   node scripts/release.mjs pending                         the commits since each channel's last release
 //   node scripts/release.mjs nightly <notes> [--dry-run]     cuts a nightly from origin/main
-//   node scripts/release.mjs stable <notes> [--dry-run] [--major]   cuts a stable release
+//   node scripts/release.mjs stable <notes> [--dry-run] [--major]   cuts a stable release from main, or a
+//                                                            patch from the newest line's branch, release/X.Y
 //   node scripts/release.mjs owed [--hook]                   fails when pushed app commits have no nightly
 //   node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare] [--pq]   makes an update signing key, Ed25519's or ML-DSA-65's
 //
@@ -129,6 +130,9 @@ const LEVELS = ["build", "patch", "minor", "major"];
 /** What the commit that sets the version is called, which the script makes and classes itself. */
 const VERSION_COMMIT = "release: numbered the next release ";
 
+/** What the commit that gives a stable release a build number no nightly had is called, which the script makes too. */
+const OWN_BUILD_COMMIT = "release: gave a build of its own to ";
+
 // --- Versions ---
 
 export function parseVersion(text) {
@@ -161,10 +165,38 @@ export function highestLevel(levels) {
  * since it. `current` is what the files say, which remembers a level an earlier nightly already
  * raised it by. Until there's a stable release the files' version stands, and becomes it.
  */
-export function nextVersion({ lastStable, current, level }) {
+export function nextVersion({ lastStable, current, level, closed = [] }) {
   if (!lastStable) return level === "major" ? bump(current, "major") : current;
   const raised = bump(lastStable, level);
-  return compareVersions(raised, current) > 0 ? raised : current;
+  let version = compareVersions(raised, current) > 0 ? raised : current;
+  // A line whose branch had a patch of its own takes no more releases from main, which hasn't those
+  // commits, so main goes on to the next line.
+  while (closed.includes(lineOf(version))) version = bump(version, "minor");
+  return version;
+}
+
+/** A version's release line: 0.11 for 0.11.0 and each of its patches. */
+export const lineOf = (version) => parseVersion(version).slice(0, 2).join(".");
+
+/** The branch a line's stable releases are on, which holds the newest of them: release/0.11. */
+export const branchOf = (version) => `release/${lineOf(version)}`;
+
+/** The line a release branch is for, or null for any other branch. */
+export function lineOfBranch(name) {
+  const match = /^release\/(\d+\.\d+)$/.exec(name);
+  return match ? match[1] : null;
+}
+
+/**
+ * What a release cut from a line's branch is called: the next patch of the newest stable release,
+ * which has to be that line's, as only the newest line is patched. A problem instead when it can't be one.
+ */
+export function patchVersion({ line, newestStable, level }) {
+  if (!newestStable || lineOf(newestStable) !== line) {
+    return { problem: `${newestStable ? `${newestStable} is out` : "There's no stable release yet"}, so release/${line} isn't the newest line. Only the newest line's branch takes patches.` };
+  }
+  if (level === "minor" || level === "major") return { problem: `A release from release/${line} only fixes what's out, so nothing in it goes under New. What's new is released from main.` };
+  return { version: bump(newestStable, "patch") };
 }
 
 /** A release's tag, read: `v0.11.0` or `v0.11.0-nightly.1108`. Null for any other tag. */
@@ -194,7 +226,7 @@ export const reachesApp = (files) => files.some((file) => within(file, APP_PATHS
 /** Whether any of a commit's files is something the iPhone app is built from. */
 export const reachesIos = (files) => files.some((file) => within(file, IOS_PATHS) && !within(file, NOT_IOS_PATHS));
 
-export const isVersionCommit = (subject) => subject.startsWith(VERSION_COMMIT);
+export const isVersionCommit = (subject) => subject.startsWith(VERSION_COMMIT) || subject.startsWith(OWN_BUILD_COMMIT);
 
 /** The notes' lines, as commits under headings, and whatever in them is neither. */
 export function parseNotes(text) {
@@ -429,6 +461,35 @@ function fail(message) {
 /** How many commits a commit has behind it, itself included: its build number. */
 const buildOf = (ref) => Number(git("rev-list", "--count", ref));
 
+/** Fetches main, every release line's branch and the tags. */
+const fetchReleases = () => git("fetch", "--quiet", "--tags", "origin", "main", "+refs/heads/release/*:refs/remotes/origin/release/*");
+
+/** The newest stable release of any line, wherever its tag is, which every next version is raised from. */
+function newestStable() {
+  const stables = git("tag", "-l", "v*").split(/\r?\n/).map(parseTag).filter((release) => release?.channel === "stable");
+  return stables.sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
+}
+
+/** The newest nightly, wherever its tag is. */
+function newestNightly() {
+  return git("tag", "-l", "v*-nightly.*").split(/\r?\n/).map(parseTag).filter((release) => release?.channel === "nightly").sort((a, b) => b.build - a.build)[0] ?? null;
+}
+
+/** The highest build any release has had, of either channel and any line. */
+function highestBuild() {
+  const releases = git("tag", "-l", "v*").split(/\r?\n/).map(parseTag).filter(Boolean);
+  return Math.max(0, ...releases.map((release) => (release.channel === "nightly" ? release.build : buildOf(release.tag))));
+}
+
+/** The lines whose branch has commits `ref` hasn't, a patch of their own, so that main can't release in them any more. */
+function closedLines(ref) {
+  return git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/release/")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((name) => lineOfBranch(name.replace(/^origin\//, "")) && !gitOk("merge-base", "--is-ancestor", name, ref))
+    .map((name) => lineOfBranch(name.replace(/^origin\//, "")));
+}
+
 /** The newest stable release and the newest release of either kind that `ref` has behind it. */
 function lastReleases(ref) {
   const tags = git("tag", "--merged", ref, "-l", "v*").split(/\r?\n/).map(parseTag).filter(Boolean);
@@ -470,12 +531,26 @@ const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 
 // --- Commands ---
 
+/** Prints what a release would carry: each commit, what it reaches, and which heading a nightly already put it under. */
+function report(title, pending, { files = false, known = new Map() } = {}) {
+  const { last, commits } = pending;
+  console.log(`\n${title}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}`);
+  for (const commit of commits) {
+    const short = commit.hash.slice(0, 7);
+    const reached = [reachesApp(commit.files) && "the app", reachesIos(commit.files) && "the iPhone app"].filter(Boolean);
+    const marks = [isVersionCommit(commit.subject) ? "sets the version, needs no line" : reached.length > 0 ? `reaches ${reached.join(" and ")}` : "not in the app", known.get(short) && `was under ${known.get(short)}`].filter(Boolean);
+    console.log(`  ${short} ${commit.subject}  [${marks.join(", ")}]`);
+    if (files) for (const file of commit.files) console.log(`      ${file}`);
+  }
+  const changed = changedApps(pending);
+  if (commits.length === 0) console.log("  Nothing to release.");
+  else if (changed.length > 0) console.log(`  ${sentence(changed.join(" and "))} changed, so there's a release to cut.`);
+  else console.log("  Nothing the app or the iPhone app is built from changed, so there's no release to cut.");
+}
+
 function pending() {
-  git("fetch", "--quiet", "--tags", "origin", "main");
+  fetchReleases();
   for (const channel of ["nightly", "stable"]) {
-    const pending = pendingFor(channel, "origin/main");
-    const { last, commits } = pending;
-    console.log(`\n${channel === "nightly" ? "Nightly" : "Stable"}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}`);
     // What nightlies since the last stable release already called each commit, where their tags are still here.
     const known = new Map();
     if (channel === "stable") {
@@ -483,17 +558,14 @@ function pending() {
         for (const [hash, heading] of headingsIn(git("tag", "-l", "--format=%(contents)", tag))) known.set(hash, heading);
       }
     }
-    for (const commit of commits) {
-      const short = commit.hash.slice(0, 7);
-      const reached = [reachesApp(commit.files) && "the app", reachesIos(commit.files) && "the iPhone app"].filter(Boolean);
-      const marks = [isVersionCommit(commit.subject) ? "sets the version, needs no line" : reached.length > 0 ? `reaches ${reached.join(" and ")}` : "not in the app", known.get(short) && `was under ${known.get(short)}`].filter(Boolean);
-      console.log(`  ${short} ${commit.subject}  [${marks.join(", ")}]`);
-      if (channel === "nightly") for (const file of commit.files) console.log(`      ${file}`);
-    }
-    const changed = changedApps(pending);
-    if (commits.length === 0) console.log("  Nothing to release.");
-    else if (changed.length > 0) console.log(`  ${sentence(changed.join(" and "))} changed, so there's a release to cut.`);
-    else console.log("  Nothing the app or the iPhone app is built from changed, so there's no release to cut.");
+    report(channel === "nightly" ? "Nightly" : "Stable", pendingFor(channel, "origin/main"), { files: channel === "nightly", known });
+  }
+  // A patch waiting on the newest line's branch, which is cut from there.
+  const newest = newestStable();
+  const branch = newest && branchOf(newest.version);
+  if (branch && gitOk("rev-parse", "--verify", "--quiet", `origin/${branch}`)) {
+    const waiting = pendingFor("stable", `origin/${branch}`);
+    if (waiting.commits.length > 0) report(`A patch from ${branch}`, waiting, { files: true });
   }
 }
 
@@ -504,13 +576,20 @@ function cut(channel, args) {
   if (!notesFile || !existsSync(notesFile)) fail(`Give the notes' file: npm run release:${channel} -- <notes file>`);
   if (major && channel !== "stable") fail("Only a stable release can be a major one.");
 
-  git("fetch", "--quiet", "--tags", "origin", "main");
-  if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main") fail("Releases are cut from main.");
+  fetchReleases();
+  // Releases are cut from main, and a patch to what's out from its line's branch.
+  const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+  const line = lineOfBranch(branch);
+  if (branch !== "main" && !line) fail("Releases are cut from main, and a patch to what's out from its line's branch, release/X.Y.");
+  if (line && channel !== "stable") fail("Nightlies are cut from main.");
+  if (line && major) fail(`${branch} only takes patches. A major release is cut from main.`);
   if (git("status", "--porcelain", "--untracked-files=no")) fail("There are changes that aren't committed.");
-  if (git("rev-parse", "HEAD") !== git("rev-parse", "origin/main")) fail("main isn't at origin/main. Pull and push first, so the release is what's on GitHub.");
+  if (!gitOk("rev-parse", "--verify", "--quiet", `origin/${branch}`) || git("rev-parse", "HEAD") !== git("rev-parse", `origin/${branch}`)) {
+    fail(`${branch} isn't at origin/${branch}. Pull and push first, so the release is what's on GitHub.`);
+  }
 
   const pending = pendingFor(channel, "HEAD");
-  const { last, stable, commits } = pending;
+  const { last, commits } = pending;
   const { groups, level, problems } = classify(readFileSync(notesFile, "utf8"), commits);
   if (problems.length > 0) fail(`The notes don't match the ${commits.length} commits since ${last ? last.tag : "releases began"}:\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
   const changed = changedApps(pending);
@@ -519,38 +598,84 @@ function cut(channel, args) {
     return;
   }
 
+  // Every version is raised from the newest stable release, wherever it was cut, so that main never
+  // takes a number a patch on a line's branch already has.
   const current = currentVersion();
-  const version = nextVersion({ lastStable: stable?.version ?? null, current, level: major ? "major" : level });
+  const newest = newestStable()?.version ?? null;
+  let version;
+  if (line) {
+    const patch = patchVersion({ line, newestStable: newest, level });
+    if (patch.problem) fail(patch.problem);
+    version = patch.version;
+  } else {
+    version = nextVersion({ lastStable: newest, current, level: major ? "major" : level, closed: closedLines("HEAD") });
+  }
   const renumber = version !== current;
   // The commit that sets the version is one more, and the tag goes on it.
-  const build = buildOf("HEAD") + (renumber ? 1 : 0);
+  let build = buildOf("HEAD") + (renumber ? 1 : 0);
+  // An installed app only takes a higher build, so a release that would have none of its own gets
+  // commits that give it one, which need no line in the notes.
+  let own = 0;
+  if (!line) {
+    // From main, every release passes every release before it, of either channel and any line: a
+    // stable release cut where the last nightly was, too, which TestFlight would refuse, as it takes
+    // each build of a version once and a stable release always sends the iPhone app.
+    const highest = highestBuild();
+    if (build <= highest) [own, build] = [highest + 1 - build, highest + 1];
+  } else {
+    // A patch passes its line's releases by itself, but mustn't share a build with a nightly of its version, for TestFlight.
+    while (gitOk("rev-parse", "--verify", "--quiet", `refs/tags/${tagOf({ version, channel: "nightly", build })}`)) [own, build] = [own + 1, build + 1];
+    // An app on nightly takes the higher of the newest nightly and the newest stable release, so a
+    // patch mustn't pass a nightly newer than its line's last release, which would take it back.
+    const nightly = newestNightly();
+    if (nightly && last && nightly.build > last.build && build >= nightly.build) {
+      fail(`This patch would be build ${build}, past the newest nightly's ${nightly.build}, so an app on nightly would go back to it. Cut a nightly from main first, which passes it.`);
+    }
+  }
   const release = { version, channel, build };
   const tag = tagOf(release);
   if (gitOk("rev-parse", "--verify", "--quiet", `refs/tags/${tag}`)) fail(`${tag} is there already. A tag is never moved or reused.`);
+  // A stable release from main is the newest of its line, so its line's branch is made or moved up to it, with the tag.
+  // A patch is on its line's branch already.
+  const lineBranch = channel === "stable" && !line ? branchOf(version) : null;
+  if (lineBranch && gitOk("rev-parse", "--verify", "--quiet", `origin/${lineBranch}`) && !gitOk("merge-base", "--is-ancestor", `origin/${lineBranch}`, "HEAD")) {
+    fail(`${lineBranch} has commits main hasn't, so ${version} can't be released from main.`);
+  }
   const notes = renderNotes(groups);
 
-  console.log(`${channel === "nightly" ? "Nightly" : "Stable"} ${labelOf(release)}, build ${build}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}, the highest of them ${level}. They change ${changed.join(" and ")}.\n`);
+  console.log(`${channel === "nightly" ? "Nightly" : "Stable"} ${labelOf(release)}, build ${build}, from ${branch}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}, the highest of them ${level}. They change ${changed.join(" and ")}.\n`);
   console.log(notes);
   if (dryRun) {
-    console.log(`A dry run: ${renumber ? `the version would go from ${current} to ${version}, and ` : ""}${tag} would be pushed.`);
+    const steps = [renumber && `the version would go from ${current} to ${version}`, own > 0 && `${own === 1 ? "a commit" : `${own} commits`} would give it a build of its own`, `${tag} would be pushed${lineBranch ? `, with ${lineBranch} at it` : ""}`].filter(Boolean);
+    console.log(`A dry run: ${steps.join(", and ")}.`);
     return;
   }
 
   if (renumber) {
     const changed = setVersion(root, version);
     git("commit", "--quiet", "-m", `${VERSION_COMMIT}${version}`, "--", ...changed);
-    const pushed = spawnSync("git", ["push", "--quiet", "origin", "main"], { cwd: root, stdio: "inherit" });
+  }
+  for (let i = 0; i < own; i++) git("commit", "--quiet", "--allow-empty", "-m", `${OWN_BUILD_COMMIT}${version}`);
+  const added = (renumber ? 1 : 0) + own;
+  if (added > 0) {
+    const pushed = spawnSync("git", ["push", "--quiet", "origin", branch], { cwd: root, stdio: "inherit" });
     if (pushed.status !== 0) {
       // Someone pushed meanwhile, and their commits aren't in the notes: the numbering is undone.
-      git("reset", "--quiet", "--hard", "HEAD~1");
-      fail("main moved while this ran. Pull, add the new commits to the notes and run it again.");
+      git("reset", "--quiet", "--hard", `HEAD~${added}`);
+      fail(`${branch} moved while this ran. Pull, add the new commits to the notes and run it again.`);
     }
   }
   const message = join(git("rev-parse", "--absolute-git-dir"), "RELEASE_NOTES");
   writeFileSync(message, notes);
   git("tag", "-a", tag, "-F", message, "--cleanup=verbatim");
-  git("push", "--quiet", "origin", `refs/tags/${tag}`);
-  console.log(`Pushed ${tag}. The Release workflow builds and publishes it: gh run watch, or https://github.com/${REPOSITORY}/actions`);
+  // The tag and the line's branch go together, or neither does.
+  const refs = [`refs/tags/${tag}`, ...(lineBranch ? [`HEAD:refs/heads/${lineBranch}`] : [])];
+  const pushed = spawnSync("git", ["push", "--quiet", "--atomic", "origin", ...refs], { cwd: root, stdio: "inherit" });
+  if (pushed.status !== 0) {
+    git("tag", "-d", tag);
+    fail(`${tag}${lineBranch ? ` and ${lineBranch}` : ""} weren't pushed${added > 0 ? `, though ${branch} has the numbering now` : ""}. Pull and run it again.`);
+  }
+  console.log(`Pushed ${tag}${lineBranch ? `, and ${lineBranch} at it` : ""}. The Release workflow builds and publishes it: gh run watch, or https://github.com/${REPOSITORY}/actions`);
 }
 
 /**
@@ -657,7 +782,10 @@ function plan(args) {
   if (!release) fail(`${tag} isn't a release's tag.`);
   if (git("cat-file", "-t", `refs/tags/${tag}`) !== "tag") fail(`${tag} isn't an annotated tag, so it has no changelog.`);
   const commit = git("rev-list", "-n", "1", `refs/tags/${tag}`);
-  if (!gitOk("merge-base", "--is-ancestor", commit, "origin/main")) fail(`${tag} isn't on main.`);
+  // A nightly is on main, and a stable release on main or on its line's branch, where patches to what's out are cut.
+  const on = (ref) => gitOk("rev-parse", "--verify", "--quiet", ref) && gitOk("merge-base", "--is-ancestor", commit, ref);
+  const lineBranch = release.channel === "stable" ? branchOf(release.version) : null;
+  if (!on("origin/main") && !(lineBranch && on(`origin/${lineBranch}`))) fail(lineBranch ? `${tag} is on neither main nor ${lineBranch}.` : `${tag} isn't on main.`);
   const version = JSON.parse(git("show", `${commit}:package.json`)).version;
   if (version !== release.version) fail(`${tag} is on a commit whose package.json says ${version}.`);
   const build = buildOf(commit);
