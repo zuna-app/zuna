@@ -57,6 +57,8 @@ node zuna-bot.mjs run             # connects the bot and serves its API
 node zuna-bot.mjs token           # prints the token its code calls the API with
 ```
 
+`run --link "<link>"`, or `ZUNA_BOT_LINK`, sets a folder with no bot in it up first, then runs it, as the image does.
+
 One bot has one data folder and one process. The folder is `./zuna-bot-data` unless `--data` or `ZUNA_BOT_DATA` says otherwise, and holds:
 
 | File | What it is |
@@ -131,7 +133,7 @@ bot.start();
 
 [examples/simple-bot](../examples/simple-bot) is a bot like that to run, with commands and a button, and its README goes through setting it up step by step, against your own server or the local test server.
 
-Any language works the same way: calls go to `http://127.0.0.1:8081/bot<token>/<method>`, as Telegram's do. grammY is the library `zuna-bot`'s own tests run a bot with. Others should work where they let you set the API's address, and haven't been tried.
+Any language works the same way: calls go to `http://127.0.0.1:8081/bot<token>/<method>`, and a file `getFile` names is at `http://127.0.0.1:8081/file/bot<token>/<file_path>`, as Telegram's are. grammY is the library `zuna-bot`'s own tests run a bot with. Others should work where they let you set the API's address, and haven't been tried.
 
 ### What's there
 
@@ -141,20 +143,20 @@ Any language works the same way: calls go to `http://127.0.0.1:8081/bot<token>/<
 | Sending | `sendMessage`, `sendPhoto`, `sendDocument`, `sendVideo`, `sendAudio`, `sendVoice`, `sendAnimation`, `sendChatAction` |
 | Changing | `editMessageText`, `editMessageReplyMarkup`, `deleteMessage`, `pinChatMessage`, `unpinChatMessage` |
 | Asking | `getMe`, `getChat`, `getChatMember`, `getChatAdministrators`, `getChatMemberCount`, `getFile` |
-| The bot itself | `setMyCommands`, `getMyCommands`, `deleteMyCommands`, `setMyName`, `setMyDescription`, `leaveChat` |
+| The bot itself | `setMyCommands`, `getMyCommands`, `deleteMyCommands`, `setMyName`, `getMyName`, `setMyDescription`, `getMyDescription`, `setMyShortDescription`, `getMyShortDescription` (the same text as the description), `leaveChat` |
 | Buttons | Inline keyboards with `callback_data` or `url`, and `answerCallbackQuery` |
 
-Updates are `message`, `edited_message`, `callback_query` and `my_chat_member`. They're kept on disk until your code takes them, in order, so it can restart without missing any, and so can `zuna-bot`: what's said while it's off waits on the server, as it does for any app.
+Updates are `message`, `edited_message`, `callback_query` and `my_chat_member`. They're kept on disk until your code takes them, in order, so it can restart without missing any, and so can `zuna-bot`: what's said while it's off waits on the server, as it does for any app. A message `zuna-bot` only catches up on more than a day after it was said isn't handed on, as Telegram lets go of updates after a day. `logOut` and `close` answer true and change nothing.
 
 ### Where it differs from Telegram
 
 - **IDs are numbers `zuna-bot` gives out.** Zuna's own IDs aren't numbers, so each person, chat and message gets one the first time your code hears of it. They're kept in the data folder, and mean nothing to another bot.
 - **Formatting goes both ways for what both have:** bold, italic, strikethrough, spoilers, code, code blocks and quotes, in HTML, MarkdownV2, Markdown or entities. Zuna has no underline, so that comes out plain, and a link under other words shows its address after them.
-- **A message's first file is the one your code gets,** as a photo, video, voice message or document. A message with several is still one message here.
+- **A message's first file is the one your code gets,** as a photo, video, round video (`video_note`), voice message, audio file or document, and a place someone shared comes as a `location`. A message with several is still one message here.
 - **Commands and buttons work as on Telegram.** A bot's commands are offered when someone types `/` in a chat it's in. A press reaches your code as a `callback_query`; `answerCallbackQuery` is accepted, and its text goes nowhere, as a press shows nothing here.
 - **A bot can't write to someone first.** `sendMessage` to someone who never wrote to it answers 403, as Telegram's does.
 - **Files are uploaded with the call, or sent again by `file_id`.** `zuna-bot` doesn't fetch a file from an address, and makes no link previews: either would tell the site where the bot runs.
 - **What has no place here is refused by name:** payments, inline mode, stickers, games and topics.
 - **Keyboards under the message box, forced replies and the like are left out** without an error, so a bot that sends them still sends its message.
 - **A bot doesn't mark anything as read,** and shows as typing when it says it is with `sendChatAction`.
-- **What a bot sends is held by tokens, not a pace in each chat.** The server isn't told who sends a message, so a bot is held as a person is, at ten times a person's rate: ten thousand messages, reactions or changes, and five hundred messages over 32 KiB, in six hours, across all its chats. Telegram's one a second in each chat doesn't apply, and a bot that floods a chat is for its members to remove.
+- **What a bot sends is held by tokens, not a pace in each chat.** The server isn't told who sends a message, so a bot is held as a person is, at more than a person's rate: ten thousand messages, reactions or changes, ten times a person's, and five hundred messages over 32 KiB, five times a person's, in six hours, across all its chats. Telegram's one a second in each chat doesn't apply, and a bot that floods a chat is for its members to remove.
