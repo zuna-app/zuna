@@ -86,12 +86,12 @@ The package is a zip of `plugin.json`, `main.js`, `assets/` and, for a verified 
 | `users.read` | People and whether they're online | Sees the people on your servers |
 | `messages.read` | Messages as they arrive, history, search | **Reads your messages** |
 | `files.read` | The bytes of attachments | Reads files and photos sent to you |
-| `messages.send` | Sending, editing, deleting and reacting as the person | **Writes and deletes messages as you** |
+| `messages.send` | Sending, editing, deleting, reacting, pinning and forwarding as the person, marking read and typing, and pressing bots' buttons | **Writes and deletes messages as you** |
 | `messages.intercept` | Changing or stopping what the person sends | Changes what you send before it's encrypted |
 | `messages.decorate` | Changing how messages look here; needs `messages.read` | Changes how messages are shown to you |
 | `activity.intercept` | Typing, read marks, and someone typing shown | Changes what others see of your activity |
 | `notifications` | Showing notifications, and with `messages.read` holding back or rewording the app's | Shows and hides notifications |
-| `voice.read`, `voice.control` | Who's in voice; joining, leaving, muting | Sees who's in voice; joins and mutes for you |
+| `voice.read`, `voice.control` | Who's in voice; joining, leaving, muting, declining a call, the soundboard and a video watched together | Sees who's in voice; joins and mutes for you |
 | `clipboard.read`, `clipboard.write` | The clipboard | Reads, or writes, your clipboard |
 | `network` and `hosts` | The named hosts | **Contacts** each host by name |
 
@@ -145,6 +145,8 @@ export default definePlugin((zuna) => {
 
 `zuna` (`packages/plugin-sdk/src/api.ts` has every type):
 
+- **`plugin`**: its own `id`, `version`, whether it's `verified`, and the `permissions` it was
+  granted. **`log(...)`** writes to its log, as `console` does.
 - **`settings`**: `get`, `all`, `set`, `onChange`, for what the manifest names.
 - **`storage`**: `get` and `keys` at once, from what was loaded, and `set` and `delete`, kept
   sealed by the app, 4 MB in all. A view is drawn from storage, so changing it draws them again.
@@ -170,23 +172,25 @@ export default definePlugin((zuna) => {
 - **`clipboard`**: `read`, `write`.
 
 A filter answers nothing to let what it was asked about go as it was, a string or `{ text }` to
-change it, or `false` to stop it. One that throws or takes longer than 1.5 seconds is left out,
-and the app says so in a toast; registered with `{ required: true }`, it holds the message
-instead, back in the message box. Three failures in a row turn a plugin off.
+change it, or `false` to stop it. One that throws, or takes longer than 1.5 seconds for a
+message or a notification, or half a second for typing or marking read, is left out, and the
+app says so in a toast; registered with `{ required: true }`, it holds the message instead,
+back in the message box. Three failures in a row turn a plugin off.
 
 A decoration is any of `{ text, hidden, mark: { icon, label }, view }`, for this device alone:
-the app says which plugin replaced or hid a message, with one click to the original.
+the app says which plugin replaced or hid a message, with one click to the original. Decorations
+that take longer than 3 seconds aren't shown.
 
 ## Views
 
 A view is a tree the app draws with its own components. The nodes: `column`, `row`, `stack`,
 `scroll`, `list`, `text`, `heading`, `markup`, `button`, `iconButton`, `switch`, `slider`,
-`select`, `input`, `field`, `notice`, `image` (from `assets/`, or a `data:` URL of 1 MB at most),
-`avatar`, `icon`, `divider`, `spacer`, `spinner` and `canvas`, which draws `rect`, `circle`,
-`line` and `text` shapes. Colors are the theme's tokens (`text1`, `text2`, `text3`, `accent`,
-`accentText`, `green`, `red`, `amber`, `bg1`, `bg2`, `bg3`) or `#rrggbb`. Icons are the Lucide ones
-the app carries (`apps/desktop/assets/icons`). A tree is at most 2,000 nodes, 24 levels and
-200,000 characters. Handlers are `onClick`, `onChange` and `onSubmit`.
+`select`, `input`, `field`, `notice`, `image` (from `assets/`, or a `data:` URL of at most
+10,000 characters), `avatar`, `icon`, `divider`, `spacer`, `spinner` and `canvas`, which draws
+`rect`, `circle`, `line` and `text` shapes. Colors are the theme's tokens (`text1`, `text2`,
+`text3`, `accent`, `accentText`, `green`, `red`, `amber`, `bg1`, `bg2`, `bg3`) or `#rrggbb`.
+Icons are the Lucide ones the app carries (`apps/desktop/assets/icons`). A tree is at most 2,000
+nodes, 24 levels and 200,000 characters. Handlers are `onClick`, `onChange` and `onSubmit`.
 
 ## Verified plugins
 
