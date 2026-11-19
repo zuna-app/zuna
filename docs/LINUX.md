@@ -109,7 +109,7 @@ For each domain, the proxy must:
 - **forward WebSockets,** which the server uses for everything live;
 - **add the client's address to `X-Forwarded-For`,** which both services use for rate limiting. Only the entries the proxy added count, so a caller can't make up their own;
 - **keep no access log, and no log of requests' errors,** where nginx writes the caller's address and the whole request when the server behind it fails, and Caddy too unless an error route answers, as below. Everything people add to a conversation goes to `/api/sealed/` without a name, and the server keeps no address with it, but a log of every request's address would go a long way to saying who sent each message, and the addresses asked for at `/livekit/` hold voice tokens. The sites the installer writes keep neither from November 12, 2026. One it wrote before keeps both until `deploy/install.sh` runs again;
-- **allow request bodies of at least 64 MB.** Files upload in 1 MiB chunks, so that's not for them: a change to who's in a group carries the group's whole tree, a few kilobytes for each device with post-quantum keys, which in a group of a thousand devices is tens of megabytes. With less, adding someone to a large group fails. A site the installer wrote before November 2026 allows 2 MB, which is enough for groups of up to about fifty devices.
+- **allow request bodies of at least 64 MB.** Files upload in 1 MiB chunks, so that's not for them: a change to who's in a group carries the group's whole tree, a few kilobytes for each device with post-quantum keys, which in a group of a thousand devices is tens of megabytes. With less, adding someone to a large group fails. A site the installer wrote before November 11, 2026 allows 2 MB, which is enough for groups of up to about fifty devices.
 
 The web app's domain needs only HTTPS and `X-Forwarded-For`. Don't add security headers there: the web app sends its own, and a proxy that changes them can weaken them.
 
@@ -248,7 +248,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Add or replace the APNs key | `--apns-key AuthKey_….p8 --apns-key-id …` |
 | Let the server use a relay on another machine | `--push-relays https://push.example.com` |
 | Turn phone notifications off | `--push-relays off` |
-| Keep the server's data in [PostgreSQL](SELF_HOSTING.md#postgresql) | `--database-url postgres://zuna:password@localhost/zuna`, kept only in `/etc/zuna/zuna.env`. A server moved to it starts out empty |
+| Keep the server's data in [PostgreSQL](SELF_HOSTING.md#postgresql) | `--database-url postgres://zuna:password@localhost/zuna`, kept only in `/etc/zuna/zuna.env`. A server moved to it starts out empty. `--database-url ""` goes back to SQLite |
 | Add the web app to a machine that runs the server | `--web web.chat.example.com` |
 | Start the web app's sign-in form with another server | `--web-server https://chat.example.com` |
 | Let the web app connect only to some servers | `--web-servers https://chat.example.com`, or `--web-servers any` to allow any again |
@@ -264,7 +264,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Build what's checked out, without pulling | `--no-pull` |
 
-The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. A `livekit.yaml` from before it had a `room:` section gets one added, with the codecs that let a Mac encode a shared screen on its GPU, and one from before it had `packet_buffer_size_video` gets that under `rtc:`, which keeps a shared screen going on a network that loses packets. Each restarts LiveKit once. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
+The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. A `livekit.yaml` from before it had a `room:` section gets one added, with the codecs that let a Mac encode a shared screen on its GPU, and one from before it had `packet_buffer_size_video` gets that under `rtc:`, which keeps a shared screen going on a network that loses packets. Each restarts LiveKit once. Anything you add to them by hand stays until the script writes that file again, which it does whenever you give an option for it, `--server` included, even with the same value, as running `deploy/install.sh` again does. `zuna.env` keeps only `ZUNA_DATABASE_URL` then, so add anything else, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration), again afterwards. Restart the service after editing them:
 
 ```bash
 sudo systemctl restart zuna
