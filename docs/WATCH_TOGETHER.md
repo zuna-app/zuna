@@ -66,7 +66,7 @@ One state per room, held only by the devices in it. The last change wins.
 interface WatchState {
   session: string;   // new each time a video is put on where nothing was
   rev: number;       // one more with each change; the higher wins, then the later `at`, then the device ID
-  video: { id: string; by: string; title?: string; author?: string; image?: PreviewImage } | null;  // null: stopped; `by` put it on
+  video: { id: string; by: string; title?: string; author?: string; image?: WatchImage } | null;  // null: stopped; `by` put it on
   playing: boolean;
   position: number;  // ms into the video at `at`
   at: number;        // when that was, in ms, by the server's clock as the sender knew it
@@ -100,7 +100,7 @@ The link is read by the core: `youtube.com/watch?v=`, `youtu.be/`, `/shorts/`, `
 Devices' clocks can be seconds apart, and the people watching hear each other, so they'd notice. Each device measures how far its clock is from the server's:
 
 - The server's `pong` carries its time (`pongFrame` in `server/internal/api/hub.go`).
-- While a room has a video on, the core pings a few times at once and then once a minute, and keeps the offset from the round trip that was quickest.
+- As it comes into a room, when a video is put on, and when its socket reconnects with one on, the core pings four times in quick succession. Each of the socket's regular pings, every 25 seconds, counts as another measurement. It keeps the offset from the quickest round trip of the last ten minutes (`clockOffset` in `packages/core/src/socket.ts`).
 - `at` in a state is on the server's clock. The core turns it to the device's own before the app sees it, so no interface deals with offsets.
 
 A server that lies about the time can only put people out of step. It learns nothing by it.
@@ -169,7 +169,7 @@ This is where tools like this go wrong: a player that's catching up looks like s
 ### Keeping in step
 
 - Playing, under 0.3 s off: left alone. A paused player is sent to the room's place if it's 0.1 s off, as nobody sees that seek, so a video played again after a pause starts within a frame or two on every device.
-- Over that: one seek to where it should be, plus how far the last seek left the player behind the room, measured once it settled. No more than one every five seconds.
+- Over that: one seek to where it should be, plus how far the last seek left the player behind the room, measured once it settled. No more than one every five seconds while it plays, and one a second while it's paused.
 - Nobody waits for someone who's buffering. They catch up.
 - At the end, a player in step says so as a pause at the end. The others say the same, which changes nothing.
 
@@ -220,7 +220,7 @@ This sits beside the decision against GIF search, which was refused because a se
 - **The state and the calls** are in `apps/desktop/src/voice/watch.rs`, the same on every system: `watch`, `watching`, `watch_start`, `watch_control` (seeks held to four a second), `watch_stop`, `set_watching`, and the `watch` event. `plays_here()` says whether this device can play at all.
 - **The tile, the bar and the player's life** are in `src/ui/voice_stage/watch.rs`: `keep_player` makes the player for the room's session and lets go of it, `on_player_message` takes what the page says (`ready`, `intent`, `status`, `volume`, `blocked`), `sync_player` tells it what changed, and a task asks the page where its player is each second (`probe`), which the log says as `watch: player <phase> at <ms> ms, <now>`, so that a check can compare it with where the room is by the same clock.
 - **The page** is `packages/watch`'s `watch.html`, which `core-bundle/build.mjs` writes into `assets/core`. It posts to `window.ipc`, `window.webkit.messageHandlers.zuna` or `window.chrome.webview`, whichever is there, and is loaded under `https://chat.zuna.desktop`, the Referer YouTube needs, or `http://chat.zuna.desktop` when `ZUNA_WATCH_PLAYER` names a fake over plain HTTP (`player_host`, `page_origin`). It keeps no data, lets only itself load in the main frame and anything in subframes, opens what YouTube opens in a new window in the browser, and is refused the camera, the microphone and downloads.
-- **Each system's player** is `platform::watch_view`, with the same interface: `WatchView::new(window, page, origin, sender)`, with what the page says coming to `sender` as text, `set_frame(x, y, width, height)` in the window's logical points from its top left, `set_hidden(bool)`, `send(json)`, and `Drop`, which takes it away.
+- **The player on macOS and Windows** is `platform::watch_view`, with the same interface: `WatchView::new(window, page, origin, sender)`, with what the page says coming to `sender` as text, `set_frame(x, y, width, height)` in the window's logical points from its top left, `set_hidden(bool)`, `send(json)`, and `Drop`, which takes it away. Linux's is a window of its own, below.
 - **The web view draws over everything GPUI draws inside its rectangle,** and can't be clipped or rounded. So its bounds follow the tile's each frame, and it's hidden whenever something of GPUI's has to be on top (`crate::ui::something_on_top()`): a menu, a dialog, the stream stats, and above all the question about a new device.
 
 **macOS:** a WKWebView through `objc2-web-kit` (`platform/macos/watch_view.rs`), loaded with `loadHTMLString:baseURL:`, as on iOS. GPUI's view on macOS isn't flipped and never takes the keyboard back by itself, so the player's frame is set from the bottom, and a local monitor of mouse clicks gives the keyboard back to GPUI's view when a click lands outside the player. YouTube's full screen button is off there (`fs=0`), and nothing takes the video to full screen yet.
@@ -257,7 +257,7 @@ Neither has been measured with real speakers and a microphone. Browsers and the 
 - **Core** (`packages/core/test/watch.test.ts`, against a real server): a state reaches only the others in the room; one from outside the room, from an unknown device, signed by the wrong person, or played back, changes nothing; two changes at once end the same on every device; someone coming in gets the state, sealed under a key they hold, after an epoch change too; a stop stays stopped; a channel with the switch off refuses; two devices with clocks set apart agree on where the video is.
 - **Server** (Go): the routes' access rules, the limit, the size, `to`, the migration in both databases.
 - **Controller** (`packages/watch/test`): against a fake player, a page that speaks the same messages, with buffering, adverts and seeks played out in it. The cases are the ones under "Telling what the person did from what we did".
-- **Web, iPhone, native:** each platform's own check, with the fake player in place of YouTube (the web check routes the player's address to it, the native apps take `ZUNA_WATCH_PLAYER`, as they take `ZUNA_FAKE_SCREEN`), so no check depends on YouTube or the network.
+- **Web, iPhone, native:** each platform's own check, with the fake player in place of YouTube (the web check routes the player's address to it, the native app takes `ZUNA_WATCH_PLAYER`, as it takes `ZUNA_FAKE_SCREEN`, in `mac-voice-check.mjs`, `linux-voice-check.mjs` and `proxy-check.mjs`), so no check depends on YouTube or the network. On Windows the player has only been checked by hand, with two copies of the app against the fake player.
 - **By hand, once for each platform, against YouTube itself,** written into the parity file: a video that plays, one that forbids embedding, an advert, captions, and two devices side by side to hear how far apart they are.
 
 ## Not checked
