@@ -8,6 +8,11 @@
 // `npm run dev:server` sets ZUNA_DEV_WORLD to a folder instead. Its first run sets
 // up the whole server, and later runs bring the same people back, adding whatever
 // setting one up has gained since.
+//
+// The passwords below are in the repository, for anyone to read, so a server on
+// another machine, such as the one App Review signs in to, takes its own:
+// ZUNA_DEV_OWNER_PASSWORD for the owner and ZUNA_DEV_PEOPLE_PASSWORD for everyone
+// else, with ZUNA_DEV_SERVER_NAME for its name.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -61,15 +66,30 @@ const PEOPLE = [
   ["lena", "Lena Fischer"],
 ] as const;
 
-const SERVER_NAME = "Zuna Test Server";
-const OWNER = { username: "alex", displayName: "Alex Rivera", password: "dev-only-owner-password" };
+const SERVER_NAME = process.env.ZUNA_DEV_SERVER_NAME || "Zuna Test Server";
+const DEV_OWNER_PASSWORD = "dev-only-owner-password";
+const DEV_PEOPLE_PASSWORD = "dev-only-bot-password";
+const OWNER = { username: "alex", displayName: "Alex Rivera", password: process.env.ZUNA_DEV_OWNER_PASSWORD || DEV_OWNER_PASSWORD };
+/** Everyone else's, which nobody signs in with again, as their devices here stay signed in. */
+const PEOPLE_PASSWORD = process.env.ZUNA_DEV_PEOPLE_PASSWORD || DEV_PEOPLE_PASSWORD;
+
+/** Refuses the repository's passwords for a server anywhere but this machine or a private network. */
+function checkPasswords(url: string): void {
+  const host = new URL(url).hostname;
+  const near = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host);
+  if (near) return;
+  if (OWNER.password === DEV_OWNER_PASSWORD || PEOPLE_PASSWORD === DEV_PEOPLE_PASSWORD) {
+    throw new Error(`${host} isn't on this machine, so its accounts need passwords of their own: set ZUNA_DEV_OWNER_PASSWORD and ZUNA_DEV_PEOPLE_PASSWORD.`);
+  }
+}
 
 async function joinBots(invite: string, world?: string): Promise<TestApp[]> {
   const bots: TestApp[] = [];
   for (const [username, displayName] of PEOPLE) {
     const app = await new TestApp(username, world && join(world, username)).open();
     const preview = await app.client.previewInvite(invite);
-    const result = await app.client.register(preview, username, "dev-only-bot-password", { displayName, bio: "A friendly test bot." });
+    checkPasswords(preview.url);
+    const result = await app.client.register(preview, username, PEOPLE_PASSWORD, { displayName, bio: "A friendly test bot." });
     app.serverId = result.serverId;
     await app.online();
     // Always at their screens, so they show as online.
@@ -184,6 +204,7 @@ async function createWorld(world: string): Promise<TestApp[]> {
   if (!setupLink) throw new Error("The server didn't provide a setup link.");
   const owner = await new TestApp("Test server setup", join(world, "owner")).open();
   const preview = await owner.client.previewInvite(setupLink);
+  checkPasswords(preview.url);
   const { serverId, recoveryKey } = await owner.client.register(preview, OWNER.username, OWNER.password, { displayName: OWNER.displayName });
   owner.serverId = serverId;
   await owner.online();
