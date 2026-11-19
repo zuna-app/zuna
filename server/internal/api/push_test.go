@@ -425,11 +425,77 @@ func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
 // notifiedChats is what a phone is told it's still counted as showing.
 func (c *client) notifiedChats() []string {
 	c.h.t.Helper()
+	groups, _ := c.notified()
+	return groups
+}
+
+// notified is that, with when those of them read elsewhere were.
+func (c *client) notified() ([]string, map[string]int64) {
+	c.h.t.Helper()
 	var listed struct {
-		Groups []string `json:"groups"`
+		Groups []string         `json:"groups"`
+		Read   map[string]int64 `json:"read"`
 	}
 	c.h.mustDo("GET", "/api/push/notified", c.token, nil, &listed)
-	return listed.Groups
+	if listed.Read == nil {
+		c.h.t.Fatalf("a phone isn't told when its chats were read elsewhere")
+	}
+	return listed.Groups, listed.Read
+}
+
+func TestAPhoneIsToldWhenAChatItStillShowsWasReadElsewhere(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	bob.registerPush(relay.URL, "bob-phone", bytesOf(32, 5), store.NewID(), nil)
+
+	// Pushed, and nobody has read it: nothing to say when.
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	if groups, read := bob.notified(); fmt.Sprint(groups) != fmt.Sprint([]string{group.ID}) || len(read) != 0 {
+		t.Fatalf("after a message: %v, read %v", groups, read)
+	}
+
+	// Read at the laptop, the phone shows nothing for it, so there's nothing to say when either.
+	before := store.Now()
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.next(t)
+	after := store.Now()
+	if groups, read := bob.notified(); len(groups) != 0 || len(read) != 0 {
+		t.Fatalf("after it was read: %v, read %v", groups, read)
+	}
+
+	// A message after that: the phone shows the chat again, and what it shows from before then
+	// was read, whether or not the silent push that said so ever came.
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	groups, read := bob.notified()
+	if fmt.Sprint(groups) != fmt.Sprint([]string{group.ID}) || read[group.ID] < before || read[group.ID] > after {
+		t.Fatalf("after a message since: %v, read %v, between %d and %d", groups, read, before, after)
+	}
+	if _, read := laptop.notified(); len(read) != 0 {
+		t.Fatalf("a device that isn't a phone is told %v", read)
+	}
+
+	// Read on the phone itself, it has cleared its own: the next message there comes with no time.
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", bob.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	if groups, read := bob.notified(); fmt.Sprint(groups) != fmt.Sprint([]string{group.ID}) || len(read) != 0 {
+		t.Fatalf("after the phone read it itself: %v, read %v", groups, read)
+	}
+
+	// Turning notifications off forgets all of it.
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.next(t)
+	h.mustDo("DELETE", "/api/push", bob.token, nil, nil)
+	if groups, read := bob.notified(); len(groups) != 0 || len(read) != 0 {
+		t.Fatalf("with notifications off: %v, read %v", groups, read)
+	}
 }
 
 func TestAPhoneInUseIsClearedOfWhatItShowedItself(t *testing.T) {

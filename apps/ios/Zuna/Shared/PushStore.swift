@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import UserNotifications
+import ZunaModels
 
 /// What the app and its notification extension share about pushes, in the
 /// App Group: each server's registration, the notification settings and the
@@ -100,8 +101,10 @@ enum PushStore {
     /// read is silent, and iOS hands those over late, or never, as to an app its person closed or a phone
     /// saving power, so whatever does wake the app or its extension asks the server and clears the rest. Only
     /// what the server counts is looked at: what it pushed, and what the app showed itself while in use. What
-    /// was shown since the server was asked stays, as it may not have counted it yet.
-    static func clearRead(serverId: String, stillNotified: Set<String>, shownBefore: Date) async -> Int {
+    /// was shown since the server was asked stays, as it may not have counted it yet. A chat read elsewhere
+    /// and written in again since is one it still counts, with when it was read: what's shown there from
+    /// before then goes too, as that silent push would have had it (`Notifications.clear`).
+    static func clearRead(serverId: String, stillNotified: StillNotified, shownBefore: Date) async -> Int {
         let center = UNUserNotificationCenter.current()
         let stale = await center.deliveredNotifications().filter { notification in
             let content = notification.request.content
@@ -111,7 +114,7 @@ enum PushStore {
                   pushed?.kind == .message || info["counted"] as? Bool == true,
                   (info["serverId"] as? String ?? pushed?.serverId) == serverId,
                   let groupId = info["groupId"] as? String ?? pushed?.groupId else { return false }
-            return !stillNotified.contains(groupId)
+            return stillNotified.hasRead(groupId: groupId, sentAt: info["sentAt"] as? Int)
         }.map(\.request.identifier)
         guard !stale.isEmpty else { return 0 }
         center.removeDeliveredNotifications(withIdentifiers: stale)

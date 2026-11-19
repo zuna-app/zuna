@@ -161,7 +161,7 @@ g.__zunaPreviewCall = (deviceKey: Uint8Array, serverId: string, groupId: string,
 
 g.__zunaNotifiedChats = (deviceKey: Uint8Array, serverId: string, done: (error: string | null, json: string | null) => void) => {
   notifiedChats({ db: nativeDbProvider, deviceKey }, serverId).then(
-    (groups) => done(null, JSON.stringify(groups)),
+    (notified) => done(null, JSON.stringify(notified)),
     (error: Error) => done(error?.stack ?? String(error), null),
   );
 };

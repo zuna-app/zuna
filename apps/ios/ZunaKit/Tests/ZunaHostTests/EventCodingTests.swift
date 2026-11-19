@@ -108,6 +108,25 @@ final class EventCodingTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(MessagePage.self, from: encoder.encode(full)), full)
     }
 
+    func testWhatAPhoneStillShowsIsReadAsTheServerSays() throws {
+        // As the core hands it over (`notifiedChats`): the chats still counted, and when those read elsewhere were.
+        let notified = try JSONDecoder().decode(StillNotified.self, from: Data(#"{"groups":["unread","again"],"read":{"again":2000}}"#.utf8))
+        XCTAssertEqual(notified, StillNotified(groups: ["unread", "again"], read: ["again": 2000]))
+        // A chat the server no longer counts was read whole, whenever its messages came.
+        XCTAssertTrue(notified.hasRead(groupId: "gone", sentAt: 5000))
+        XCTAssertTrue(notified.hasRead(groupId: "gone", sentAt: nil))
+        // One nobody has read keeps everything.
+        XCTAssertFalse(notified.hasRead(groupId: "unread", sentAt: 1))
+        // Read elsewhere and written in again: what came before it was read goes, and what came after stays,
+        // with what the server couldn't be asked the time of.
+        XCTAssertTrue(notified.hasRead(groupId: "again", sentAt: 1999))
+        XCTAssertTrue(notified.hasRead(groupId: "again", sentAt: 2000))
+        XCTAssertFalse(notified.hasRead(groupId: "again", sentAt: 2001))
+        XCTAssertFalse(notified.hasRead(groupId: "again", sentAt: nil))
+        // An answer without the chats clears nothing: it doesn't decode.
+        XCTAssertThrowsError(try JSONDecoder().decode(StillNotified.self, from: Data(#"{"read":{}}"#.utf8)))
+    }
+
     func testAVideoWatchedTogetherIsWhereItsClockSays() {
         var watch = WatchView(session: "w", video: .init(id: "v", startedBy: "u", title: "", author: ""), playing: true, position: 1000, at: 10_000, rate: 2, changedBy: "u")
         XCTAssertEqual(watch.position(at: 10_500), 2000)

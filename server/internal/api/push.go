@@ -38,7 +38,9 @@ import (
 //
 // iOS delivers a silent push when it likes, or never, as to an app its person
 // closed, so each phone can also ask which chats it's still counted as showing
-// (handleNotified) and clear the rest, whenever something does wake it.
+// (handleNotified) and clear the rest, whenever something does wake it. A chat
+// read elsewhere and then written in again is one it still shows, so it's told
+// when that was too, and clears what was sent before then.
 
 const (
 	maxPushHandle   = 4096
@@ -137,9 +139,13 @@ func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *
 // handleNotified lists the chats this phone still counts as showing a notification
 // for: those it was pushed one for, or left to show one itself, and hasn't been
 // told to clear. Whatever it shows for another chat was read elsewhere since, which
-// the silent push that never reached it would have said.
+// the silent push that never reached it would have said. Of those it lists, the ones
+// read elsewhere before their newest message came are given with when, in ms by this
+// server's clock, as that push would have said it: what the phone shows from before
+// then was read too.
 func (s *Server) handleNotified(w http.ResponseWriter, _ *http.Request, sess *store.Session) {
-	writeJSON(w, http.StatusOK, map[string]any{"groups": s.notified.list(sess.DeviceID)})
+	groups, read := s.notified.list(sess.DeviceID)
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups, "read": read})
 }
 
 // pushMessage wakes the other members' phones for a new message, in the
@@ -223,17 +229,20 @@ func (s *Server) pushRead(userID, readingDevice, groupID string) {
 	s.waiting.read(groupID, userID)
 	// The phone that read it has cleared its own, so the next read elsewhere needn't wake it.
 	s.notified.remove(readingDevice, groupID)
-	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID, "a": strconv.FormatInt(store.Now(), 10)}, true)
+	at := store.Now()
+	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID, "a": strconv.FormatInt(at, 10)}, at)
 }
 
 // pushDeletion tells the members' phones that showed a notification for the
 // chat that a message is gone, so they clear its notification.
 func (s *Server) pushDeletion(members []string, groupID, messageID string) {
 	s.waiting.deleted(groupID, messageID)
-	s.pushClearing(members, "", groupID, map[string]string{"t": "delete", "g": groupID, "m": messageID}, false)
+	s.pushClearing(members, "", groupID, map[string]string{"t": "delete", "g": groupID, "m": messageID}, 0)
 }
 
-func (s *Server) pushClearing(users []string, exceptDevice, groupID string, fields map[string]string, done bool) {
+// pushClearing sends the phones that showed a notification for a chat a silent push. One
+// that says the chat was read, at a time, leaves them counted as showing nothing for it.
+func (s *Server) pushClearing(users []string, exceptDevice, groupID string, fields map[string]string, readAt int64) {
 	if len(s.cfg.PushRelays) == 0 {
 		return
 	}
@@ -249,8 +258,8 @@ func (s *Server) pushClearing(users []string, exceptDevice, groupID string, fiel
 			if target.DeviceID == exceptDevice || !s.notified.has(target.DeviceID, groupID) {
 				continue
 			}
-			if done {
-				s.notified.remove(target.DeviceID, groupID)
+			if readAt > 0 {
+				s.notified.readElsewhere(target.DeviceID, groupID, readAt)
 			}
 			s.push(target, pushBackground, fields, "")
 		}
@@ -398,6 +407,12 @@ func sealPush(key []byte, registration string, fields map[string]string) ([]byte
 type notifiedChats struct {
 	mu    sync.Mutex
 	chats map[string]map[string]struct{}
+	// When each chat a phone showed a notification for was last read on another of its
+	// person's devices, in ms, until the phone reads it itself. The push that said so may
+	// never have reached it, and once the chat has a new message the phone is counted as
+	// showing it again, with what was read still beside it. Kept in memory alone: after a
+	// restart a phone clears those when the chat is next read, as before this was kept.
+	read map[string]map[string]int64
 	// save keeps a device's chats in the database.
 	save func(deviceID string, groupIDs []string)
 }
@@ -467,20 +482,46 @@ func (n *notifiedChats) has(deviceID, groupID string) bool {
 	return ok
 }
 
-// list is a device's chats, in no order.
-func (n *notifiedChats) list(deviceID string) []string {
+// list is a device's chats, in no order, and when those of them read elsewhere were.
+func (n *notifiedChats) list(deviceID string) ([]string, map[string]int64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	groupIDs := make([]string, 0, len(n.chats[deviceID]))
+	read := map[string]int64{}
 	for groupID := range n.chats[deviceID] {
 		groupIDs = append(groupIDs, groupID)
+		if at, ok := n.read[deviceID][groupID]; ok {
+			read[groupID] = at
+		}
 	}
-	return groupIDs
+	return groupIDs, read
 }
 
+// remove is for a chat the device read itself: it shows nothing for it any more.
 func (n *notifiedChats) remove(deviceID, groupID string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.forgetRead(deviceID, groupID)
+	n.drop(deviceID, groupID)
+}
+
+// readElsewhere is for a chat read on another of the person's devices, at a time: the
+// device is told to clear it, and counts as showing nothing for it until its next message.
+func (n *notifiedChats) readElsewhere(deviceID, groupID string, at int64) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.read == nil {
+		n.read = map[string]map[string]int64{}
+	}
+	if n.read[deviceID] == nil {
+		n.read[deviceID] = map[string]int64{}
+	}
+	n.read[deviceID][groupID] = at
+	n.drop(deviceID, groupID)
+}
+
+// drop takes a chat out of a device's. The caller holds n.mu.
+func (n *notifiedChats) drop(deviceID, groupID string) {
 	if _, ok := n.chats[deviceID][groupID]; !ok {
 		return
 	}
@@ -491,6 +532,14 @@ func (n *notifiedChats) remove(deviceID, groupID string) {
 	n.keep(deviceID)
 }
 
+// forgetRead forgets when a device's chat was read elsewhere. The caller holds n.mu.
+func (n *notifiedChats) forgetRead(deviceID, groupID string) {
+	delete(n.read[deviceID], groupID)
+	if len(n.read[deviceID]) == 0 {
+		delete(n.read, deviceID)
+	}
+}
+
 // forget drops what was sent to devices that are gone: signed out, removed,
 // banned, or no longer reachable through their relay. Their registrations, which
 // keep it in the database, went with them.
@@ -499,6 +548,7 @@ func (n *notifiedChats) forget(deviceIDs ...string) {
 	defer n.mu.Unlock()
 	for _, id := range deviceIDs {
 		delete(n.chats, id)
+		delete(n.read, id)
 	}
 }
 

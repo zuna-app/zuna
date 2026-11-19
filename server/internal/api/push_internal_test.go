@@ -70,14 +70,36 @@ func TestNotifiedChatsAreKeptAndForgotten(t *testing.T) {
 	n.restore(map[string][]string{"d": {"g2"}, "e": {"g3"}})
 	n.save = func(deviceID string, groupIDs []string) { saved = append(saved, deviceID+":"+strings.Join(groupIDs, ",")) }
 	n.add("d", "g4")
+	listed := func(deviceID string) []string {
+		groups, _ := n.list(deviceID)
+		return groups
+	}
 	if !n.has("d", "g2") || !n.has("d", "g4") || n.has("d", "g9") {
-		t.Fatalf("chats: %v", n.list("d"))
+		t.Fatalf("chats: %v", listed("d"))
 	}
 	n.remove("d", "g2")
 	n.remove("d", "never")
+	// Read elsewhere, a chat isn't shown until it's written in again, and then with when that was.
+	n.readElsewhere("d", "g4", 7)
+	n.readElsewhere("d", "never", 8)
+	if _, read := n.list("d"); n.has("d", "g4") || len(read) != 0 {
+		t.Fatalf("after reading elsewhere: %v, read %v", listed("d"), read)
+	}
+	n.add("d", "g4")
+	if _, read := n.list("d"); !n.has("d", "g4") || len(read) != 1 || read["g4"] != 7 {
+		t.Fatalf("after another message: %v, read %v", listed("d"), read)
+	}
+	// Read on the device itself, there's nothing left for a time to clear.
+	n.remove("d", "g4")
+	n.add("d", "g4")
+	if _, read := n.list("d"); len(read) != 0 {
+		t.Fatalf("after reading it there: read %v", read)
+	}
+	n.readElsewhere("e", "g3", 9)
 	n.forget("e", "nobody")
-	if len(n.list("e")) != 0 || len(saved) == 0 {
-		t.Fatalf("e: %v, saved %v", n.list("e"), saved)
+	n.add("e", "g3")
+	if _, read := n.list("e"); len(read) != 0 || len(saved) == 0 {
+		t.Fatalf("e: %v, read %v, saved %v", listed("e"), read, saved)
 	}
 }
 
@@ -85,14 +107,14 @@ func TestPushesWithoutRelaysOrADatabase(t *testing.T) {
 	s := backgroundServer(t)
 	// No relays: nothing at all is done.
 	s.pushMessage("g", false, &store.Message{ID: "m"})
-	s.pushClearing([]string{"u"}, "", "g", nil, false)
+	s.pushClearing([]string{"u"}, "", "g", nil, 0)
 
 	// With a relay, but the database failing, it says so and sends nothing.
 	s.cfg.PushRelays = []string{"http://127.0.0.1:1"}
 	s.db.FailStatements(func(string) bool { return true })
 	defer s.db.FailStatements(nil)
 	s.pushMessage(store.NewID(), false, &store.Message{ID: "m"})
-	s.pushClearing([]string{store.NewID()}, "", store.NewID(), map[string]string{}, false)
+	s.pushClearing([]string{store.NewID()}, "", store.NewID(), map[string]string{}, 0)
 	s.restoreNotified(context.Background())
 	time.Sleep(50 * time.Millisecond)
 }

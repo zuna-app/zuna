@@ -45,11 +45,34 @@ extension CoreRuntime {
         return try JSONDecoder().decode(PushPreview.self, from: Data(json.utf8))
     }
 
-    /// The chats a server still counts this device as showing a notification for, by their groups' IDs: it
-    /// pushed one, or left the app to show one, and the chat hasn't been read on any device since.
-    public func stillNotified(serverId: String) async throws -> Set<String> {
+    /// The chats a server still counts this device as showing a notification for: it pushed one, or left
+    /// the app to show one, and the chat hasn't been read on any device since.
+    public func stillNotified(serverId: String) async throws -> StillNotified {
         let json = try await notifiedChats(serverId: serverId)
-        return Set(try JSONDecoder().decode([String].self, from: Data(json.utf8)))
+        return try JSONDecoder().decode(StillNotified.self, from: Data(json.utf8))
+    }
+}
+
+/// What a server still counts a phone as showing notifications for (`NotifiedChats` in the core's push.ts).
+public struct StillNotified: Decodable, Sendable, Equatable {
+    /// The chats, by their groups' IDs.
+    public let groups: Set<String>
+    /// Of those, the ones read on another device before their newest message came, with when, by the
+    /// server's clock (ms): what the phone shows from before then was read (`PushPreview.sentAt`).
+    public let read: [String: Int]
+
+    public init(groups: Set<String>, read: [String: Int] = [:]) {
+        self.groups = groups
+        self.read = read
+    }
+
+    /// Whether a message the phone shows a notification of was read on another device: one in a chat the
+    /// server no longer counts was, as the whole chat was read, and in a chat read before its newest message
+    /// came, one the server took before then. One it couldn't say the time of stays.
+    public func hasRead(groupId: String, sentAt: Int?) -> Bool {
+        guard groups.contains(groupId) else { return true }
+        guard let readAt = read[groupId], let sentAt else { return false }
+        return sentAt <= readAt
     }
 }
 

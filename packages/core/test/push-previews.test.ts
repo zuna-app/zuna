@@ -126,7 +126,12 @@ describe("a preview the server or the device doesn't allow", () => {
   });
 
   it("clears nothing when the server doesn't say which chats it notified about", async () => {
-    expect(Array.isArray(await notifiedChats(extension(bob), bob.serverId))).toBe(true);
+    expect(await notifiedChats(extension(bob), bob.serverId)).toEqual({ groups: expect.any(Array), read: {} });
+    // When a chat was read comes only for a chat it lists, and only as a time: anything else clears nothing more.
+    const times = { groups: ["a", "b", "c"], read: { a: 1_700_000_000_000, b: "yesterday", c: -1, d: 5 } };
+    expect(await answering((url) => url.includes("/api/push/notified"), () => times, () => notifiedChats(extension(bob), bob.serverId))).toEqual({ groups: ["a", "b", "c"], read: { a: 1_700_000_000_000 } });
+    expect(await answering((url) => url.includes("/api/push/notified"), () => ({ groups: ["a"], read: [1] }), () => notifiedChats(extension(bob), bob.serverId))).toEqual({ groups: ["a"], read: {} });
+    expect(await answering((url) => url.includes("/api/push/notified"), () => ({ groups: ["a"] }), () => notifiedChats(extension(bob), bob.serverId))).toEqual({ groups: ["a"], read: {} });
     await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: "everything" }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't identify the chats that triggered notifications on this device.");
     await expect(answering((url) => url.includes("/api/push/notified"), () => ({ groups: ["a", 1] }), () => notifiedChats(extension(bob), bob.serverId))).rejects.toThrow("The server didn't identify the chats");
   });

@@ -401,6 +401,18 @@ final class CoreController {
             model?.catchUpChatOnScreen()
             try? await connection.nudge()
         }
+        clearReadEverywhere()
+    }
+
+    /// Back on screen, each server is asked what it still counts this device as showing, and the rest goes:
+    /// what was read on another device while the app was away, which the silent push that said so may never
+    /// have been handed over for. The app catching up clears a chat read whole by itself (`onCaughtUp`), and
+    /// this the messages read in a chat that has a newer one, which only the server can tell apart.
+    private func clearReadEverywhere() {
+        guard let model else { return }
+        for serverId in model.signedIn where serverId != ServerEntry.telegram {
+            Task { await clearRead(serverId: serverId) }
+        }
     }
 
     /// On screen, the person is using this device, as in Telegram: nothing is

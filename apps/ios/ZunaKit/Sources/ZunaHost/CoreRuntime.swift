@@ -147,9 +147,9 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
-    /// The chats a server still counts this device as showing a notification for, as a JSON list of their
-    /// groups' IDs (`notifiedChats` in the core). Like a preview, it needs no client: nothing connects but
-    /// the one request, and nothing is written.
+    /// The chats a server still counts this device as showing a notification for, as JSON: their groups'
+    /// IDs, and when those read elsewhere were (`notifiedChats` in the core). Like a preview, it needs no
+    /// client: nothing connects but the one request, and nothing is written.
     public func notifiedChats(serverId: String) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             queue.async { [self] in

@@ -454,7 +454,7 @@ describe("notifications from a push", () => {
     try {
       await laptop.login(server.url, "bob");
       await waitFor(() => laptop.session.getConversations().some((item) => item.key === chat), "the laptop to have the group");
-      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([]);
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual({ groups: [], read: {} });
 
       // Put away, the server pushes it the message, and the app leaves it to the push.
       bob.client.setActive(false);
@@ -464,7 +464,7 @@ describe("notifications from a push", () => {
       expect(notify("in your pocket")!.inUse).toBe(false);
       await waitFor(() => pushed("alert", (fields) => fields.m === pocket.id), "its push");
       expect(await previewPush(extension(bob), bob.serverId, groupId, pocket.id)).toMatchObject({ sentAt: received(bob, "in your pocket").createdAt });
-      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([groupId]);
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual({ groups: [groupId], read: {} });
 
       // Read at the laptop, the phone is told to clear it, with when it was read, and no longer counts as showing it.
       const before = Date.now();
@@ -474,7 +474,7 @@ describe("notifications from a push", () => {
       const read = relay.pushes.map(open).find((fields) => fields?.t === "read" && fields.g === groupId)!;
       expect(Number(read.a)).toBeGreaterThanOrEqual(received(bob, "in your pocket").createdAt);
       expect(Math.abs(Number(read.a) - before)).toBeLessThan(5_000);
-      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual([]);
+      expect(await notifiedChats(extension(bob), bob.serverId)).toEqual({ groups: [], read: {} });
 
       // In hand, nothing is pushed: it's the app's to show, and counts as shown all the same.
       bob.client.setActive(true);
@@ -482,8 +482,13 @@ describe("notifications from a push", () => {
       const hand = alice.session.sendMessage(chat, { text: "in your hand" });
       await waitFor(() => !!notify("in your hand"), "the phone to hear of the message");
       expect(notify("in your hand")!.inUse).toBe(true);
-      await waitFor(async () => (await notifiedChats(extension(bob), bob.serverId)).includes(groupId), "the phone to count as showing it");
+      await waitFor(async () => (await notifiedChats(extension(bob), bob.serverId)).groups.includes(groupId), "the phone to count as showing it");
       expect(pushed("alert", (fields) => fields.m === hand.id)).toBe(false);
+      // The chat it shows again was read at the laptop before this message came: what the phone still
+      // shows from before then goes, whether or not the push that said so ever reached it.
+      expect((await notifiedChats(extension(bob), bob.serverId)).read).toEqual({ [groupId]: Number(read.a) });
+      expect(received(bob, "in your pocket").createdAt).toBeLessThanOrEqual(Number(read.a));
+      expect(received(bob, "in your hand").createdAt).toBeGreaterThan(Number(read.a));
 
       // Put away as a message comes, before the server hears of it: it went by what it knew
       // and pushed nothing, so the app shows it, at once, though its person has left.

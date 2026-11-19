@@ -693,7 +693,7 @@ export class Api {
     this.request("PUT", "/api/push", body);
   deletePush = () => this.request("DELETE", "/api/push");
   /** The chats the server still counts this phone as showing a notification for. */
-  pushNotified = () => this.request<{ groups: string[] }>("GET", "/api/push/notified").then((r) => r.groups);
+  pushNotified = () => this.request<{ groups: string[]; read: Record<string, number> }>("GET", "/api/push/notified");
 
   // Users and devices
   users = (since = 0) =>

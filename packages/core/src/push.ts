@@ -349,22 +349,43 @@ export async function previewPush(
   });
 }
 
+/** What a phone still shows notifications for, as the server counts it (`notifiedChats`). */
+export interface NotifiedChats {
+  /** The chats it was pushed a message of, or left to show one of itself, that nobody has read since. */
+  groups: string[];
+  /**
+   * Of those, the ones read on another device before their newest message came, with when, by
+   * the server's clock (ms): what the phone shows from before then was read, as a message's
+   * `sentAt` says of it.
+   */
+  read: Record<string, number>;
+}
+
 /**
  * The chats the server still counts this phone as showing a notification for: it was pushed
  * one, or left to show one itself, and none of the person's devices has read the chat since.
- * A phone asks whenever something wakes it, and clears what it shows for any other chat. iOS
- * hands a silent push over when it likes, or never, as to an app its person closed, so the
+ * A phone asks whenever something wakes it, and clears what it shows for any other chat, and
+ * in a chat read elsewhere and written in again since, what it shows from before it was read.
+ * iOS hands a silent push over when it likes, or never, as to an app its person closed, so the
  * push that says a chat was read can't be all that clears its notifications. Like a preview,
  * it needs no session and writes nothing.
  */
-export async function notifiedChats(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string): Promise<string[]> {
+export async function notifiedChats(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string): Promise<NotifiedChats> {
   const { account } = await openServer(options, serverId);
   const api = new Api(account.serverUrl);
   api.token = account.token;
-  const groups: unknown = await api.pushNotified();
+  const answer: { groups?: unknown; read?: unknown } | null = await api.pushNotified();
+  const groups = answer?.groups;
   // Anything else would have the phone clear everything it shows.
   if (!Array.isArray(groups) || groups.some((id) => typeof id !== "string")) throw new Error(t("notify.notifiedChatsMissing"));
-  return groups as string[];
+  // A time that isn't one clears nothing more: the chat's notifications stay until it's next read.
+  const read: Record<string, number> = {};
+  const times = answer?.read && typeof answer.read === "object" && !Array.isArray(answer.read) ? (answer.read as Record<string, unknown>) : {};
+  for (const id of groups as string[]) {
+    const at = times[id];
+    if (typeof at === "number" && Number.isSafeInteger(at) && at > 0) read[id] = at;
+  }
+  return { groups: groups as string[], read };
 }
 
 /** What a phone shows for a call it was woken to ring for. */
