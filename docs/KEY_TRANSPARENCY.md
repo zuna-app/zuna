@@ -81,7 +81,7 @@ What already holds, and stays exactly as it is: a certificate needs the identity
 
 Other systems (section 9) let a device ask about one person and get a short proof, because nobody there can hold the whole directory. Here everybody already does: the conversation list is flat, so `syncUsers` fetches every account with every device's certificate. A log that every device reads in full costs less than that, and it needs no proofs, no verifiable map, no new cryptographic primitive, and no auditor.
 
-- **Size.** A record is 80 bytes and a body about 150. A server of 200 people that has seen 2,000 changes is 160 KB of records, once for each device, then only what's new. A hundred thousand changes is 8 MB of records, which a device reads in the background.
+- **Size.** A record is 80 bytes. A body is about 150, but a `device` entry's is about 2 KB and an `account` entry's about 9 KB, as they carry hybrid keys ([POST_QUANTUM.md](POST_QUANTUM.md)). A server of 200 people that has seen 2,000 changes is 160 KB of records, once for each device, then only what's new. A hundred thousand changes is 8 MB of records, which a device reads in the background.
 - **Nothing to get wrong.** A device appends each record to its frontier and compares the root with the signed one. That's the whole check. Inclusion and consistency proofs aren't used anywhere.
 - **Leaving something out is impossible, not just detectable.** A device that has every record can test each against any account it knows (5.3), so the server can't pass one over.
 
@@ -124,7 +124,7 @@ A device checks tags in both directions:
 - **A record it's given no body for** is tested against every other ID the device knows, and against the usernames it knows. A match means the server is keeping back something about someone who's there for this device. It asks again, and says so if that goes on.
 - **When an account becomes visible later,** as a private bot does to someone added to a chat with it, the device tests the records it holds against the new ID and asks for those bodies (`GET /api/log/bodies`).
 
-What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY_DETAILS.md`'s row for bots will say so.
+What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY_DETAILS.md` says so under bots.
 
 ### 5.4 Heads
 
@@ -132,13 +132,13 @@ A head is `{ era, size, root }` and the log key's signature over it. The server 
 
 - **No time in it.** A time on every head would tell everyone when a device was added or removed. A head's size only goes up, and that's all the order devices need.
 - **The log key** is made once and kept in the database, as token keys are. Its public half is in `GET /api/info` for someone signed in.
-- **Devices pin it** from the invite link they joined with (5.8), or failing that from the first answer, and keep it in the manifest, so an account's later devices take it from there and not from the server.
+- **Devices pin it** from the server if it has the hash their invite link carries (5.8), or failing that from the first answer, and keep it in the manifest, so an account's later devices take it from there and not from the server.
 
 The signature is what gives K4 and K5. Without it devices would still notice that roots differ, but any member could make one up, and nobody could show anyone else what the server did.
 
 ### 5.5 Reading and checking
 
-A device holds every record, the root after each, and the bodies it was given, in a local table. `GET /api/users` says the log's era and size, so an app coming back from the background asks for the log only when it grew, and a `log` frame on the socket says so live. The log is read before the list of people, since the list is judged by it.
+A device holds every record, with what it needs to work out a root from before, and what the bodies it was given say, in local tables (the implementation notes say how). `GET /api/users` says the log's era and size, so an app coming back from the background asks for the log only when it grew, and a `log` frame on the socket says so live. The log is read before the list of people, since the list is judged by it.
 
 For each batch of new records, in order:
 
@@ -186,7 +186,7 @@ A head only means something once it's compared. Three places carry one where the
 |---|---|---|
 | **Signed messages** | `log: { e, n, r, s }` in the body, beside `tokenKeys`, which already compares what people were shown this way. Sent when the sender's head is newer than the last it sent to that conversation, or weekly | It's inside the encryption and under the sender's signature. Every conversation joins its members' views |
 | **The vault manifest** | `log: { key, era, size, root }`, written with any other change to the manifest, and by itself at most daily | A new device of an account starts from what its other devices verified, not from what the server shows it |
-| **Invite links** | `&log=` in the fragment, with the key and the inviter's head when the link was made: about a hundred characters | Whoever joins checks the log they're given against a head the server never saw. Everyone who was on the server when the link was made then has the key the inviter had for them, before a word is exchanged |
+| **Invite links** | `&log=` in the fragment, with the hash of the log's key and the inviter's head when the link was made: about a hundred characters | Whoever joins checks the log they're given against a head the server never saw. Everyone who was on the server when the link was made then has the key the inviter had for them, before a word is exchanged |
 
 A link's head is only as good as the way the link came, as its community key is: a server's invite page could change the fragment of a link opened in a browser, which is why links are pasted into the app.
 
@@ -283,7 +283,7 @@ Decided on 2026-11-11. Each is still the owner's to change.
 
 1. **Every device reads the whole log** (5.1), since every device already reads the whole list of people. Turned down: proofs on request, section 9's way, at several times the work.
 2. **Usernames are in the log** (row 8 of section 3). Turned down: the account's ID alone, which ties keys to something nobody ever sees.
-3. **Invite links carry the log key and the inviter's head,** about a hundred characters more (5.8), as it's the one thing here that prevents and doesn't only find out. Turned down: the key alone, and a link left as it is, where someone joining takes the server's first answer on trust.
+3. **Invite links carry the log key and the inviter's head,** its hash since the key became a hybrid one ([POST_QUANTUM.md](POST_QUANTUM.md)), about a hundred characters more (5.8), as it's the one thing here that prevents and doesn't only find out. Turned down: the key alone, and a link left as it is, where someone joining takes the server's first answer on trust.
 4. **All of section 5.9's warnings are shown,** in the existing place, the milder one a member can cause included. They ask for nothing, but they're messages people didn't get before. Turned down: only the proven ones, which would leave a server that gave someone another log key unnoticed.
 5. **Private bots show as records about nobody** (5.3), with what that leaks. Turned down: a second log for them alone, and leaving them out of the log.
 6. **Restoring a backup takes a flag, and tells everyone once** (5.10). Turned down: no eras, with devices warning for good.
@@ -347,7 +347,7 @@ Tables: `log_entries(era, idx, record, body, user_id, root)`, with `root` the tr
 
 | Route | Wrapper | Purpose |
 |---|---|---|
-| `GET /api/log?era=&after=&limit=` | `withDevice`, and `authed` for records and the session's own account's bodies | The signed head, and the records after a place, each with its body if its account is there for whoever asks |
+| `GET /api/log?era=&after=&limit=` | `authed`. A session with a device gets each body its account is there for, and one with none yet, signing in, only its own account's | The signed head, and the records after a place, each with its body if its account is there for whoever asks |
 | `GET /api/log/bodies?user=` | `withDevice` | The bodies of one account's entries, for someone it has just become visible to |
 | `GET /api/users` | `withDevice` | Also says the log's era and size |
 | `GET /api/info` | `pageLimited` | Also gives `log_key` to someone signed in |
@@ -356,7 +356,7 @@ The `log` frame says an era and a size, to everyone connected.
 
 ### On the device
 
-A local migration adds `log_records(idx, record, root, body)` at the end of `MIGRATIONS`. The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
+A local migration adds `log_records(idx, record, frontier, opened)`, `log_accounts` and `log_names` at the end of `MIGRATIONS`. The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
 
 ## Implementation notes
 
