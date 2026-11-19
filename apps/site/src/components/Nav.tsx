@@ -6,6 +6,7 @@ import { DownloadButton } from "./Download";
 const LINKS = [
   { href: "/#features", label: "Features" },
   { href: "/#streaming", label: "Streaming" },
+  { href: "/#telegram", label: "Telegram" },
   { href: "/#native", label: "Performance" },
   { href: "/#security", label: "Security" },
   { href: "/#compare", label: "Compare" },

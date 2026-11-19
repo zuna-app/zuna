@@ -113,6 +113,53 @@
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .chips li { padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(255, 255, 255, 0.02); color: var(--text-2); font-size: 14px; }
 
+/* A bot's message with its buttons under it, as the apps draw them. */
+.mini-bot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.mini-bot-name { display: flex; align-items: center; gap: 8px; color: var(--text-1); font-size: 13.5px; font-weight: 600; }
+.mini-bot-name b { padding: 2px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--text-1); font: 600 10px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.mini-bot-bubble { max-width: 92%; padding: 9px 14px; border-radius: 16px 16px 16px 4px; background: var(--bg-3); color: var(--text-1); font-size: 14.5px; }
+.mini-bot-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 92%; }
+.mini-bot-buttons span { padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--bg-2); color: var(--text-1); font-size: 13.5px; font-weight: 550; text-align: center; }
+
+/* A video the room is watching, paused by one of them, with the bar the apps put under it. The mock takes more of the tile than the
+   words, and sits in the middle of it, as the tile beside it sets the row's height. */
+.tile-watch .mini-watch { flex: 1.35; margin-bottom: auto; }
+.mini-watch {
+  display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px;
+  background: var(--bg-1); box-shadow: 0 30px 60px -34px rgba(0, 0, 0, 0.9);
+}
+.mini-watch-video { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: #0c0d15; }
+.mini-watch-scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mini-watch-play {
+  position: relative; display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%;
+  background: rgba(10, 10, 16, 0.5); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); color: #fff;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+/* A triangle's weight is left of its box's middle. */
+.mini-watch-play svg { margin-left: 3px; }
+.mini-watch-controls {
+  position: absolute; inset: auto 0 0; display: flex; flex-direction: column; gap: 8px; padding: 26px 12px 10px;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.55));
+}
+.mini-watch-track { position: relative; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
+.mini-watch-fill { position: absolute; inset: 0 auto 0 0; width: 34%; border-radius: inherit; background: #fff; }
+.mini-watch-fill::after { content: ""; position: absolute; top: -3.5px; right: -5px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.mini-watch-row {
+  display: flex; align-items: center; justify-content: space-between; color: rgba(255, 255, 255, 0.88);
+  font: 500 11.5px/1 var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.mini-watch-row b { padding: 3px 6px; border-radius: 5px; background: rgba(255, 255, 255, 0.16); font-weight: 600; }
+.mini-watch-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.mini-watch-text { display: flex; flex: 1; flex-direction: column; min-width: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.35; }
+.mini-watch-text b { overflow: hidden; color: var(--text-1); font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mini-watch-people { display: flex; flex: none; }
+.mini-watch-people .mini-av { width: 26px; height: 26px; font-size: 9.5px; box-shadow: 0 0 0 2px var(--bg-1); }
+.mini-watch-people .mini-av + .mini-av { margin-left: -4px; }
+.mini-watch-stop {
+  display: inline-flex; flex: none; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--line-strong);
+  border-radius: 8px; background: var(--bg-2); color: var(--text-1); font-size: 13px; font-weight: 550;
+}
+
 /* Streaming */
 
 .stream-section { overflow: clip; }
@@ -155,12 +202,34 @@
 .race-foot b { color: var(--text-1); font-variant-numeric: tabular-nums; }
 @keyframes live { 50% { opacity: 0.3; } }
 
-.stream-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 16px 0 0; padding: 0; list-style: none; }
-.stream-facts li { display: flex; flex-direction: column; gap: 4px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--bg-1); }
-.stream-fact-icon { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--bg-3); color: var(--text-1); }
-.stream-facts b { font-size: 18px; font-weight: 640; letter-spacing: -0.02em; }
-.stream-facts span:not(.stream-fact-icon) { color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
-#streaming .note { margin-top: 32px; }
+/* Four facts in a row, under screen sharing and Telegram. */
+.facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 16px 0 0; padding: 0; list-style: none; }
+.facts li { display: flex; flex-direction: column; gap: 4px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--bg-1); }
+.fact-icon { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--bg-3); color: var(--text-1); }
+.facts b { font-size: 18px; font-weight: 640; letter-spacing: -0.02em; }
+.facts span:not(.fact-icon) { color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
+#streaming .note, #telegram .note { margin-top: 32px; }
+
+/* Telegram */
+
+/* The rail with Telegram's icon under the servers, and its chats, beside what's there. */
+.tg-panel {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 48px; margin-top: 56px; padding: 32px;
+  border: 1px solid var(--line-strong); border-radius: 26px;
+  background: radial-gradient(70% 120% at 0% 0%, rgba(255, 255, 255, 0.06), transparent 60%), linear-gradient(180deg, var(--bg-1), var(--bg-0) 140%);
+  box-shadow: var(--shadow-l), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.tg-app { display: grid; grid-template-columns: 52px minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-0); }
+.tg-list { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; background: var(--bg-1); }
+.tg-chat { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; }
+.tg-chat.is-active { background: var(--bg-4); }
+.tg-chat .mini-av { flex: none; width: 34px; height: 34px; font-size: 11px; }
+.tg-chat > span { display: flex; flex-direction: column; min-width: 0; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.tg-chat b { overflow: hidden; color: var(--text-1); font-size: 14px; font-weight: 600; text-overflow: ellipsis; }
+.tg-label { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin: 10px 8px 2px; padding: 5px 9px; border-radius: 7px; background: var(--amber-soft); color: var(--amber); font: 500 11.5px/1 var(--font-mono); }
+.tg-there { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.tg-there li { display: flex; gap: 12px; color: var(--text-1); font-size: 16px; line-height: 1.45; }
+.tg-there li::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 0.5em; border-radius: 50%; background: var(--text-1); }
 
 /* Native apps */
 
@@ -254,6 +323,33 @@
 .sec-devices .is-good { color: var(--green); }
 .sec-devices li.is-removed { border-color: rgba(242, 85, 90, 0.35); background: var(--red-soft); color: var(--text-2); text-decoration: line-through; }
 .sec-devices li.is-removed span { color: var(--red); font: 600 11px/1 var(--font-mono); letter-spacing: 0.06em; text-decoration: none; text-transform: uppercase; }
+
+/* The log of keys: an account's entries, the head the server signed, and another device's agreeing. */
+.sec-log { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.sec-log ol { display: grid; gap: 6px; width: 100%; margin: 0; padding: 0; list-style: none; }
+.sec-log li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); font-size: 13.5px; }
+.sec-log li svg { margin-left: auto; color: var(--green); }
+.sec-log li.is-you { border-color: var(--line-strong); background: var(--bg-3); }
+.sec-log-n { color: var(--text-3); font: 500 12px/1 var(--font-mono); }
+.sec-log-root { color: var(--text-2); font-size: 12px; }
+
+/* The question every earlier device asks, with only its two answers. */
+.sec-ask { margin-top: auto; padding-top: 22px; }
+.sec-ask-box { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg-2); box-shadow: var(--shadow-l); }
+.sec-ask b { font-size: 15px; font-weight: 620; }
+.sec-ask-box > span:not(.sec-ask-buttons) { color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
+.sec-ask-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+.sec-ask-buttons span { padding: 7px 10px; border-radius: 9px; background: var(--bg-4); color: var(--text-1); font-size: 13.5px; font-weight: 600; text-align: center; }
+.sec-ask-buttons .is-no { background: var(--red-soft); color: var(--red); }
+
+/* Your data's rows, each with its tag. */
+.sec-data { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sec-data li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); font-size: 13.5px; }
+.sec-tag { margin-left: auto; padding: 4px 8px; border-radius: 6px; font: 600 10.5px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.sec-tag.is-readable { background: var(--amber-soft); color: var(--amber); }
+.sec-tag.is-encrypted { background: rgba(76, 195, 138, 0.12); color: var(--green); }
+.sec-tag.is-public { background: var(--accent-soft); color: var(--text-1); }
+.sec-tag.is-withheld, .sec-tag.is-none { background: var(--bg-4); color: var(--text-2); }
 
 .sees { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; }
 .sees-column { position: relative; padding: 30px; }
@@ -407,12 +503,16 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
 @media (max-width: 1000px) {
   .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tile-wide { grid-column: 1 / -1; }
+  /* With two columns, the odd one out takes its row as a wide tile does. */
+  .tile-alone { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 36px; }
+  .tile-alone .tile-copy, .tile-alone .mini-bot { flex: 1; }
   .host, .faq { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .sec-bento, .platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sec-wide, .sec-bento > :last-child { grid-column: 1 / -1; }
   .chip-float { display: none; }
   .native-hero { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 32px; }
-  .stream-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tg-panel { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .compare { --pad: 20px; }
   .compare-table thead th, .compare-table tbody tr:not(.compare-group) > td { padding-inline: 12px; }
   .compare-value { gap: 8px; }
@@ -434,7 +534,7 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .compare-table td:nth-child(2) .compare-who { color: var(--text-1); }
   .sec-wide { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .sec-wide, .sec-bento > :last-child { grid-column: auto; }
-  .tile-wide { flex-direction: column; align-items: stretch; }
+  .tile-wide, .tile-alone { flex-direction: column; align-items: stretch; }
   .native-hero { padding: 26px 20px; }
   .bars-row { grid-template-columns: 62px minmax(0, 1fr) auto; gap: 10px; }
   .native-figures { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-top: 36px; }
@@ -446,11 +546,16 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .race-lane { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .race-track { height: 48px; }
   .race-block { width: 48px; }
-  .stream-facts { grid-template-columns: minmax(0, 1fr); }
+  .facts { grid-template-columns: minmax(0, 1fr); }
+  .tg-panel { padding: 20px; }
   .tile { min-height: 0; padding: 22px; }
   .mini-sidebar { flex: none; }
   .sees { grid-template-columns: minmax(0, 1fr); }
   .sees-never { border-top: 1px solid var(--line); border-left: 0; }
   .meter-screen { height: 200px; }
-  .stream-facts { margin-top: 48px; }
+  #streaming .facts { margin-top: 48px; }
+}
+/* On a phone the video's title needs the bar's width more than the faces do. */
+@media (max-width: 480px) {
+  .mini-watch-people { display: none; }
 }

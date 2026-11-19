@@ -7,6 +7,7 @@ import { Platforms } from "../sections/Platforms";
 import { Security } from "../sections/Security";
 import { SelfHost } from "../sections/SelfHost";
 import { Streaming } from "../sections/Streaming";
+import { Telegram } from "../sections/Telegram";
 
 export function Home() {
   return (
@@ -14,6 +15,7 @@ export function Home() {
       <Hero />
       <Features />
       <Streaming />
+      <Telegram />
       <NativeApps />
       <Security />
       <Compare />

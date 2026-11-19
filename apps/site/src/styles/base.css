@@ -86,7 +86,7 @@ button { font: inherit; }
 .nav-inner { display: flex; align-items: center; gap: 28px; height: 64px; }
 .nav-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 650; letter-spacing: -0.02em; }
 .nav-links { display: flex; gap: 2px; }
-.nav-links a { padding: 8px 12px; border-radius: 8px; font-size: 14.5px; color: var(--text-2); transition: color 0.15s, background 0.15s; }
+.nav-links a { padding: 8px 12px; border-radius: 8px; font-size: 14.5px; color: var(--text-2); white-space: nowrap; transition: color 0.15s, background 0.15s; }
 .nav-links a:hover { color: var(--text-1); background: var(--hover); }
 .nav-end { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .nav-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; color: var(--text-2); transition: color 0.15s, background 0.15s; }
@@ -118,8 +118,12 @@ button { font: inherit; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 
-@media (max-width: 960px) {
+/* Seven links, the brand and the end of the bar need about 1,000 pixels, a scroll bar included. */
+@media (max-width: 1040px) {
   .nav-links { display: none; }
+}
+
+@media (max-width: 960px) {
   .footer-grid { grid-template-columns: 1fr 1fr; }
   .footer-brand { grid-column: 1 / -1; }
 }

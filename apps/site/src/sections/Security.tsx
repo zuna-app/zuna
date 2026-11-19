@@ -1,4 +1,4 @@
-import { ArrowRight, BadgeCheck, Check, Eye, Fingerprint, Info, KeyRound, Laptop, Layers, Lock, PenLine, Server, ShieldCheck, Smartphone, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ClipboardList, Eye, Fingerprint, Info, KeyRound, Laptop, Layers, Lock, MonitorSmartphone, PenLine, ScrollText, Server, ShieldCheck, Smartphone, Waypoints, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { prefersLessMotion, useOnScreen } from "../components/reveal";
 import { doc } from "../pages";
@@ -15,6 +15,24 @@ const NEVER = ["What you write, reply or react with", "Who in a chat sent each m
  * Ed25519 (docs/POST_QUANTUM.md), the password stretched with Argon2id, and every message signed by its device.
  */
 const CREDENTIALS = ["MLS · RFC 9420", "OpenMLS, independently audited", "Post-quantum: ML-KEM and ML-DSA", "Argon2id", "Every message signed"];
+
+/** An account's entries in the log of keys, for the illustration. */
+const LOG = [
+  { n: 1041, text: "Priya added her laptop" },
+  { n: 1042, text: "Sam signed up" },
+  { n: 1043, text: "You added this phone", you: true },
+];
+
+/** Rows of Your data as packages/core/src/export.ts names them, each with its tag (settings.data.tag* in en.json). */
+type Tag = "readable" | "encrypted" | "public" | "withheld" | "none";
+const TAGS: Record<Tag, string> = { readable: "Readable", encrypted: "Encrypted", public: "Public", withheld: "Left out", none: "Not kept" };
+const DATA: { what: string; tag: Tag }[] = [
+  { what: "Username", tag: "readable" },
+  { what: "Profile", tag: "encrypted" },
+  { what: "Entries in the log of keys", tag: "public" },
+  { what: "Reports about you", tag: "withheld" },
+  { what: "What you write, send and say", tag: "none" },
+];
 
 // A noise of ciphertext behind what the server can't read, made once so the page renders the same on the server and in the browser.
 const NOISE = "9f2c a71e 04bd e83a 5c19 f6d0 2b8e 71a4 c03f 8e5d 1a97 d24c 6b0e 3f81 a5c7 0d62 e94b 27f3 b81c 4e06 9a3d f15b 08c2 7de9 c4a0 3b7f e612 58d4 0f9e a2b6 ".repeat(6);
@@ -108,6 +126,101 @@ export function Security() {
               <li className="is-removed">
                 <Server size={14} /> Unknown device <span>Removed</span>
               </li>
+            </ul>
+          </article>
+
+          {/* docs/KEY_TRANSPARENCY.md: it finds out rather than prevents, which "without leaving proof" says. */}
+          <article className="card sec-wide reveal">
+            <div>
+              <ScrollText className="card-icon" size={22} aria-hidden="true" />
+              <h3>A log the server can't rewrite</h3>
+              <p>
+                Every key and device on a server goes into an append-only log, and the server signs each version of it. Every device reads all of it, counts
+                only the devices it names, and watches its own account in it, and devices compare what they read inside their messages. So a server can't give
+                you a key that isn't yours, or show two people two different logs, without leaving proof.
+              </p>
+            </div>
+            <div className="sec-log" aria-hidden="true">
+              <ol>
+                {LOG.map((entry) => (
+                  <li key={entry.n} className={entry.you ? "is-you" : undefined}>
+                    <span className="sec-log-n">#{entry.n}</span>
+                    {entry.text}
+                    <Check size={14} strokeWidth={3} />
+                  </li>
+                ))}
+              </ol>
+              <span className="sec-pill">
+                <PenLine size={13} /> Signed at 1043 <span className="sec-mono sec-log-root">7c1e 94a0 3f2d</span>
+              </span>
+              <span className="sec-signature">
+                <BadgeCheck size={13} /> Same as Priya's laptop read
+              </span>
+            </div>
+          </article>
+
+          <article className="card reveal">
+            <MonitorSmartphone className="card-icon" size={22} aria-hidden="true" />
+            <h3>Was this you?</h3>
+            <p>
+              When a device signs in to your account, every device you already had asks, over everything else, until you answer. No removes it, and asks you
+              to change the password or recovery key it signed in with.
+            </p>
+            <div className="sec-ask" aria-hidden="true">
+              <div className="sec-ask-box">
+                <b>Was this you?</b>
+                <span>A new device signed in to your account: Windows, just now.</span>
+                <span className="sec-ask-buttons">
+                  <span>Yes</span>
+                  <span className="is-no">No</span>
+                </span>
+              </div>
+            </div>
+          </article>
+
+          {/* docs/SOCKS5.md: the native app and the iPhone's, everything or nothing; the web app can't have one. */}
+          <article className="card reveal">
+            <Waypoints className="card-icon" size={22} aria-hidden="true" />
+            <h3>Your proxy, or nothing</h3>
+            <p>
+              Set a SOCKS5 proxy in the desktop or iPhone app and everything goes through it, calls included, so your servers see its address, not yours. If
+              it can't be reached, nothing connects.
+            </p>
+            <div className="sec-steps" aria-hidden="true">
+              <span className="sec-pill">
+                <Laptop size={13} /> You
+              </span>
+              <ArrowRight size={14} />
+              <span className="sec-pill is-good">
+                <Waypoints size={13} /> SOCKS5
+              </span>
+              <ArrowRight size={14} />
+              <span className="sec-pill">
+                <Server size={13} /> Server
+              </span>
+            </div>
+            <span className="sec-never" aria-hidden="true">
+              <Server size={13} /> Around it <X size={13} strokeWidth={3} />
+            </span>
+          </article>
+
+          {/* Settings, Your data: packages/core/src/export.ts, with its rows' names and tags. */}
+          <article className="card sec-wide reveal">
+            <div>
+              <ClipboardList className="card-icon" size={22} aria-hidden="true" />
+              <h3>See what your server keeps</h3>
+              <p>
+                Settings, Your data, lists everything your server says it keeps about your account, in plain words: what it can read, what's encrypted, what's
+                public, and what it never keeps at all. Save it as a file whenever you like.
+              </p>
+            </div>
+            <ul className="sec-data" aria-hidden="true">
+              {DATA.map((row) => (
+                <li key={row.what}>
+                  {row.what}
+                  <span className={`sec-tag is-${row.tag}`}>{TAGS[row.tag]}</span>
+                </li>
+              ))}
             </ul>
           </article>
         </div>

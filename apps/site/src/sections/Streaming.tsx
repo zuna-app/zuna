@@ -51,10 +51,10 @@ export function Streaming() {
           ))}
         </ul>
         <FrameRace />
-        <ul className="stream-facts">
+        <ul className="facts">
           {FACTS.map((fact) => (
             <li key={fact.value} className="reveal">
-              <span className="stream-fact-icon" aria-hidden="true">
+              <span className="fact-icon" aria-hidden="true">
                 {fact.icon}
               </span>
               <b>{fact.value}</b>
