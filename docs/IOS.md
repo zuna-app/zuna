@@ -35,7 +35,7 @@ flowchart LR
 
 ### Cryptography: Rust through UniFFI
 
-- **The crate** keeps what only WebAssembly uses under `[target.'cfg(target_arch = "wasm32")'.dependencies]`, its WebAssembly bindings in `wasm.rs`, and `staticlib` among its crate types.
+- **The crate** keeps what only WebAssembly uses under `[target.'cfg(target_arch = "wasm32")'.dependencies]`, its WebAssembly bindings in `wasm.rs`, and UniFFI behind its `uniffi` feature. Its only crate type is `rlib`: `scripts/build-crypto-apple.mjs` asks for a `staticlib` with that feature.
 - **`crypto/src/native.rs`** exposes through UniFFI what `wasm.rs` exposes: the primitives, hybrid signatures, HPKE, the emoji check's digest, and an `MlsClient` object with every method, its state behind a `Mutex`, as UniFFI requires `Send + Sync`. Errors are `Result`s, so they surface as exceptions, which the core relies on.
 - **`scripts/build-crypto-apple.mjs`** builds an XCFramework for `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-apple-darwin`. The macOS slice lets the whole host run headless in tests.
 - **In the core bundle**, `@zuna/crypto` is aliased to a small JavaScript shim with the same exports. It calls native functions through the JavaScriptCore C API, passing typed arrays without copying through JSON. `MlsClient` becomes a JS class wrapping a native handle. `takeChanges()`, `commitChanges()` and the other methods keep their exact return shapes.
@@ -65,7 +65,7 @@ flowchart LR
 
 ### Storage
 
-- **SQLite amalgamation** at a pinned version (`scripts/fetch-sqlite.mjs`), vendored as a C target with FTS5, so as not to depend on the system's SQLite for `contentless_delete`, which needs 3.43 or later.
+- **SQLite amalgamation** at a pinned version, downloaded and checked by `scripts/fetch-sqlite.mjs`, built as a C target with FTS5, so as not to depend on the system's SQLite for `contentless_delete`, which needs 3.43 or later.
 - **The `LocalDb` bridge** behaves like `packages/ui/src/core/sqlite.ts`:
   - synchronous calls, nested transactions through a depth counter;
   - BLOBs returned as `Uint8Array`;
@@ -95,7 +95,7 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
 - **Navigation** (decided with the user on 2026-10-31):
   - The layout follows Telegram for iOS: the chat list, chat screen, bubbles, input bar, context menus and settings lists.
   - Servers are listed like Mail's mailboxes (changed from a Discord-like drawer on 2026-10-31, at the user's request for something more native to iOS). With more than one server, the Chats tab starts at the list of servers, with the newest message and unread count on each, and a server's chats are pushed over it; the server opened last opens again at launch. With one server, the Chats tab opens on its chats, and joining another is in the menu under the server's name.
-  - The bottom tab bar has Channels, Chats and Settings.
+  - The bottom tab bar has Channels, Chats and Settings, and Telegram before Settings once an account is linked ([TELEGRAM.md](TELEGRAM.md)).
   - iPad: the same structure in a `NavigationSplitView`: the servers in the sidebar when there's more than one, the conversations beside them, and the open chat.
 - **Look:**
   - the web's dark theme from `tokens.css`, with its five accents and three message sizes, scaled with Dynamic Type;
@@ -107,7 +107,7 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
   - the composer: a growing `UITextView` with autocomplete and image paste;
   - context menus: `UIContextMenuInteraction` with a reaction bar.
 - **Platform features:** PhotosPicker, document picker, QuickLook, AVPlayer, the share sheet, haptics.
-- **Third-party dependencies:** none.
+- **Third-party dependencies:** LiveKit's Swift SDK and its WebRTC (`LiveKitWebRTC`), for voice, video and calls, and TDLib with OpenSSL in a build given Telegram's api_id (`telegram.yml`). Nothing else:
   - Animated WebP uses ImageIO (frames and delays from `CGImageSource`).
   - Code blocks use Shiki inside a second JavaScriptCore context, with its JavaScript regex engine and the web's themes and languages, so highlighting matches exactly.
 - **Logic that must match the web exactly is ported to Swift and held to the web's output by golden tests:**
@@ -129,9 +129,9 @@ interface FileAdapter {
 ```
 
 - **The default implementation uses `Blob`,** for the web and the tests.
-- **Decrypted media on iOS** go to `Caches/decrypted/` with `NSFileProtectionComplete`. The cache is capped (LRU, 300 entries) and cleared at launch and on signing out of a server. The web app keeps them in memory only, but AVPlayer and QuickLook need files, which `SECURITY.md` says.
+- **Decrypted media on iOS** go to `Caches/decrypted/` with `NSFileProtectionComplete`, emptied each time the core starts. The web app keeps them in memory only, but AVPlayer and QuickLook need files, which `docs/SECURITY_DETAILS.md` says.
 - **Media formats the other apps can read:**
-  - iPhone photos are HEIC, which Chromium can't show. They're converted to JPEG before sending, keeping `width`, `height` and the 48 px JPEG `thumb` exactly like the desktop's `prepareFile`.
+  - iPhone photos are HEIC, which Chromium can't show. They're converted to JPEG before sending, keeping `width`, `height` and the 48 px JPEG `thumb` exactly like the web's `prepareFile`.
   - iPhone videos are HEVC in `.mov`. They're exported as H.264 MP4.
   - WebM, Ogg or Opus sent from a desktop can't be played by AVPlayer. They show as a file card with save and share.
   - WebP (images, 7TV emotes, desktop avatars) displays through ImageIO.
@@ -139,37 +139,40 @@ interface FileAdapter {
 
 ### Lifecycle and connectivity
 
-- **Going to the background:** a background task gives the outbox and the current upload up to about 30 seconds, then `client.suspend()` closes sockets and stops timers. It's the task the app holds the core's lock with (`CoreLock`), from the moment it's taken until it goes, and as its time runs out the lock goes first (`LockKeeper`): iOS ends an app suspended holding a lock in the App Group, with `0xDEAD10CC`.
+- **Going to the background:** a background task gives the outbox and the current upload 20 seconds (`suspendDelay` in `CoreController.swift`), then `client.suspend()` closes sockets and stops timers. It's the task the app holds the core's lock with (`CoreLock`), from the moment it's taken until it goes, and as its time runs out the lock goes first (`LockKeeper`): iOS ends an app suspended holding a lock in the App Group, with `0xDEAD10CC`.
 - **Returning:** `resume()` reconnects and runs `syncAll`. "Updating" shows until it's done.
-- **The network coming back** (`NWPathMonitor`) calls `nudge()`, like the desktop's `online` event.
+- **The network coming back** (`NWPathMonitor`) calls `nudge()`, like the web app's `online` event.
 - **An upload interrupted by the app being killed** shows "Not sent. Try again" through the existing `markStaleSendsFailed`.
 - **Marking messages as read** requires an active app with the chat on screen, the equivalent of `windowFocused`.
 
 ### Links
 
 - **`zuna://join?link=…`** is registered in `CFBundleURLTypes`. The server's invite page already produces it, and `parseInviteLink` already reads it. Universal links can't work for arbitrary self-hosted domains.
-- **Links in messages** (`http(s)` only) open in Safari, like `shell.openExternal`.
-- **Development:** the core allows plain HTTP only for loopback addresses, so the simulator reaches a local server at `127.0.0.1`. A physical device needs an HTTPS tunnel; the rule in the core isn't loosened. Debug builds allow local networking in ATS.
+- **Links in messages** (`http(s)` only) open in Safari, like the web's `platform.openExternal`.
+- **Development:** the core allows plain HTTP only for loopback addresses, so the simulator reaches a local server at `127.0.0.1`. A physical device needs an HTTPS tunnel; the rule in the core isn't loosened. Every build allows local networking in ATS, as the core alone decides what plain HTTP may reach.
 
 ## Project layout
 
 ```
 apps/ios/
   project.yml                 XcodeGen spec; the .xcodeproj is generated and not committed
+  telegram.yml                taken in for a build given Telegram's api_id: links TDLib into the app
+  TDLib/                      TDLib's C functions as a Swift module, which only Zuna/Telegram/TDLibEngine.swift imports
   Zuna/                       app: SwiftUI screens, UIKit message list, text and composer
   ZunaNotifications/          notification service extension
   ZunaShare/                  share extension
   ZunaBroadcast/              broadcast extension, for sharing the screen before iOS 27
   ZunaUITests/                XCUITest, TestKit (peers, launcher), A11y identifiers
-  ZunaKit/                    SwiftPM package, iOS 18 and macOS
+  ZunaKit/                    SwiftPM package, iOS 18 and macOS 15
     ZunaCryptoFFI             binary target: Rust XCFramework
     ZunaCrypto                UniFFI Swift bindings
     CSQLite                   pinned SQLite amalgamation with FTS5
-    ZunaHost                  JavaScriptCore runtime, bridges, RPC, control server (test builds only)
-    ZunaModels                Codable mirrors of types.ts
-    ZunaMarkup                Swift ports checked against the web (markup, previews, mentions, emotes)
-    zuna-host                 macOS executable running the host headless, for tests
+    ZunaHost                  JavaScriptCore runtime, bridges, Telegram's broker and door
+    ZunaModels                Codable mirrors of types.ts, the RPC client, and Swift ports checked against the web
+    ZunaControl               control server, Debug builds only
+    zuna-host                 macOS executable running the host headless, for tests (ZunaHostCLI)
   core-bundle/                esbuild entry for JavaScriptCore
+  scripts/                    the app's icon, and Telegram's push sentences
 ```
 
 The app needs iOS 18.
@@ -209,7 +212,7 @@ Notifications show the message content, as the owner asked from the start, witho
 
 ### Where notifications go
 
-As in Telegram (`System::countTiming` in Telegram Desktop, with its server's default timings), a device in use notifies at once. One that isn't waits 30 s while the person is on another device, or was in the last 5 minutes and more recently than on this one, and 1.5 s while they use both, and doesn't show what they read meanwhile. The server holds a phone's push the same way, and lets it go when the chat is read or the message deleted (`pushWait` in `hub.go`, `waitingPushes` in `push.go`), and clients do it in the core (`notificationDelay` in `notify.ts`). **In use** is Telegram Desktop's on a computer: the window has focus and there was input in the last 30 s, 5 s after it loses focus it isn't, and locking the screen ends it at once. On the phone it's the app on screen. Devices tell the server over their socket, and it tells each person's other devices.
+As in Telegram (`System::countTiming` in Telegram Desktop, with its server's default timings), a device in use notifies at once. One that isn't waits 30 s while the person is on another device, or was in the last 5 minutes and more recently than on this one, and 1.5 s while they use both, and doesn't show what they read meanwhile. The server holds a phone's push the same way, and lets it go when the chat is read or the message deleted (`pushWait` in `presence.go`, `waitingPushes` in `push.go`), and clients do it in the core (`notificationDelay` in `notify.ts`). **In use** is Telegram Desktop's on a computer: the window has focus and there was input in the last 30 s, 5 s after it loses focus it isn't, and locking the screen ends it at once. On the phone it's the app on screen. Devices tell the server over their socket, and it tells each person's other devices.
 
 - **Read or deleted elsewhere:** the server sends a silent push, sealed like the others, to the phones that showed a notification for that chat, and they clear it. iOS delivers silent pushes when it can, so the app also clears notifications of chats with nothing unread, and of deleted messages, once it has caught up with the server.
 
@@ -231,5 +234,5 @@ None of it has run on a phone: the simulator gets no silent push, and `simctl pu
   - Its people, Sam, Jordan, Priya, Marek and Lena, with their chats, the group and the channels, are `packages/core/test/dev-bots.ts`'s world, given passwords of their own, as it asks of a server elsewhere. They run on that server from the bundle `packages/core/test/dev-bots-bundle.mjs` writes, so that each answers a direct message.
   - Nothing older than the newest code is kept working, so the server, and the people's bundle with it, is updated only to code the build in review works with.
 - **Privacy manifests:** each bundle, the app and its three extensions, has a `PrivacyInfo.xcprivacy` beside its sources naming each "required reason" API it calls and why: the boot time (`BootSession`), user defaults, its own and the app group's, files' sizes and times, its own and the app group's and those the person picks or shares, and the volume's space, which SQLite reads. Apple finds them by the symbols a binary links, so a new one shows in `nm -u` on the archived bundle. LiveKit's frameworks carry their own. `scripts/ios-dist.mjs` refuses an export with a bundle that has none.
-- **Export compliance:** the app uses only standard, published algorithms beyond the system's own (MLS through OpenMLS, AES-256-GCM, XChaCha20-Poly1305, Ed25519, X25519, HKDF-SHA256, Argon2id). Apple then needs documentation only for the App Store in France: a declaration to ANSSI. So `ITSAppUsesNonExemptEncryption` is `NO`, and France stays out of the app's availability (decided 2026-10-31). Offering it there means filing that declaration, uploading it to App Store Connect, and setting the key to `YES` with the `ITSEncryptionExportComplianceCode` Apple gives. A yearly self-classification report to the US government may also apply; that's the owner's to check.
+- **Export compliance:** the app uses only standard, published algorithms beyond the system's own (MLS through OpenMLS, ML-KEM-768 with X25519 as X-Wing, ML-DSA and Ed25519, AES-256-GCM, AES-256 in counter mode, XChaCha20-Poly1305, HKDF-SHA256, Argon2id, and VOPRF tokens, RFC 9497). Apple then needs documentation only for the App Store in France: a declaration to ANSSI. So `ITSAppUsesNonExemptEncryption` is `NO`, and France stays out of the app's availability (decided 2026-10-31). Offering it there means filing that declaration, uploading it to App Store Connect, and setting the key to `YES` with the `ITSEncryptionExportComplianceCode` Apple gives. A yearly self-classification report to the US government may also apply; that's the owner's to check.
 - **The AGPL.** GPL-family code distributed through the App Store is widely considered incompatible with Apple's terms (VLC is the known case): the App Store's usage rules and DRM count as further restrictions, which section 10 of the AGPL forbids. So Zuna's copyright holders add a permission for app stores under section 7, in `LICENSE-APP-STORES`: the restrictions a store puts on every app don't count as the distributor's, as long as the source stays available under the AGPL, which About's Source code link points to, and the distributor adds none of their own. It covers Zuna's own code. All third-party code in the app (MIT, BSD, Apache-2.0, MPL-2.0, Boost, public domain) is compatible with the AGPL and raises no App Store issue.
