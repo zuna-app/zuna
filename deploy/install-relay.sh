@@ -36,6 +36,11 @@ check_domain() {
   echo "That isn't a domain, such as push.example.com."
   return 1
 }
+check_channel() {
+  case "${1,,}" in stable | nightly) return 0 ;; esac
+  echo "That's stable or nightly."
+  return 1
+}
 check_key() {
   if [ -r "$1" ] && grep -q 'BEGIN PRIVATE KEY' "$1"; then return 0; fi
   echo "That isn't a .p8 key this machine can read."
@@ -143,14 +148,18 @@ case "$LISTEN" in
 esac
 while ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q . && ! ss -Hltnp "sport = :$PORT" 2>/dev/null | grep -q '"zuna-push"'; do PORT=$((PORT + 1)); done
 RELAY_AT="$(address "$LISTEN" "$PORT")"
-# Stable releases, as v1.2.3, unless none is out yet, when it's main's newest commit.
+echo
+echo "Updates can be stable releases, each tested before it's out, or nightly: main's newest commit, with every change first, tested less."
+# Before the first stable release, a relay on stable starts where nightly is, and waits there for it.
 if git -c safe.directory='*' -C "$SRC" tag --list 'v*' | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-  CHANNEL=stable
-  UPDATES="stable releases, with sudo zuna-update, or nightly with --channel nightly"
+  FIRST=""
 else
-  CHANNEL=nightly
-  UPDATES="nightly, main's newest commit, as no stable release is out yet. Once one is: sudo zuna-update --channel stable"
+  echo "No stable release is out yet. On stable, it starts on main's newest commit and moves to the first one once it's out."
+  FIRST=", from main's newest commit until the first"
 fi
+ask "Stable or nightly?" stable check_channel
+CHANNEL="${ANSWER,,}"
+if [ "$CHANNEL" = nightly ]; then UPDATES="nightly, main's newest commit, with sudo zuna-update"; else UPDATES="stable releases, with sudo zuna-update$FIRST"; fi
 
 echo
 echo "Ready to set up:"

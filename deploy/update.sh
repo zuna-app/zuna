@@ -66,7 +66,9 @@
 #   --channel stable|nightly  what to build: the newest stable release, or main's
 #                        newest commit, which has every change first and is tested
 #                        less (default stable). As in the apps, going back to
-#                        stable waits for a stable release past what's here
+#                        stable waits for a stable release past what's here, and
+#                        until the first, a new server starts on main's newest
+#                        commit and waits there
 #   --signed-tags        only ever build a stable release whose tag's signature
 #                        checks out. This happens by itself, once there's one
 #                        signed by a key this machine trusts
@@ -358,15 +360,34 @@ as_web_builder() {
 
 # --- Pull and build ---
 
+# Main's newest commit, back on the branch after a stable release left none checked out.
+follow_main() {
+  if ! as_owner git -C "$SRC" symbolic-ref -q HEAD >/dev/null; then
+    branch="$(as_owner git -C "$SRC" symbolic-ref --short refs/remotes/origin/HEAD)"
+    as_owner git -C "$SRC" checkout --quiet "${branch#origin/}"
+  fi
+  as_owner git -C "$SRC" pull --ff-only
+}
+
 if [ "$PULL" = 1 ]; then
   step "Pulling updates"
   before="$(sha256sum "$SRC/deploy/update.sh")"
   as_owner git -C "$SRC" fetch --tags --force
+  # The newest stable release, v1.2.3, cut from main or from its line's branch, and
+  # never a nightly's v1.2.3-nightly.1108.
+  tag=""
   if [ "$CHANNEL" = stable ]; then
-    # The newest stable release, v1.2.3, cut from main or from its line's branch, and
-    # never a nightly's v1.2.3-nightly.1108.
     tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
-    [ -n "$tag" ] || fail "there's no stable release yet. Until there is, update with --channel nightly, which builds main's newest commit."
+  fi
+  if [ "$CHANNEL" = stable ] && [ -z "$tag" ]; then
+    # Before the first stable release, a new server starts where nightly is and waits there for it.
+    if [ "$FRESH" = 1 ]; then
+      echo "No stable release is out yet, so this starts on main's newest commit, and moves to the first stable release once it's out."
+      follow_main
+    else
+      echo "No stable release is out yet, so this stays as it is until the first. --channel nightly follows main's newest commit instead."
+    fi
+  elif [ "$CHANNEL" = stable ]; then
     # The first signature that checks out here is what every update after it has to
     # have, so taking over the repository can't simply go back to not signing.
     if [ "$SIGNED_TAGS" != 1 ] && as_owner git -C "$SRC" verify-tag "$tag" >/dev/null 2>&1; then
@@ -396,12 +417,7 @@ if [ "$PULL" = 1 ]; then
     fi
   else
     echo "Nightly: building main's newest commit, which nothing signs. See docs/LINUX.md."
-    # Back on the branch, after a stable release left none checked out.
-    if ! as_owner git -C "$SRC" symbolic-ref -q HEAD >/dev/null; then
-      branch="$(as_owner git -C "$SRC" symbolic-ref --short refs/remotes/origin/HEAD)"
-      as_owner git -C "$SRC" checkout --quiet "${branch#origin/}"
-    fi
-    as_owner git -C "$SRC" pull --ff-only
+    follow_main
   fi
   # A newer version of this script finishes the job.
   if [ "$(sha256sum "$SRC/deploy/update.sh")" != "$before" ]; then

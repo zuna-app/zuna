@@ -30,8 +30,9 @@
 #                        domain doesn't point straight at it
 #   --database-url URL   keep the server's data in PostgreSQL (docs/SELF_HOSTING.md)
 #   --channel stable|nightly  run stable releases, or main's newest commit, which has
-#                        every change first and is tested less (default stable,
-#                        or nightly while no stable release is out)
+#                        every change first and is tested less (default stable).
+#                        Until the first stable release, stable starts on main's
+#                        newest commit and waits there for it
 #   --no-firewall        leave the firewall as it is
 #   --yes                ask nothing, and take the default for anything not given
 #   --dry-run            ask, then show what it would do, without doing it
@@ -870,13 +871,8 @@ ask_firewall() {
 # Which releases it runs, which zuna-update keeps to: stable ones, or main's newest commit.
 ask_channel() {
   heading "Which releases should it run?"
-  if ! has_stable_release; then
-    [ "$CHANNEL" = stable ] && fail "No stable release is out yet, so there's nothing for --channel stable to install. Give --channel nightly, or leave it out."
-    CHANNEL=nightly
-    say "No stable release is out yet, so it runs nightly: main's newest commit."
-    dim "Once one is out: sudo zuna-update --channel stable"
-    return 0
-  fi
+  # Before the first stable release, a server on stable starts where nightly is, and waits there for it.
+  has_stable_release || dim "No stable release is out yet. On stable, it starts on main's newest commit and moves to the first one once it's out."
   local selected=0
   [ "$CHANNEL" = nightly ] && selected=1
   choose "$selected" "Stable releases|recommended, each tested before it's out" "Nightly|main's newest commit, with every change first, tested less"
@@ -934,7 +930,13 @@ summary() {
   rows+=("Voice channels|on $DOT media on $VOICE_TCP_PORT/tcp and $VOICE_UDP_PORT/udp, at $PUBLIC_IP")
   if [ -n "$DATABASE_URL" ]; then rows+=("Data|PostgreSQL, files in /var/lib/zuna"); else rows+=("Data|in /var/lib/zuna"); fi
   rows+=("Notifications|through the project's push relay, which only sees sealed pushes")
-  if [ "$CHANNEL" = nightly ]; then rows+=("Updates|nightly, main's newest commit, with sudo zuna-update"); else rows+=("Updates|stable releases, with sudo zuna-update"); fi
+  if [ "$CHANNEL" = nightly ]; then
+    rows+=("Updates|nightly, main's newest commit, with sudo zuna-update")
+  elif has_stable_release; then
+    rows+=("Updates|stable releases, with sudo zuna-update")
+  else
+    rows+=("Updates|stable releases, with sudo zuna-update, from main's newest commit until the first")
+  fi
   if [ -n "$FIREWALL_KIND" ]; then
     rows+=("Firewall|opens $(open_list) in $FIREWALL_KIND")
   else

@@ -196,6 +196,8 @@ expect "shows what to add"
 sleep 0.3; send "\r"
 expect "On another machine"
 sleep 0.3; send "\r"
+expect "Nightly"
+sleep 0.3; send "\r"
 expect "Change something"
 sleep 0.3; send "\r"
 set timeout 600
@@ -213,6 +215,8 @@ expect {
 expect eof
 EOF
   expect "$script" >/dev/null 2>&1 || true
+  grep -q "Stable releases" "$log" || echo "it didn't ask whether to run stable releases or nightly"
+  grep -q "Updates *stable releases" "$log" || echo "the summary didn't say it runs stable releases"
   grep -q "WebSockets on" "$log" || echo "there was no warning about WebSockets"
   grep -q "Not yet: nothing answers" "$log" || echo "the check didn't say what was wrong before the proxy was set up"
   answered "https://$DOMAIN" "$log" || echo "the server didn't answer once the site was added"
@@ -300,6 +304,7 @@ scenario_relay() {
   in_vm fedora sh -c 'openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out /root/AuthKey_ABC123DEFG.p8 2>/dev/null'
   relay_keys "$log" "push.zuna.test" "/root/AuthKey_ABC123DEFG.p8"
   grep -q "Its Key ID, from its name: ABC123DEFG" "$log" || echo "the Key ID wasn't taken from the file's name"
+  grep -q "Updates *stable releases" "$log" || echo "the relay didn't take stable releases by default"
   grep -q "zuna-push is running" "$log" || { echo "the relay didn't start"; return; }
   grep -q "Apple refuses the APNs key.*environment=production" "$log" && grep -q "Apple refuses the APNs key.*environment=sandbox" "$log" ||
     echo "it didn't say Apple refuses the key"
@@ -336,6 +341,8 @@ expect "proxy's address"
 send "nonsense\r"
 expect "isn't an IP address"
 send "192.0.2.10\r"
+expect "Stable or nightly?"
+send "\r"
 expect "Set it up?"
 send "\r"
 set timeout 600
