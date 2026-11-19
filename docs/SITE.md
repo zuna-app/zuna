@@ -53,11 +53,11 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`,
 - Download links are fetched from the latest GitHub release at build time, since file names carry the version. GitHub's latest release leaves nightlies out, so until the first stable release they lead to the releases page. The visitor's browser never contacts GitHub.
 - No cookies, analytics or requests to any other origin, under a strict content security policy. `apps/site/test/site-check.mjs` checks that, with screenshots at 375, 768 and 1440 pixels wide and no sideways scrolling.
 - A sitemap and `robots.txt` are made at build time. The picture a shared link shows, `public/og.png`, is drawn by `og.mjs` in the page's fonts, and kept in the repository.
-- The maintainers host it on their own server, not on GitHub. "Hosting" below says how.
+- The maintainers host it on their own server, not on GitHub. "Hosting" below says what that takes.
 
 ## Hosting
 
-Publishing the site is building it, checking it and copying `apps/site/dist` to `/var/www/zuna.chat` on the maintainers' server. The build asks GitHub for the latest release, which needs no token now that the repository is public. One only raises GitHub's rate limit:
+Publishing the site is building it, checking it and copying `apps/site/dist` to the maintainers' server. How that server is set up is kept out of the repository. The build asks GitHub for the latest release, which needs no token now that the repository is public. One only raises GitHub's rate limit:
 
 ```bash
 GITHUB_TOKEN=$(gh auth token) npm run build -w @zuna/site
@@ -67,96 +67,13 @@ GITHUB_TOKEN=$(gh auth token) npm run build -w @zuna/site
 node apps/site/test/site-check.mjs
 ```
 
-```bash
-rsync -rlt --delete --chmod=D755,F644 apps/site/dist/ debian@<the server>:/var/www/zuna.chat/
-```
-
 Download links are fixed when it's built, so it's built and copied again after each release.
 
-zuna.chat and www.zuna.chat go through Cloudflare, which checks the server's certificate (Full (strict)). That's a Let's Encrypt one for both names, which certbot renews by itself through `/var/www/acme` and reloads nginx for. Only Cloudflare's ranges reach port 443, in ufw, and nginx refuses a handshake for any name it doesn't serve, so the server's address alone gives no certificate away. When Cloudflare's ranges change (https://www.cloudflare.com/ips/), they change in ufw and in `/etc/nginx/conf.d/cloudflare-realip.conf`.
-
-The server has to:
+Whatever serves it has to:
 
 - Serve a folder's `index.html` (`/privacy/` is `privacy/index.html`), and `404.html` with a 404 for anything else.
 - Let browsers keep `/assets/` for a year, since those names change with their content.
-- Send the headers in `HEADERS` in `policy.mjs`, which the site check serves the pages with too: the pages' content security policy with `frame-ancestors 'none'` added, which a meta tag can't carry, `X-Content-Type-Options` and `Referrer-Policy`. And HSTS, which the check can't try over plain HTTP.
-
-The server runs nginx. The headers are in `/etc/nginx/snippets/zuna.chat-headers.conf`, which every block of the site includes, as an `add_header` in a block drops the ones from outside it:
-
-```nginx
-add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
-add_header X-Content-Type-Options "nosniff" always;
-add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-add_header Strict-Transport-Security "max-age=31536000" always;
-```
-
-The site is `/etc/nginx/sites-available/zuna.chat`:
-
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name zuna.chat www.zuna.chat;
-    location /.well-known/acme-challenge/ { root /var/www/acme; }
-    location / { return 301 https://zuna.chat$request_uri; }
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-    server_name www.zuna.chat;
-    ssl_certificate     /etc/letsencrypt/live/zuna.chat/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/zuna.chat/privkey.pem;
-    include snippets/zuna.chat-headers.conf;
-    return 301 https://zuna.chat$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-    server_name zuna.chat;
-    ssl_certificate     /etc/letsencrypt/live/zuna.chat/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/zuna.chat/privkey.pem;
-    ssl_session_cache shared:zuna:10m;
-    ssl_session_tickets off;
-
-    root /var/www/zuna.chat;
-    index index.html;
-    absolute_redirect off;
-    autoindex off;
-    charset utf-8;
-    gzip_vary on;
-    gzip_types text/css application/javascript image/svg+xml text/xml text/plain application/json application/manifest+json;
-    include snippets/zuna.chat-headers.conf;
-
-    error_page 404 /404.html;
-    location = /404.html { internal; }
-
-    location / {
-        limit_except GET { deny all; }
-        try_files $uri $uri/ =404;
-    }
-
-    location /assets/ {
-        limit_except GET { deny all; }
-        include snippets/zuna.chat-headers.conf;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        try_files $uri =404;
-    }
-}
-```
-
-And the server's catch-all refuses every other name on 443:
-
-```nginx
-server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    ssl_reject_handshake on;
-}
-```
+- Send the headers in `HEADERS` in `policy.mjs` with every response, which the site check serves the pages with too: the pages' content security policy with `frame-ancestors 'none'` added, which a meta tag can't carry, `X-Content-Type-Options` and `Referrer-Policy`. And HSTS, which the check can't try over plain HTTP.
 
 ## Left to decide
 
