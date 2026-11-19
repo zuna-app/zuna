@@ -250,6 +250,7 @@ Rules the core depends on:
 | Adding the test server's people, who answer by themselves, or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | The landing page, zuna.chat, with the privacy policy and terms of use the App Store asks for | `apps/site`, `docs/SITE.md` |
+| The server App Review signs in to, applereview.zuna.chat, and its people | "On the App Store" in `docs/IOS.md`, `packages/core/test/dev-bots.ts` |
 | The App Store's screenshots and product page art, and what draws them | `appstore/README.md`, `appstore/art/render.sh` |
 | The log of who holds which keys | `docs/KEY_TRANSPARENCY.md`, `packages/core/src/transparency.ts`, `// --- Key transparency ---` in `session/directory.ts`, `server/internal/store/log.go`, `server/internal/merkle`, `server/internal/api/log.go` |
 | Plugins in the native app: packages, the host process, the broker, slots, the marketplace | `docs/PLUGINS.md`, `packages/plugin-sdk`, `apps/desktop/src/plugins` (`host/` is the process, `broker.rs` every request's check), `apps/desktop/src/ui/plugins`, `apps/desktop/src/ui/settings/plugins.rs`, `examples/plugins`, and the `zuna-app/plugins` repository |
