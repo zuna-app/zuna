@@ -15,7 +15,7 @@ What it doesn't do:
 
 - **The server still knows who's in each conversation.** It hides which member wrote, not who the members are. In a direct message that leaves two people.
 - **A server that sets out to can often work a sender out,** from addresses and timing, as the last section lists. Signal's sealed sender has the same limit. The claim is about what the server is told and keeps, never "the server can't know".
-- **Commits, undoing them, a group's details, a group admin deleting someone else's message, read positions, files being uploaded and fetched, calls, voice, presence and reports** still name who they're from. Each is about someone being somewhere, or something the server has to check.
+- **Commits, undoing them, a group's details, a group admin deleting someone else's message or dropping a reaction that opens for nobody, read positions, files being uploaded and fetched, calls, voice, presence and reports** still name who they're from. Each is about someone being somewhere, or something the server has to check.
 
 ## Who it's against
 
@@ -79,7 +79,7 @@ send key    = its public half, which the server holds for the group's current ep
 
 A limit on a person needs a name, and a limit on a whole group would let one member use it up for everyone. So each sealed request that changes something spends a token the server issued to someone signed in, and can't tie back to them.
 
-- **[RFC 9497](https://www.rfc-editor.org/rfc/rfc9497.html)'s verifiable oblivious PRF, suite `ristretto255-SHA512`.** In Rust, Meta's [`voprf`](https://crates.io/crates/voprf) 0.5.0, in `crypto/src/primitives.rs` (`tokenBlind`, `tokenFinalize`) and every binding; in Go, Cloudflare's `circl` 1.6.5, in `server/internal/tokens`. Both pass the RFC's vectors in tests of Zuna's own, and each other's output (`crypto/src/testdata/rust-client.json`). Nothing found says what independent review `voprf` has had.
+- **[RFC 9497](https://www.rfc-editor.org/rfc/rfc9497.html)'s verifiable oblivious PRF, suite `ristretto255-SHA512`.** In Rust, Meta's [`voprf`](https://crates.io/crates/voprf) 0.5.0, in `crypto/src/primitives.rs` (`token_blind`, `token_finalize`, `tokenBlind` and `tokenFinalize` in WebAssembly) and every binding; in Go, Cloudflare's `circl` 1.6.5, in `server/internal/tokens`. Both pass the RFC's vectors in tests of Zuna's own, and each other's output (`crypto/src/testdata/rust-client.json`). Nothing found says what independent review `voprf` has had.
 - **A key of its own for each size and each six-hour period,** made at random when a period first needs one and kept in `token_keys`, so several servers on one PostgreSQL share them. A token redeems in its own period and the next, and the keys are deleted with the tokens spent under them once their period can redeem none (`background.go`). A copy of the database makes tokens for twelve hours at most, and a token only gets someone past a limit: writing still takes the send secret.
 - **Two sizes.** A small token pays for an envelope up to 32 KiB, which holds any text message and one with a preview picture; a large one for up to the 256 KiB limit.
 - **Limits, counted against the person across their devices** (`token_issues`): 1,000 small and 100 large in each period, and for a bot 10,000 and 500. The most one person can make a server keep in a day is about 225 MiB, and a bot 1.7 GiB.
