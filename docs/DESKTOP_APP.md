@@ -67,7 +67,7 @@ That bundles the core, builds FFmpeg the first time, builds the app and its medi
 - Servers can't be dragged into another order on the rail.
 - Keeping the screen on while a video is on in a call has only been run on Linux.
 - Code blocks are drawn in one color, where the web colors them.
-- Voice can't reach LiveKit through a server without a domain, as LiveKit's Rust SDK trusts only the system's certificates.
+- Voice through a server without a domain hasn't been tried. LiveKit's signalling goes through the app's own clients, which hold to the server's pin (`voice/proxy.rs`).
 - A locked screen keeps someone online until 30 seconds pass without input, as on Telegram's desktop app, where a locked iPhone takes them offline at once.
 - The picture viewer doesn't say who sent the picture or when.
 - Stream stats count a video's freezes without how long they took, which LiveKit's Rust SDK reads from a field libwebrtc doesn't write.
