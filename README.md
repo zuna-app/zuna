@@ -73,7 +73,8 @@ You need a Linux machine (amd64 or arm64) and a domain pointing at it. With Dock
 ```bash
 git clone https://github.com/zuna-app/zuna.git
 cd zuna/deploy
-ZUNA_DOMAIN=chat.example.com docker compose up -d
+echo ZUNA_DOMAIN=chat.example.com > .env
+docker compose up -d
 docker compose logs zuna
 ```
 
@@ -113,7 +114,7 @@ Update later with `sudo zuna-update`, which undoes a build that won't start. Eve
 
 ## Development
 
-You need Node 22.22+, Go 1.26+, and Rust with the `wasm32-unknown-unknown` target. The desktop app needs a little more on each system, which [CONTRIBUTING.md](CONTRIBUTING.md) lists.
+You need Node 22.22+, Go 1.26+, Rust with the `wasm32-unknown-unknown` target, and the wasm-bindgen CLI of the version in `crypto/Cargo.lock`. The desktop app needs a little more on each system, which [CONTRIBUTING.md](CONTRIBUTING.md) lists.
 
 ```bash
 npm install
@@ -121,7 +122,7 @@ npm run build:crypto   # the Rust crypto, as WebAssembly
 npm run dev:server     # a test server on :8787, with people who answer by themselves
 npm run dev:web        # the web app at http://localhost:5174
 npm run dev:windows    # or dev:linux, dev:macos: the native app
-npm test               # crypto, server and core tests, against a real server
+npm test               # every suite: crypto, server, core, bot and more
 ```
 
 | Where | What |

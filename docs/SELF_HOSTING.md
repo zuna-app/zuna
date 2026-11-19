@@ -14,7 +14,7 @@ There are three ways to run it:
 | | What it does | HTTPS |
 |---|---|---|
 | [Docker](#option-1-docker) | Builds and runs the server in a container | Automatic, or your own proxy |
-| [The installer, on Linux](#option-2-the-installer-on-linux-with-systemd) | Asks a few questions, builds the server from git and runs it as a systemd service, without Docker, then checks that it answers. One command updates it | Caddy, set up for you, or your own proxy |
+| [The installer, on Linux](#option-2-the-installer-on-linux-with-systemd) | Asks a few questions, builds the server from git and runs it as a systemd service, without Docker, then checks that it answers. One command updates it | Caddy, set up for you, a site added to your Caddy, nginx or Apache, or your own proxy |
 | [The binary](#option-3-run-the-binary-yourself) | A single file you run yourself | Automatic, or your own proxy |
 
 ## Option 1: Docker
@@ -28,10 +28,14 @@ cd zuna/deploy
 ```
 
 ```bash
-ZUNA_DOMAIN=chat.example.com docker compose up -d
+echo ZUNA_DOMAIN=chat.example.com > .env
 ```
 
-Then get your setup link:
+```bash
+docker compose up -d
+```
+
+Compose reads `ZUNA_DOMAIN` from `.env` for every command after this one too, upgrading included. Then get your setup link:
 
 ```bash
 docker compose logs zuna
@@ -41,7 +45,7 @@ LiveKit, for [voice channels](#voice-channels) and calls, runs in a container ne
 
 ## Option 2: The installer, on Linux with systemd
 
-On Debian, Ubuntu, Fedora or another Linux with systemd, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
+On Debian, Ubuntu, Fedora or another Linux with systemd and apt or dnf, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
 
 ```bash
 sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
@@ -68,10 +72,10 @@ It goes back to the previous build if a new one doesn't start. The details are i
 
 ## Option 3: Run the binary yourself
 
-Releases don't carry the server yet, only the desktop app, so build it first: `npm run build:server` writes one file for each platform into `dist/server`, and [CONTRIBUTING.md](../CONTRIBUTING.md) says what building needs. Then:
+Releases don't carry the server yet, only the desktop app, so build it first: `npm run build:server` writes one file for each platform into `dist/server`, such as `zuna-server-linux-amd64`, and [CONTRIBUTING.md](../CONTRIBUTING.md) says what building needs. Then, with the one for your system:
 
 ```bash
-./zuna-server --domain chat.example.com --data /path/to/data
+./zuna-server-linux-amd64 --domain chat.example.com --data /path/to/data
 ```
 
 Binding ports 80 and 443 may need extra permissions on your system.
@@ -99,8 +103,14 @@ The server keeps no address with what's sent without a name, which is everything
 - **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:9660`, for a proxy on the same machine:
 
 ```bash
-ZUNA_PUBLIC_URL=https://chat.example.com docker compose -f docker-compose.proxy.yml up -d
+echo ZUNA_PUBLIC_URL=https://chat.example.com > .env
 ```
+
+```bash
+docker compose -f docker-compose.proxy.yml up -d
+```
+
+Give `-f docker-compose.proxy.yml` to every command after it too, to read its logs or upgrade.
 
 The proxy must forward WebSockets and allow large uploads.
 
@@ -149,7 +159,7 @@ Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' 
 Zuna works behind Cloudflare's proxy, WebSockets and uploads included. The installer notices Cloudflare in front of the domain and asks which SSL/TLS mode it's set to.
 
 - **Use Full (strict).** Flexible sends everything between Cloudflare and your server unencrypted, sign-ins and session tokens included, for anyone on the way to read or change, though messages stay encrypted end to end. Full doesn't check your server's certificate. A Cloudflare origin certificate, made under SSL/TLS → Origin Server in Cloudflare's dashboard, is the simplest one for your proxy to use, as Let's Encrypt can't always get through Cloudflare.
-- **Set `ZUNA_BEHIND_CLOUDFLARE=true`,** so that rate limits see members' real addresses: a request from one of [Cloudflare's addresses](https://www.cloudflare.com/ips/) then counts as from whoever Cloudflare names in `CF-Connecting-IP`. Otherwise everyone counts as one of a few Cloudflare addresses. Cloudflare's addresses never count as trusted proxies, even listed in `ZUNA_TRUSTED_PROXIES`, as anyone can call from one through a Worker and make up the rest of `X-Forwarded-For`. The installer does this. Someone who knows your machine's own address can still reach it from Cloudflare, through a Worker, and name any address. Only [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/), or Authenticated Origin Pulls with a certificate of your own, rules that out.
+- **Set `ZUNA_BEHIND_CLOUDFLARE=true`,** so that rate limits see members' real addresses: a request from one of [Cloudflare's addresses](https://www.cloudflare.com/ips/) then counts as from whoever Cloudflare names in `CF-Connecting-IP`. Otherwise everyone counts as one of a few Cloudflare addresses. Cloudflare's addresses never count as trusted proxies, even listed in `ZUNA_TRUSTED_PROXIES`, as anyone can call from one through a Worker and make up the rest of `X-Forwarded-For`. The installer does this. With Docker, only the proxy's compose file passes it on. Someone who knows your machine's own address can still reach it from Cloudflare, through a Worker, and name any address. Only [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/), or Authenticated Origin Pulls with a certificate of your own, rules that out.
 - **Calls don't go through Cloudflare.** Their media goes straight to your server on 7881/tcp and 7882/udp, so members in a call can see its real address.
 - **Turn off Bot Fight Mode and Under Attack Mode** for the server's domain. The apps can't solve a challenge.
 
@@ -158,13 +168,17 @@ Zuna works behind Cloudflare's proxy, WebSockets and uploads included. The insta
 A server can go by the machine's IP address instead, such as a box on your home network. Give the address where the domain would go:
 
 ```bash
-ZUNA_DOMAIN=192.168.1.10 docker compose up -d
+echo ZUNA_DOMAIN=192.168.1.10 > .env
+```
+
+```bash
+docker compose up -d
 ```
 
 Or, with the binary:
 
 ```bash
-./zuna-server --domain 192.168.1.10 --data /path/to/data
+./zuna-server-linux-amd64 --domain 192.168.1.10 --data /path/to/data
 ```
 
 No certificate authority vouches for an address, so the server makes its own certificate, and listens only on port 443, or where `--listen` says. Its links carry a fingerprint of its key, called a pin, after the `#`, as they carry the community key. The apps trust that key for that address and nothing else, so nobody in between can pose as your server, though nobody signed its certificate. So:
@@ -260,7 +274,7 @@ If you use the web app with `--servers`, and apps reach LiveKit at an address of
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.
 
 - **They're on by default.** Servers send notifications through the project's relay, `https://relay.zuna.chat`, which the Zuna app registers with. There's nothing to set.
-- **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, pass it like `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
+- **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, put it in `.env` beside `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
 - **To turn them off,** set `ZUNA_PUSH_RELAYS=off`. Everything else works, and phones see new messages when they open the app.
 - **Several devices:** notifications go where you are, as in Telegram. The device you're using notifies straight away. While you're on another one, or were in the last few minutes, the rest wait 30 seconds and skip anything you read in the meantime, so at the desktop your phone only buzzes for what you left unread. What you read on one device disappears from the others.
 
@@ -334,6 +348,8 @@ git pull
 ```bash
 docker compose up -d --build
 ```
+
+With the proxy's compose file, give it `-f docker-compose.proxy.yml` too.
 
 **With the installer, or `deploy/update.sh`:**
 
