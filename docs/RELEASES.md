@@ -11,13 +11,15 @@ Only the native app is released: its Windows installer, its Linux packages and i
 - **The iPhone app on TestFlight with each nightly that changes it.** Signed and uploaded by CI, for the team's own testers.
 - **The iPhone app on App Store Connect with each stable release.** Signed and uploaded by CI, ready to be submitted for review there.
 - **A stable release on "release a new stable version".** Published only after CI has run its tests.
+- **Work goes on `main`, and what's out is on its line's branch.** Each stable release from `main` makes or moves `release/0.2` for `0.2.0` and its patches, so a fix to what's out can be released from there while `main` holds what isn't ready, [below](#release-lines-and-patches).
+- **Each push to `main` is checked.** `.github/workflows/main.yml` runs `ci.yml`'s `test` job: the type checks, the tests of the crypto core, the server, the core, the release script, the languages and the plugin SDK, and the web app's build. A push that only changes docs starts nothing.
 - **The app updates itself on Windows.** A channel switch in Settings, stable or nightly. When a newer build is out, an Update button shows beside the window's buttons. Pressing it closes the app, installs the update and starts the app again.
 
 ## Versions
 
 A version is `MAJOR.MINOR.PATCH` and a build number.
 
-- **The build number is how many commits `main` has at the commit released** (`git rev-list --count`). `main` is never force-pushed, so it only goes up, needs no file to keep it, and is the same on every machine. The updater compares build numbers and nothing else.
+- **The build number is how many commits the commit released has behind it** (`git rev-list --count`). No branch is ever force-pushed, so along `main` it only goes up, needs no file to keep it, and is the same on every machine. The updater compares build numbers and nothing else, so the script keeps two rules besides: a release from `main` has a build above every release before it, of either channel and any line, and a patch from a line's branch never passes a nightly newer than its line, which an app on nightly would take and go back to. When a release from `main` would have no build of its own, as a stable release cut where the last nightly was would, which TestFlight refuses as it takes each build of a version once, the script gives it one with a commit.
 - **The three-part number is what the next stable release will be called.** It lives in the root `package.json`, with every other file that says it kept the same by the release script: each workspace's `package.json`, `package-lock.json`, the crates' `Cargo.toml` and `Cargo.lock`, and iOS's `MARKETING_VERSION` in `apps/ios/project.yml`, which App Store Connect takes no more builds of once that version is out. The iPhone app's build number is the same commit count, set as it's archived.
 - **A nightly is `0.1.1-nightly.1150`,** tagged `v0.1.1-nightly.1150`. **A stable release is `0.1.0`,** tagged `v0.1.0`, with its build number in its manifest. Both carry it as the fourth part of the exe's Windows version.
 
@@ -32,9 +34,20 @@ What each change counts as:
 
 The next version is the last stable's, raised once by the highest level among the commits since it, and at least a patch. After `0.11.0`: a refactor gives `0.11.1-nightly.1110`, a fix after it `0.11.1-nightly.1112` (only the build moves), a feature `0.12.0-nightly.1115`, another feature `0.12.0-nightly.1120`. The files remember the highest level so far, so a later nightly of fixes alone doesn't take the number back down. Until the first stable release the number stays `0.1.0`, which becomes that release.
 
+Every version is raised from the newest stable release, wherever it was cut, so `main` never takes a number a patch already has. And once a line's branch has had a patch of its own, `main`, which hasn't those commits, releases nothing more in that line: after `0.11.1` from `release/0.11`, `main`'s fixes become `0.12.0`.
+
 The level comes from reading each commit's diff, not just its subject, and the decision is written down as the changelog: every commit since the last release under **New**, **Fixed and changed** or **Under the hood**. The script works the level out from those headings, so the changelog and the version can't disagree.
 
 A commit's tag says where a change is, not how big it is: a `desktop:` commit can be any of the three levels, and a `core:` one can reach the app or not. What reaches the app is decided by the paths a commit touched: `APP_PATHS` in `scripts/release.mjs` lists what the app is built from. A commit that touches none of it can only go under the hood. `IOS_PATHS` beside it lists what the iPhone app is built from: a commit that touches it makes a nightly owed too, but stays under the hood unless it reaches the native app as well, as the version is the native app's.
+
+## Release lines and patches
+
+A line is a minor version and its patches: `0.2` is `0.2.0`, `0.2.1` and on. Its branch, `release/0.2`, holds the newest of them. Nobody commits to it but to patch what's out.
+
+- **A stable release from `main`** makes its line's branch at the commit it tags, or moves it up there, pushed with the tag in one atomic push, so neither goes out without the other. A patch release from `main`, when `main` has nothing that isn't ready, moves the branch along with it.
+- **A patch from the branch,** when `main` has something that shouldn't go out yet: the fix goes on `main` first, then `git cherry-pick -x` takes it onto `release/0.2`, which is pushed, and `npm run release:stable -- <notes>` runs there with every commit since the line's last release in the notes. Nothing goes under New, as what's new is released from `main`, and only the newest line takes patches: once `0.3.0` is out, `release/0.2` takes nothing more, so no app is asked to choose between two lines.
+- **A line's branch runs its own release script and workflow,** as a tag's run reads the workflow at the tagged commit. A change to either that a patch needs goes onto the branch too, with the fix.
+- **Nightlies come from `main` alone,** and the hook asks about `main`'s commits alone.
 
 ## `scripts/release.mjs`
 
@@ -42,9 +55,9 @@ One script, with no dependency beyond git, Node and, for the keys, the cleanup a
 
 | Command | What it does |
 |---|---|
-| `npm run release:pending` | Lists the commits since the last release of each channel, with the files each touched, and says whether any reach the native app. For a stable release it also says which heading each commit was under in a nightly |
+| `npm run release:pending` | Lists the commits since the last release of each channel, with the files each touched, and says whether any reach the native app. For a stable release it also says which heading each commit was under in a nightly, and it lists a patch waiting on the newest line's branch |
 | `npm run release:nightly -- <notes file>` | Cuts a nightly from `origin/main` |
-| `npm run release:stable -- <notes file>` | Cuts a stable release. `--major` makes it the next major one |
+| `npm run release:stable -- <notes file>` | Cuts a stable release from `main`, or a patch from the newest line's branch when that's what's checked out. `--major` makes one from `main` the next major one |
 | `node scripts/release.mjs owed` | For the hook below: fails when pushed app commits have no nightly |
 | `node scripts/release.mjs keygen <stable\|nightly> --out <folder> [--spare] [--pq]` | Makes an update signing key, Ed25519's, or with `--pq` ML-DSA-65's. The private half goes straight into its environment's secret, `UPDATE_SIGNING_KEY` or `UPDATE_SIGNING_KEY_PQ`, and into a file in the folder, and is never shown. A spare only goes into the file |
 | `node scripts/release.mjs plan`, `manifest`, `prune` | What the workflow calls, below |
@@ -66,13 +79,13 @@ The notes file:
 
 Cutting a release:
 
-1. Refuses unless this is `main`, with nothing uncommitted or unpushed and `HEAD` at `origin/main`.
+1. Refuses unless this is `main`, or for a stable patch the newest line's branch, with nothing uncommitted or unpushed and `HEAD` at its `origin`.
 2. Refuses unless the notes name every commit since the last release exactly once, by its short hash, under one of the three headings, and nothing that doesn't reach the app is above Under the hood. The last release is the newest stable one for a stable release, and the newest of either kind for a nightly. Only what follows the hash on a line is ignored: the published changelog takes each commit's subject as it stands.
 3. Stops, saying so, when no commit touches what the app is built from, nor what the iPhone app is. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
-4. Works out the version. If the files don't say it yet, sets it in all of them, commits `release: numbered the next release 0.12.0` and pushes. That commit needs no line in any notes.
-5. Makes an annotated tag whose message is the changelog, and pushes it. CI takes it from there. A tag is never moved or deleted by hand.
+4. Works out the version and the build, [above](#versions). If the files don't say the version yet, sets it in all of them and commits `release: numbered the next release 0.12.0`, and when the build would be no higher than a release's before it, commits `release: gave a build of its own to 0.12.0`, then pushes. Neither commit needs a line in any notes.
+5. Makes an annotated tag whose message is the changelog, and pushes it, for a stable release from `main` with its line's branch made or moved up to it, in one atomic push. CI takes it from there. A tag is never moved or deleted by hand.
 
-If `main` moved while it ran, it undoes its numbering and says to pull and run it again, as the new commits aren't in the notes.
+If the branch moved while it ran, it undoes its commits and says to pull and run it again, as the new commits aren't in the notes.
 
 ## The release workflow
 
@@ -80,7 +93,7 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 
 | Job | Runs for | What it does |
 |---|---|---|
-| `plan` | every tag | Reads the channel, version and build from the tag. Fails unless the tag is annotated, its commit is on `main`, `package.json` agrees with it, and a nightly's number is the commit count. Says which apps to build, below |
+| `plan` | every tag | Reads the channel, version and build from the tag. Fails unless the tag is annotated, its commit is on `main` or, for a stable release, on its line's branch, `package.json` agrees with it, and a nightly's number is the commit count. Says which apps to build, below |
 | `checks` | stable only | `ci.yml`'s `test`, `advisories` and `desktop` jobs. The iPhone's and PostgreSQL's don't hold a desktop release back |
 | `windows` | the native app changed | `npm run dist:windows` on `windows-latest`, with the version, build and channel stamped in, and with the repository's `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, when they're set, the Telegram engine built from TDLib, which `tdlib.yml` saved on main, and put in the installer beside the app. Holds no other secret: those two are in every installer anyway, for anyone to read |
 | `linux` | the native app changed | `npm run dist:linux` in a Debian 12 container, so the program runs wherever glibc is that old or newer: a .deb, an .rpm, a pacman package, an AppImage and a .tar.gz. `scripts/linux-build-deps.sh` installs what it needs, with clang 21 from LLVM's own packages, as LiveKit's libwebrtc ships a libc++ that Debian's clang 14 can't read. With `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, as for `windows`, the Telegram engine is built from TDLib, which `tdlib.yml` saved on main, linked whole, and put in every package beside the app. Holds no other secret |
@@ -97,7 +110,7 @@ If `main` moved while it ran, it undoes its numbering and says to pull and run i
 - **A nightly that's overtaken is cancelled.** Two sessions ending close together leave one build, the newer.
 - **A failed build publishes nothing.** The next nightly carries its commits. A failed stable release is fixed and released under the next patch number, so its tag is never reused.
 - **The 30 newest nightlies are kept.** `publish` deletes older nightly releases and their tags. Stable releases stay for good.
-- **`ci.yml`'s `desktop` job** builds TDLib, or takes it from its cache, then the release build with its installer, then the app's tests and the screen share's in a debug build, as the interface's tests click by the ids GPUI keeps only with debug assertions, the Telegram engine's, and `windows-update-check.mjs`. `gh workflow run ci.yml -f jobs=desktop` runs it by hand, as nothing runs on a push to `main`, and `-f jobs=linux` builds the Linux packages the same way, as `-f jobs=macos` does the macOS app's bundle.
+- **`ci.yml`'s `desktop` job** builds TDLib, or takes it from its cache, then the release build with its installer, then the app's tests and the screen share's in a debug build, as the interface's tests click by the ids GPUI keeps only with debug assertions, the Telegram engine's, and `windows-update-check.mjs`. `gh workflow run ci.yml -f jobs=desktop` runs it by hand, as a push to `main` runs the `test` job alone, and `-f jobs=linux` builds the Linux packages the same way, as `-f jobs=macos` does the macOS app's bundle.
 
 On a runner with nothing cached the Windows build takes about 11 minutes and the installer one more, and the Linux build about 10 with its packages. Each Linux package is about 110 MB. TDLib takes about 40 minutes more, 922 MB built. Only Cargo's registry and git checkouts on Windows and macOS, FFmpeg's source on macOS, and TDLib are cached, which a release only reads, as a tag's run reads `main`'s caches and never another tag's: Cargo's as `ci.yml` saves them on `main`, and TDLib as `tdlib.yml` builds it there for Windows, Linux, macOS and the iPhone whenever `scripts/tdlib.mjs` changes, or by hand with `gh workflow run tdlib.yml`. Each is found by the stamp of what it's built from and how (`node scripts/tdlib.mjs [--ios] --stamp`, `.github/actions/tdlib`), so a change to the script that changes nothing built keeps it, and a release cut before `tdlib.yml` is done builds TDLib itself, the iPhone's for phones alone. The build's own folder is 3.6 GB, and fetching it would take as long as building. Windows Server has no Opus decoder, so the tests don't decode the fixtures' sound there (`ZUNA_TEST_NO_OPUS`).
 
@@ -229,6 +242,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The Authenticode lock,** as no build is signed.
 - **The macOS DMG a release carries.** Nightly 1156 was built on a runner, in 21 minutes with nothing cached, signed with the Developer ID imported there from the environment, notarized with the key and stapled, and Gatekeeper accepted the app and its DMG on that runner. Opening a DMG downloaded from a release, with the quarantine a browser gives it, hasn't been seen.
 - **The iPhone app for the App Store from CI.** Nightlies archived, signed, checked and uploaded on CI reach the team's iPhones from TestFlight, as 1559 and 1601 did. A stable release's upload, unmarked for the App Store, hasn't run.
+- **A patch from a line's branch on GitHub,** as there's no stable release yet. The script cut one from `release/0.1` in a throwaway clone, with a local origin, after a stable release from `main` had made the branch, and refused a nightly there, a patch with something new, one past the newest nightly and one on an older line.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
@@ -236,5 +250,6 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **macOS's updater,** as on Windows: at start, every hour and on Check now, the newest release on its channel, the zip unpacked with `ditto`, kept only if `SecStaticCodeCheckValidity` finds it signed by the same team as the app running, and put in place of the bundle as the app quits, checked against the same manifest. A build that isn't signed that way wouldn't update itself.
 - **An update button on Linux** isn't planned: updates there come with the system's packages or a new AppImage. A package repository would be the way.
 - **An Authenticode certificate,** for the first download's warning.
+- **A ruleset for `release/*` branches,** as there is for tags: nobody force-pushes or deletes one.
 - **The changelog as TestFlight's What to Test,** set through App Store Connect's API once a build is processed.
 - **The server and `zuna-web` back on releases,** when they're ready to be.
