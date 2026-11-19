@@ -29,6 +29,9 @@
 #   --public-ip ADDRESS  the address calls' media reaches this machine at, when the
 #                        domain doesn't point straight at it
 #   --database-url URL   keep the server's data in PostgreSQL (docs/SELF_HOSTING.md)
+#   --channel stable|nightly  run stable releases, or main's newest commit, which has
+#                        every change first and is tested less (default stable,
+#                        or nightly while no stable release is out)
 #   --no-firewall        leave the firewall as it is
 #   --yes                ask nothing, and take the default for anything not given
 #   --dry-run            ask, then show what it would do, without doing it
@@ -59,6 +62,7 @@ CLOUDFLARE_MODE=""
 CLOUDFLARE_FOUND=0
 PUBLIC_IP=""
 DATABASE_URL=""
+CHANNEL=""
 FIREWALL=1
 # What was given as an option is asked again only if it doesn't check out.
 CERT_GIVEN=0
@@ -76,6 +80,7 @@ while [ $# -gt 0 ]; do
     --cloudflare) CLOUDFLARE_MODE="${2:?--cloudflare needs strict, full or flexible}"; shift 2 ;;
     --public-ip) PUBLIC_IP="${2:?--public-ip needs an address}"; PUBLIC_IP_GIVEN=1; shift 2 ;;
     --database-url) DATABASE_URL="${2:?--database-url needs an address}"; shift 2 ;;
+    --channel) CHANNEL="${2:?--channel needs stable or nightly}"; shift 2 ;;
     --no-firewall) FIREWALL=0; shift ;;
     --yes) YES=1; shift ;;
     --dry-run) DRY=1; shift ;;
@@ -85,6 +90,7 @@ while [ $# -gt 0 ]; do
 done
 case "$PROXY" in "" | auto | manual) ;; *) echo "--proxy is auto or manual" >&2; exit 1 ;; esac
 case "$CLOUDFLARE_MODE" in "" | strict | full | flexible) ;; *) echo "--cloudflare is strict, full or flexible" >&2; exit 1 ;; esac
+case "$CHANNEL" in "" | stable | nightly) ;; *) echo "--channel is stable or nightly" >&2; exit 1 ;; esac
 if [ -n "$DOMAIN" ] && [ -n "$IP" ]; then echo "Give --domain or --ip, not both" >&2; exit 1; fi
 if { [ -n "$CERT" ] && [ -z "$KEY" ]; } || { [ -z "$CERT" ] && [ -n "$KEY" ]; }; then echo "--cert and --key go together" >&2; exit 1; fi
 
@@ -861,6 +867,27 @@ ask_firewall() {
   if yes_no "$FIREWALL_KIND is on. Open $(open_list) in it?" y; then :; else FIREWALL_KIND=""; fi
 }
 
+# Which releases it runs, which zuna-update keeps to: stable ones, or main's newest commit.
+ask_channel() {
+  heading "Which releases should it run?"
+  if ! has_stable_release; then
+    [ "$CHANNEL" = stable ] && fail "No stable release is out yet, so there's nothing for --channel stable to install. Give --channel nightly, or leave it out."
+    CHANNEL=nightly
+    say "No stable release is out yet, so it runs nightly: main's newest commit."
+    dim "Once one is out: sudo zuna-update --channel stable"
+    return 0
+  fi
+  local selected=0
+  [ "$CHANNEL" = nightly ] && selected=1
+  choose "$selected" "Stable releases|recommended, each tested before it's out" "Nightly|main's newest commit, with every change first, tested less"
+  if [ "$CHOICE" = 1 ]; then CHANNEL=nightly; else CHANNEL=stable; fi
+}
+
+# Whether a stable release is out, as v1.2.3, which a nightly's v1.2.3-nightly.1108 isn't.
+has_stable_release() {
+  git -c safe.directory='*' -C "$SRC" tag --list 'v*' | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
 # The ports to open, as people read them.
 open_list() {
   local list
@@ -907,6 +934,7 @@ summary() {
   rows+=("Voice channels|on $DOT media on $VOICE_TCP_PORT/tcp and $VOICE_UDP_PORT/udp, at $PUBLIC_IP")
   if [ -n "$DATABASE_URL" ]; then rows+=("Data|PostgreSQL, files in /var/lib/zuna"); else rows+=("Data|in /var/lib/zuna"); fi
   rows+=("Notifications|through the project's push relay, which only sees sealed pushes")
+  if [ "$CHANNEL" = nightly ]; then rows+=("Updates|nightly, main's newest commit, with sudo zuna-update"); else rows+=("Updates|stable releases, with sudo zuna-update"); fi
   if [ -n "$FIREWALL_KIND" ]; then
     rows+=("Firewall|opens $(open_list) in $FIREWALL_KIND")
   else
@@ -972,6 +1000,7 @@ run_update() {
     if [ "$CLOUDFLARE_FOUND" = 1 ]; then args+=(--behind-cloudflare on); else args+=(--behind-cloudflare off); fi
   fi
   [ -n "$DATABASE_URL" ] && args+=(--database-url "$DATABASE_URL")
+  args+=(--channel "$CHANNEL")
   if [ "$DRY" = 1 ]; then
     say "$SRC/deploy/update.sh ${args[*]}"
     return
@@ -1567,6 +1596,7 @@ while :; do
   ask_proxy
   ask_certificate
   ask_firewall
+  ask_channel
   summary
   [ "$YES" = 1 ] && break
   choose 0 "Set it up|" "Change something|go through the questions again" "Quit|nothing has changed"

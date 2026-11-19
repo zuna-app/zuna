@@ -63,10 +63,13 @@
 #                        (default 7880)
 #   --voice-tcp-port PORT  where calls' media arrives over TCP (default 7881)
 #   --voice-udp-port PORT  where calls' media arrives over UDP (default 7882)
-#   --signed-tags        only ever build the newest release tag, if its signature
-#                        checks out. This happens by itself, once there's a tag
+#   --channel stable|nightly  what to build: the newest stable release, or main's
+#                        newest commit, which has every change first and is tested
+#                        less (default stable). As in the apps, going back to
+#                        stable waits for a stable release past what's here
+#   --signed-tags        only ever build a stable release whose tag's signature
+#                        checks out. This happens by itself, once there's one
 #                        signed by a key this machine trusts
-#   --follow-branch      build the branch's newest commit, whatever tags there are
 #   --allow-user-checkout  run even though someone other than root can change this
 #                        checkout, and so what this script does as root
 #   --no-pull            build what's checked out, without pulling
@@ -101,6 +104,7 @@ APNS_KEY_ID=""
 LISTEN=127.0.0.1
 TRUSTED_PROXIES=""
 BEHIND_CLOUDFLARE=off
+CHANNEL=stable
 SIGNED_TAGS=0
 ALLOW_USER_CHECKOUT=0
 SERVER_PORT=9660
@@ -111,8 +115,10 @@ VOICE_IP=""
 VOICE_PORT=7880
 VOICE_TCP_PORT=7881
 VOICE_UDP_PORT=7882
+# The first run here, with nothing installed yet, takes the newest stable release whatever's checked out.
+FRESH=1
 # shellcheck source=/dev/null
-if [ -r "$CONF" ]; then . "$CONF"; fi
+if [ -r "$CONF" ]; then FRESH=0; . "$CONF"; fi
 
 APNS_KEY_FILE=""
 PULL=1
@@ -148,8 +154,8 @@ while [ $# -gt 0 ]; do
     --voice-port) VOICE_PORT="${2:?--voice-port needs a port}"; VOICE_CHANGED=1; SERVER_CHANGED=1; shift 2 ;;
     --voice-tcp-port) VOICE_TCP_PORT="${2:?--voice-tcp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
     --voice-udp-port) VOICE_UDP_PORT="${2:?--voice-udp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
+    --channel) CHANNEL="${2:?--channel needs stable or nightly}"; shift 2 ;;
     --signed-tags) SIGNED_TAGS=1; shift ;;
-    --follow-branch) SIGNED_TAGS=branch; shift ;;
     --allow-user-checkout) ALLOW_USER_CHECKOUT=1; shift ;;
     --no-pull) PULL=0; shift ;;
     --test) TEST=1; shift ;;
@@ -158,6 +164,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "$CHANNEL" in stable | nightly) ;; *) fail "--channel is stable or nightly." ;; esac
 [ "$(id -u)" = 0 ] || fail "run this with sudo."
 command -v systemctl >/dev/null || fail "this needs systemd."
 [ -d "$SRC/.git" ] || fail "$SRC isn't a git checkout of Zuna."
@@ -354,29 +361,42 @@ as_web_builder() {
 if [ "$PULL" = 1 ]; then
   step "Pulling updates"
   before="$(sha256sum "$SRC/deploy/update.sh")"
-  if [ "$SIGNED_TAGS" != branch ]; then
-    as_owner git -C "$SRC" fetch --tags --force
-    tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | head -n1)"
+  as_owner git -C "$SRC" fetch --tags --force
+  if [ "$CHANNEL" = stable ]; then
+    # The newest stable release, v1.2.3, cut from main or from its line's branch, and
+    # never a nightly's v1.2.3-nightly.1108.
+    tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+    [ -n "$tag" ] || fail "there's no stable release yet. Until there is, update with --channel nightly, which builds main's newest commit."
     # The first signature that checks out here is what every update after it has to
     # have, so taking over the repository can't simply go back to not signing.
-    if [ "$SIGNED_TAGS" != 1 ] && [ -n "$tag" ] && as_owner git -C "$SRC" verify-tag "$tag" >/dev/null 2>&1; then
+    if [ "$SIGNED_TAGS" != 1 ] && as_owner git -C "$SRC" verify-tag "$tag" >/dev/null 2>&1; then
       echo "Release tags here are signed by a key this machine trusts, so from now on only those are installed."
       SIGNED_TAGS=1
       ARGS+=(--signed-tags)
     fi
-  fi
-  if [ "$SIGNED_TAGS" = 1 ]; then
-    # Nothing is built or run until its signature checks out. See docs/LINUX.md.
-    [ -n "$tag" ] || fail "there's no release tag to update to."
-    as_owner git -C "$SRC" verify-tag "$tag" || fail "the signature of $tag doesn't check out, so nothing was changed."
-    as_owner git -C "$SRC" checkout --quiet --detach "$tag"
-    echo "Verified $tag"
-  else
-    if [ "$SIGNED_TAGS" != branch ]; then
-      echo "Warning: no release tag here is signed by a key this machine trusts, so this is building"
-      echo "the branch's newest commit, with nothing to say who wrote it. See docs/LINUX.md."
+    if [ "$SIGNED_TAGS" = 1 ]; then
+      # Nothing is built or run until its signature checks out. See docs/LINUX.md.
+      as_owner git -C "$SRC" verify-tag "$tag" || fail "the signature of $tag doesn't check out, so nothing was changed."
+      echo "Verified $tag"
+    else
+      echo "Warning: nothing this machine trusts signed $tag, so nothing says who wrote it. See docs/LINUX.md."
     fi
-    # Going back to the branch, after building a tag left no branch checked out.
+    # As in the apps, an update only goes to a higher build, which is how many commits a
+    # release has behind it: a server that ran nightly stays as it is until a stable
+    # release passes it, rather than going back to older code than its data has seen.
+    have="$(as_owner git -C "$SRC" rev-list --count HEAD)"
+    want="$(as_owner git -C "$SRC" rev-list --count "$tag")"
+    if [ "$(as_owner git -C "$SRC" rev-parse HEAD)" = "$(as_owner git -C "$SRC" rev-parse "$tag^{commit}")" ]; then
+      echo "$tag, the newest stable release, is what's here."
+    elif [ "$FRESH" = 1 ] || [ "$want" -gt "$have" ]; then
+      as_owner git -C "$SRC" checkout --quiet --detach "$tag"
+      echo "Building $tag, the newest stable release."
+    else
+      echo "This is $(as_owner git -C "$SRC" describe --tags --always), past $tag, the newest stable release, so it stays as it is until a stable release passes it."
+    fi
+  else
+    echo "Nightly: building main's newest commit, which nothing signs. See docs/LINUX.md."
+    # Back on the branch, after a stable release left none checked out.
     if ! as_owner git -C "$SRC" symbolic-ref -q HEAD >/dev/null; then
       branch="$(as_owner git -C "$SRC" symbolic-ref --short refs/remotes/origin/HEAD)"
       as_owner git -C "$SRC" checkout --quiet "${branch#origin/}"
@@ -470,7 +490,7 @@ install -d -m 0755 /etc/zuna
 {
   echo "# What deploy/update.sh set up on this machine. Change it with the script's options."
   for name in SERVER_DOMAIN RELAY_DOMAIN WEB_DOMAIN WEB_SERVER WEB_SERVERS WEB_PREVIEWS \
-    PUSH_RELAYS APNS_KEY_ID LISTEN TRUSTED_PROXIES BEHIND_CLOUDFLARE SIGNED_TAGS \
+    PUSH_RELAYS APNS_KEY_ID LISTEN TRUSTED_PROXIES BEHIND_CLOUDFLARE CHANNEL SIGNED_TAGS \
     ALLOW_USER_CHECKOUT SERVER_PORT RELAY_PORT WEB_PORT VOICE VOICE_IP VOICE_PORT \
     VOICE_TCP_PORT VOICE_UDP_PORT; do
     printf '%s=%q\n' "$name" "${!name}"

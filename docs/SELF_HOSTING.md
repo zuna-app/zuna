@@ -43,6 +43,8 @@ docker compose logs zuna
 
 LiveKit, for [voice channels](#voice-channels) and calls, runs in a container next to it. Calls' media goes straight to it, so open 7881/tcp and 7882/udp as well as 80 and 443.
 
+Compose builds whatever's checked out, which after cloning is `main`'s newest commit, what nightlies are made from. For a stable release, check its tag out first, such as `git checkout v0.2.0`, from the [releases](https://github.com/zuna-app/zuna/releases) marked Latest.
+
 ## Option 2: The installer, on Linux with systemd
 
 On Debian, Ubuntu, Fedora or another Linux with systemd and apt or dnf, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
@@ -55,7 +57,7 @@ sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
 sudo /opt/zuna/deploy/install.sh
 ```
 
-It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy and the firewall, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 9660, behind a proxy.
+It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy, the firewall, and whether to run stable releases or nightly, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 9660, behind a proxy.
 
 - **With nothing on ports 80 and 443,** it can install Caddy, which gets and renews the certificate.
 - **With Caddy, nginx or Apache already there,** it can add a site for Zuna, checking the proxy's settings before reloading it and taking the site out again if they don't check out. nginx and Apache use a certificate already there that covers the domain, one from Let's Encrypt through certbot, or your own files.
@@ -68,7 +70,7 @@ At the end it checks that the server answers at its address, WebSockets and voic
 sudo zuna-update
 ```
 
-It goes back to the previous build if a new one doesn't start. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
+It builds the newest stable release, or on nightly `main`'s newest commit, and goes back to the previous build if a new one doesn't start. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
 
 ## Option 3: Run the binary yourself
 
@@ -339,11 +341,13 @@ Sign-in keys are bound to your server's address, so a key one server collects is
 
 ## Upgrading
 
-**Docker:**
+**Docker:** on `main`,
 
 ```bash
 git pull
 ```
+
+or on a stable release, `git fetch --tags` and `git checkout` the newest one's tag, then
 
 ```bash
 docker compose up -d --build

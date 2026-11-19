@@ -143,18 +143,26 @@ case "$LISTEN" in
 esac
 while ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q . && ! ss -Hltnp "sport = :$PORT" 2>/dev/null | grep -q '"zuna-push"'; do PORT=$((PORT + 1)); done
 RELAY_AT="$(address "$LISTEN" "$PORT")"
+# Stable releases, as v1.2.3, unless none is out yet, when it's main's newest commit.
+if git -c safe.directory='*' -C "$SRC" tag --list 'v*' | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+  CHANNEL=stable
+  UPDATES="stable releases, with sudo zuna-update, or nightly with --channel nightly"
+else
+  CHANNEL=nightly
+  UPDATES="nightly, main's newest commit, as no stable release is out yet. Once one is: sudo zuna-update --channel stable"
+fi
 
 echo
 echo "Ready to set up:"
 echo "  Relay      https://$DOMAIN, through your proxy, to http://$RELAY_AT"
 echo "  Proxy      $PROXY, the only one that can say who's calling"
 echo "  APNs key   $KEY, Key ID $KEY_ID, kept in /etc/zuna/apns.p8"
-echo "  Update     sudo zuna-update"
+echo "  Updates    $UPDATES"
 printf 'Set it up? [Y/n] '
 IFS= read -r -u 3 reply || exit 1
 case "${reply:-y}" in [Yy]*) ;; *) echo "Nothing was changed."; exit 0 ;; esac
 
-"$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT" --trusted-proxies "$PROXY" --behind-cloudflare "$CLOUDFLARE"
+"$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT" --trusted-proxies "$PROXY" --behind-cloudflare "$CLOUDFLARE" --channel "$CHANNEL"
 
 echo
 echo "Your proxy has to reach http://$RELAY_AT. If a firewall is on here, let it through to"
