@@ -1,11 +1,11 @@
 # Telegram in Zuna
 
-The desktop app on Windows, Linux and macOS, and the iPhone and iPad app, can link your own Telegram account, with its people and groups under an icon of their own beside your servers. Zuna signs in as another of your devices, using Telegram's API. Zuna isn't made by Telegram, and no Zuna server hears that an account is linked. The web app never will: a page can't keep Telegram's code apart from the rest of it. The iPhone's TestFlight builds don't have it yet. [TELEGRAM_PLAN.md](TELEGRAM_PLAN.md) has the design.
+The desktop app on Windows, Linux and macOS, and the iPhone and iPad app, can link your own Telegram account, with its people and groups under an icon of their own beside your servers. Zuna signs in as another of your devices, using Telegram's API. Zuna isn't made by Telegram, and no Zuna server hears that an account is linked. The web app never will: a page can't keep Telegram's code apart from the rest of it. [TELEGRAM_PLAN.md](TELEGRAM_PLAN.md) has the design.
 
 ## Before you link one
 
 - **These chats aren't end-to-end encrypted.** Telegram keeps them on its servers, as it does for its own apps. Each chat says "Telegram" in its header and that it isn't encrypted, so it's never taken for one of Zuna's.
-- **Telegram learns** that you use Zuna, this device's address, or your proxy's if you set one, whether it runs Windows, Linux, macOS or iOS, and when you're online. Not the device's model or the system's version.
+- **Telegram learns** that you use Zuna, this device's address, or your proxy's if you set one, whether it runs Windows, Linux, macOS, iOS or iPadOS, whether it's an iPhone or an iPad, and when you're online. Not the device's model or the system's version.
 - **Telegram watches accounts that use other apps,** and sometimes limits one by mistake. Link an account you've had for a while.
 - **Channels, video chats in groups and secret chats stay in Telegram's own app.** Zuna doesn't list them. Calls with one person are in Zuna.
 
@@ -52,7 +52,7 @@ The desktop app isn't in any app store, and shows everything Telegram gives it.
 
 ## Unlinking
 
-The menu under Telegram's name at the top of its list, or Settings, Connections, Unlink. Zuna signs out, which ends its session at Telegram, then erases everything it kept of the account on this computer. Ending Zuna's session from another device, under Devices, does the same here.
+The menu under Telegram's name at the top of its list, or Settings, Connections, Unlink. Zuna signs out, which ends its session at Telegram, then erases everything it kept of the account on this device. Ending Zuna's session from another device, under Devices, does the same here.
 
 ## How it's kept apart
 
