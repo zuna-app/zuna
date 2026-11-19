@@ -41,7 +41,7 @@ const software = {
   name: "Zuna",
   url: SITE,
   applicationCategory: "CommunicationApplication",
-  operatingSystem: "Windows, macOS, Linux",
+  operatingSystem: "Windows, macOS, Linux, iOS, iPadOS",
   license: "https://www.gnu.org/licenses/agpl-3.0.html",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
 };

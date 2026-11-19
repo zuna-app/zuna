@@ -1,6 +1,6 @@
 import { Download, Globe, Laptop, Monitor, Smartphone, Tablet, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
-import { MAC_RELEASED, RELEASE, downloadsFor } from "../downloads";
+import { APP_STORE, RELEASE, downloadsFor } from "../downloads";
 import { doc } from "../pages";
 
 const STEPS = ["Install Zuna", "Paste the invite link a friend sent you", "Pick a name and password, and save your recovery key"];
@@ -23,6 +23,7 @@ export function Platforms() {
         </div>
         <div className="platforms">
           <Platform icon={<Monitor size={22} />} name="Windows" detail="Windows 10 and 11, x64" system="windows" />
+          <Platform icon={<Laptop size={22} />} name="macOS" detail="macOS 14.2 and later, Apple silicon" system="mac" />
           <Platform icon={<Terminal size={22} />} name="Linux" detail="x64, built for Wayland" system="linux" />
           <article className="platform reveal">
             <span className="platform-icon">
@@ -34,31 +35,18 @@ export function Platforms() {
               How to host the web app
             </a>
           </article>
-          {MAC_RELEASED ? (
-            <Platform icon={<Laptop size={22} />} name="macOS" detail="macOS 14.2 and later, Apple silicon" system="mac" />
-          ) : (
-            <article className="platform is-soon reveal">
-              <span className="platform-icon">
-                <Laptop size={22} aria-hidden="true" />
-              </span>
-              <h3>
-                macOS <span className="badge">Soon</span>
-              </h3>
-              <p>Runs on Apple silicon today, built from source. Releases don't carry it yet.</p>
-              <a className="platform-link" href={doc("CONTRIBUTING.md")}>
-                How to build it
-              </a>
-            </article>
-          )}
-          <article className="platform is-soon reveal">
-            <span className="platform-icon">
-              <Smartphone size={22} aria-hidden="true" />
-              <Tablet size={22} aria-hidden="true" />
+          {/* apps/ios/project.yml's deploymentTarget. */}
+          <article className="platform reveal">
+            <span className="platform-icon" aria-hidden="true">
+              <Smartphone size={22} />
+              <Tablet size={22} />
             </span>
-            <h3>
-              iPhone and iPad <span className="badge">Soon</span>
-            </h3>
-            <p>A native app with everything the desktop has, coming through TestFlight, then the App Store.</p>
+            <h3>iPhone and iPad</h3>
+            <p>iOS and iPadOS 18 and later</p>
+            <a className="button button-primary button-small platform-button" href={APP_STORE}>
+              <Download size={15} aria-hidden="true" />
+              App Store
+            </a>
           </article>
           <article className="platform is-soon reveal">
             <span className="platform-icon">

@@ -148,8 +148,10 @@ async function interactions(browser) {
   check("and to the whole self-hosting guide", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/SELF_HOSTING.md"));
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
-  check("Windows and Linux each have a download", downloads.length === 2, String(downloads.length));
-  check("downloads lead to GitHub's releases", downloads.every((href) => href.startsWith("https://github.com/zuna-app/zuna/releases")), downloads.join(", "));
+  check("Windows, macOS, Linux and the iPhone each have a download", downloads.length === 4, String(downloads.length));
+  check("the desktop's lead to GitHub's releases", downloads.slice(0, 3).every((href) => href.startsWith("https://github.com/zuna-app/zuna/releases")), downloads.join(", "));
+  check("and the iPhone's to the App Store", downloads[3]?.startsWith("https://apps.apple.com/app/id") ?? false, downloads.join(", "));
+  check("the bar's Download leads to them, not to a file", (await page.locator(".nav-end a.button").getAttribute("href")) === "/#download");
 
   check("interacting sends nothing anywhere", outside.length === 0, outside.join(", "));
   check("interacting raises no errors", problems.length === 0, problems.join(" | "));

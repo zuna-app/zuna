@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { REPO } from "../pages";
 import { GitHubMark, Logo } from "./brand";
-import { DownloadButton } from "./Download";
+import { NavDownloadButton } from "./Download";
 
 const LINKS = [
   { href: "/#features", label: "Features" },
@@ -40,7 +40,7 @@ export function Nav() {
           <a className="nav-icon" href={REPO} aria-label="Zuna on GitHub">
             <GitHubMark />
           </a>
-          <DownloadButton size="small" />
+          <NavDownloadButton />
         </div>
       </div>
     </header>

@@ -1,3 +1,4 @@
+import { APP_STORE } from "../downloads";
 import { doc, REPO } from "../pages";
 import { Logo } from "./brand";
 
@@ -7,6 +8,7 @@ const COLUMNS = [
     links: [
       { href: "/#download", label: "Download" },
       { href: `${REPO}/releases`, label: "Releases" },
+      { href: APP_STORE, label: "App Store" },
       { href: doc("docs/ROADMAP.md"), label: "Roadmap" },
       { href: REPO, label: "Source code" },
     ],

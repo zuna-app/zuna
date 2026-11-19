@@ -19,14 +19,8 @@ export interface Download {
   size?: number;
 }
 
-/** The macOS app's DMG, as scripts/macos-dist.mjs names it. */
-const MAC_DMG = /^Zuna-.*-arm64\.dmg$/;
-
-/**
- * Whether the release linked to carries the macOS app. Releases have since the release workflow
- * built it, so until the latest one does, the page says macOS is coming.
- */
-export const MAC_RELEASED: boolean = RELEASE?.assets.some((asset) => MAC_DMG.test(asset.name)) ?? false;
+/** The iPhone and iPad app's page on the App Store, which sends each visitor to their own country's store. */
+export const APP_STORE = "https://apps.apple.com/app/id6766357402";
 
 /**
  * What a release carries (docs/RELEASES.md), by the names the native app's scripts give them
@@ -34,7 +28,7 @@ export const MAC_RELEASED: boolean = RELEASE?.assets.some((asset) => MAC_DMG.tes
  */
 const FILES: Record<"windows" | "linux" | "mac", { label: string; match: RegExp }[]> = {
   windows: [{ label: "Installer (.exe)", match: /^Zuna-Native-Setup-.*\.exe$/ }],
-  mac: [{ label: "Disk image (.dmg)", match: MAC_DMG }],
+  mac: [{ label: "Disk image (.dmg)", match: /^Zuna-.*-arm64\.dmg$/ }],
   linux: [
     { label: "AppImage", match: /\.AppImage$/ },
     { label: "Debian, Ubuntu (.deb)", match: /\.deb$/ },

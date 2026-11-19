@@ -1,7 +1,6 @@
 import { LockKeyhole } from "lucide-react";
 import { AppWindow } from "../components/AppWindow";
 import { DownloadButton, HostButton } from "../components/Download";
-import { MAC_RELEASED } from "../downloads";
 
 export function Hero() {
   return (
@@ -17,7 +16,7 @@ export function Hero() {
           <HostButton />
         </div>
         <p className="hero-platforms hero-in">
-          {MAC_RELEASED ? "For Windows, macOS, Linux and the web, and soon iPhone and iPad." : "For Windows, Linux and the web, and soon macOS, iPhone and iPad."}
+          For Windows, macOS, Linux, iPhone, iPad and the web.
         </p>
       </div>
       <div className="wrap hero-stage hero-in">

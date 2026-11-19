@@ -1,6 +1,6 @@
 import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useState } from "react";
-import { detectSystem, downloadsFor, MAC_RELEASED, SYSTEM_NAMES, type System } from "../downloads";
+import { APP_STORE, detectSystem, downloadsFor, SYSTEM_NAMES, type System } from "../downloads";
 
 /** The visitor's system, once the page can ask. The prerendered page shows the plain button. */
 export function useSystem(): System | null {
@@ -9,22 +9,40 @@ export function useSystem(): System | null {
   return system;
 }
 
-export function DownloadButton({ size = "large" }: { size?: "large" | "small" }) {
+/** The bar's button, which leads to the downloads for every system rather than starting one. */
+export function NavDownloadButton() {
+  return (
+    <a className="button button-primary button-small" href="/#download">
+      <Download size={15} aria-hidden="true" />
+      Download
+    </a>
+  );
+}
+
+/** The hero's and the FAQ's button, which starts the download for the visitor's own system once the page knows it. */
+export function DownloadButton() {
   const system = useSystem();
-  const className = `button button-primary ${size === "small" ? "button-small" : ""}`;
-  if (system === "windows" || system === "linux" || (system === "mac" && MAC_RELEASED)) {
+  if (system === "windows" || system === "linux" || system === "mac") {
     const [first] = downloadsFor(system);
     return (
-      <a className={className} href={first!.url}>
-        <Download size={size === "small" ? 15 : 18} aria-hidden="true" />
-        {size === "small" ? "Download" : `Download for ${SYSTEM_NAMES[system]}`}
+      <a className="button button-primary" href={first!.url}>
+        <Download size={18} aria-hidden="true" />
+        Download for {SYSTEM_NAMES[system]}
+      </a>
+    );
+  }
+  if (system === "ios") {
+    return (
+      <a className="button button-primary" href={APP_STORE}>
+        <Download size={18} aria-hidden="true" />
+        Download on the App Store
       </a>
     );
   }
   return (
-    <a className={className} href="/#download">
-      <Download size={size === "small" ? 15 : 18} aria-hidden="true" />
-      {size === "small" || system === null ? "Download" : "Get the app"}
+    <a className="button button-primary" href="/#download">
+      <Download size={18} aria-hidden="true" />
+      {system === null ? "Download" : "Get the app"}
     </a>
   );
 }
