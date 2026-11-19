@@ -186,6 +186,9 @@ final class CoreController {
         // A Telegram account linked on this device, its TDLib in the app's own process (docs/TELEGRAM_PLAN.md).
         options.telegram = TelegramSetup.configuration()
         options.telegramCalls = options.telegram != nil
+        // Telegram is given this app's push token (`setTelegramPushToken`), so what came while the app was
+        // away it pushed: the engine, catching up as the app comes back, notifies of none of it again.
+        options.telegramPushed = options.telegram != nil
         #if DEBUG
         options.logToStandardError = true
         #endif

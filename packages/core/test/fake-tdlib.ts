@@ -105,6 +105,8 @@ export class FakeTdlib implements TelegramAdapter {
   startedLinked: boolean[] = [];
   stops: boolean[] = [];
   authorized = false;
+  /** What time Telegram has, in ms, which needn't be what this device's clock says. */
+  clock: () => number = () => Date.now();
   /** The account has two-step verification, with this password. */
   password: string | null = null;
   users = new Map<number, Td>();
@@ -199,6 +201,9 @@ export class FakeTdlib implements TelegramAdapter {
         if (request.password !== this.password) return fail(400, "PASSWORD_HASH_INVALID");
         ok();
         return this.confirm();
+      case "getOption":
+        // A 64-bit number, which TDLib writes as text.
+        return request.name === "unix_time" ? answer({ "@type": "optionValueInteger", value: String(Math.floor(this.clock() / 1000)) }) : answer({ "@type": "optionValueEmpty" });
       case "getMe":
         return answer(this.users.get(SELF)!);
       case "loadChats":

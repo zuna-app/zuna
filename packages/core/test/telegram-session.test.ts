@@ -17,6 +17,8 @@ beforeAll(loadCrypto);
 type Td = { "@type": string; [field: string]: any };
 
 const settle = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Now, as Telegram dates a message: one sent now notifies at once, where the fake's, from long ago, wait as ones heard of late. */
+const now = () => Math.floor(Date.now() / 1000);
 
 async function until<T>(read: () => T | undefined | null | false, what: string, ms = 2000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -504,12 +506,12 @@ describe("what changes in a message", () => {
     const { engine, events } = await ready();
     engine.emit({ "@type": "updateChatTitle", chat_id: GROUP, title: "" });
     engine.emit({ "@type": "updateChatNotificationSettings", chat_id: GROUP, notification_settings: { mute_for: 0 } });
-    engine.emit({ "@type": "updateNewMessage", message: { ...textMessage(GROUP, serverId(50), GRACE, ""), content: { "@type": "messagePoll" } } });
+    engine.emit({ "@type": "updateNewMessage", message: { ...textMessage(GROUP, serverId(50), GRACE, "", { date: now() }), content: { "@type": "messagePoll" } } });
     expect(of(events, "notify").at(-1)).toMatchObject({ title: "Group", body: expect.stringMatching(/^Grace Hopper: /), inUse: false });
     // A chat without a place in a list notifies nothing.
     engine.emit({ "@type": "updateChatPosition", chat_id: GRACE, position: { "@type": "chatPosition", list: { "@type": "chatListMain" }, order: "0" } });
     const count = of(events, "notify").length;
-    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(51), GRACE, "hi") });
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(51), GRACE, "hi", { date: now() }) });
     engine.emit({ "@type": "updateNewMessage", message: "not a message" });
     expect(of(events, "notify")).toHaveLength(count);
     engine.emit({ "@type": "updateChatPosition", chat_id: GRACE, position: "nonsense" });
@@ -1060,7 +1062,7 @@ describe("what the session leaves out", () => {
     const { engine, events } = await ready();
     engine.emit({ "@type": "updateChatReadOutbox", chat_id: GROUP, last_read_outbox_message_id: serverId(3) });
     expect(of(events, "read").at(-1)).toMatchObject({ groupId: String(GROUP), userId: "*", seq: serverId(3) });
-    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(61), GRACE, "") });
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(61), GRACE, "", { date: now() }) });
     expect(of(events, "notify").at(-1)).toMatchObject({ body: "Message" });
   });
 

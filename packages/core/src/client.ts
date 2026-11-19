@@ -110,6 +110,12 @@ export interface ZunaClientOptions {
    * (`restricted` on TelegramSession).
    */
   telegramRestricted?: boolean;
+  /**
+   * Telegram pushes this device the linked account's messages while the app is away, as an
+   * iPhone's app has it do: what the engine hears of late, catching up, notifies nowhere here
+   * (`pushed` on TelegramSession).
+   */
+  telegramPushed?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -492,6 +498,7 @@ export class ZunaClient {
       linking,
       calls: this.options.telegramCalls === true,
       restricted: this.options.telegramRestricted === true,
+      pushed: this.options.telegramPushed === true,
       files: this.options.files,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);

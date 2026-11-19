@@ -10,6 +10,8 @@ declare const __zunaHost: {
   telegramCalls?: boolean;
   /** True where the app is held to an app store's rules, which the iPhone's is to Apple's: what TDLib restricts on a linked Telegram account is withheld, and 18+ media unless the account lets it through. The native desktop app isn't in a store, and shows it. */
   telegramRestricted?: boolean;
+  /** True where Telegram pushes the app a linked account's messages while it's away, which the iPhone's has it do. What the engine hears of late, as it catches up, then notifies nowhere: the push told of it. The native desktop app, which nothing pushes, notifies of what's still unread once the engine has caught up. */
+  telegramPushed?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;

@@ -107,6 +107,24 @@ const MOST_WITHHELD = 50_000;
 const TYPING_MS = 6000;
 /** How often this device says it's typing, at most. */
 const TYPING_EVERY_MS = 4000;
+/** How many messages heard of late wait to notify at once, the newest. */
+const MOST_LATE = 200;
+
+/** When a new message notifies, in ms. Tests shorten them. */
+export const telegramNotifyTiming = {
+  /**
+   * A message the engine hears of this long after it was sent came while the engine wasn't
+   * listening, as while its app was suspended or its computer asleep.
+   */
+  late: 20_000,
+  /**
+   * How long what came late waits once the engine has caught up, for word that it was read on
+   * another device, which comes after the message itself.
+   */
+  settle: 2_000,
+  /** An answer about Telegram's clock that took longer than this says nothing of it: the app may have been suspended on the way. */
+  clockAnswer: 2_000,
+};
 
 /**
  * Updates the adapter acts on. Any other kind is dropped, and noted once, never handed on: what
@@ -199,6 +217,13 @@ export interface TelegramSessionOptions {
   /** The app has calls (calls/call.ts). Without it, a call is nobody's here, and Telegram's own apps take it. */
   calls?: boolean;
   /**
+   * Telegram pushes this device what comes while its app is away, as it does a phone. What the
+   * engine hears of late, as it catches up, the push told of already, or Telegram left untold as
+   * read elsewhere, so it notifies nowhere here. Without it, as on a computer, which nothing
+   * pushes, it notifies once the engine has caught up, if it's still unread then.
+   */
+  pushed?: boolean;
+  /**
    * The app is held to an app store's rules, as the iPhone's is to Apple's: whatever TDLib marks
    * restricted is withheld (`restrictionOf`), and what it marks 18+ too, unless the account lets
    * it through. A chat whose user or supergroup is marked isn't listed and can't be opened, a
@@ -232,6 +257,13 @@ export class TelegramSession {
   private selfId: number | null = null;
   private defaults = { private: 0, group: 0 };
   private active = false;
+  /** How far Telegram's clock is ahead of this device's, in ms, as the engine last said at once (`checkClock`). */
+  private clockAhead = 0;
+  /** Messages heard of late, with when, which notify once the engine has caught up, if they're still unread then. */
+  private late: { chatId: number; id: number; at: number }[] = [];
+  private lateTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When the engine last caught up. */
+  private onlineAt = 0;
   private opened: number | null = null;
   private typingSent = new Map<number, number>();
   private typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -302,6 +334,7 @@ export class TelegramSession {
 
   stop(): void {
     this.ended = true;
+    this.forgetLate();
     this.calls.reset();
     this.doneReadingAll();
     this.engine.stop(false);
@@ -309,6 +342,7 @@ export class TelegramSession {
 
   /** Signs out at Telegram, if it can, and erases everything of the account's here. Says whether it signed out. */
   unlink(): Promise<boolean> {
+    this.forgetLate();
     this.calls.reset();
     this.doneReadingAll();
     return new Promise((resolve) => {
@@ -337,8 +371,30 @@ export class TelegramSession {
   }
 
   private setConnection(state: ConnectionState): void {
+    const was = this.connection;
     this.connection = state;
     this.options.onEvent({ type: "connection", serverId: TELEGRAM_ID, state });
+    if (state === "online" && was !== "online") {
+      this.onlineAt = Date.now();
+      void this.checkClock();
+    }
+    // What came late waits for the engine to catch up, and waits again if it falls behind meanwhile.
+    this.settleLate();
+  }
+
+  /**
+   * Asks the engine what time Telegram has, which says how old a message is whatever this
+   * device's clock says. Only an answer that came at once counts: one that took a while may have
+   * waited with a suspended app, and would say Telegram's clock is hours behind.
+   */
+  private async checkClock(): Promise<void> {
+    const asked = Date.now();
+    const answer = await this.engine.request({ "@type": "getOption", name: "unix_time" }).catch(() => null);
+    const took = Date.now() - asked;
+    if (!answer || kindOf(answer) !== "optionValueInteger" || took > telegramNotifyTiming.clockAnswer) return;
+    // TDLib writes a 64-bit number as text. Whole seconds, so half of one is added.
+    const seconds = typeof answer.value === "string" && /^\d{9,11}$/.test(answer.value) ? Number(answer.value) : int(answer.value, 1e8, 1e11, 0);
+    if (seconds > 0) this.clockAhead = seconds * 1000 + 500 - (asked + took / 2);
   }
 
   /**
@@ -1034,22 +1090,84 @@ export class TelegramSession {
   /**
    * Tells the interface about a new message as Telegram's own apps would: not one of this
    * account's own, not a silent one, and not in a muted chat, unless it mentions or replies to
-   * this account, as Telegram notifies those by default.
+   * this account, as Telegram notifies those by default. Nor one read already, here or on another
+   * device. One the engine hears of late, as it catches up after its app was suspended or its
+   * computer slept, notifies only where nothing pushes this device, and then only once the engine
+   * has caught up and it's still unread: the word that a chat was read elsewhere comes after its
+   * messages, and Telegram's own apps wait for it too.
    */
   private maybeNotify(raw: TdObject): void {
-    if (raw.is_outgoing === true || raw.disable_notification === true) return;
+    const event = this.notification(raw);
+    if (!event) return;
+    if (!this.cameLate(raw)) return this.options.onEvent(event);
+    if (this.options.pushed) return;
     const chatId = idOf(raw.chat_id);
+    const id = idOf(raw.id);
+    if (!chatId || !id) return;
+    this.late.push({ chatId, id, at: Date.now() });
+    if (this.late.length > MOST_LATE) this.late.shift();
+    if (!this.lateTimer) this.settleLate();
+  }
+
+  /** Whether the engine heard of a message while catching up, or long after it was sent, by Telegram's clock. */
+  private cameLate(raw: TdObject): boolean {
+    if (this.connection !== "online") return true;
+    const sent = int(raw.date, 1, 1e11, 0) * 1000;
+    return sent > 0 && Date.now() + this.clockAhead - sent > telegramNotifyTiming.late;
+  }
+
+  /**
+   * Has what came late notify a moment after the engine has caught up, and after it came, as
+   * things are then. Each waits its own moment, so that others coming after it don't keep it back.
+   */
+  private settleLate(): void {
+    clearTimeout(this.lateTimer);
+    this.lateTimer = undefined;
+    if (this.late.length === 0 || this.connection !== "online") return;
+    const due = (entry: { at: number }) => Math.max(entry.at, this.onlineAt) + telegramNotifyTiming.settle;
+    // They're kept in the order they came, so the first is due first.
+    this.lateTimer = setTimeout(
+      () => {
+        this.lateTimer = undefined;
+        const now = Date.now();
+        const waiting = this.late;
+        this.late = waiting.filter((entry) => due(entry) > now);
+        for (const entry of waiting) {
+          if (due(entry) > now) continue;
+          // Deleted meanwhile, it's gone from here. Read, muted or edited, it's as it is now.
+          const raw = this.find(entry.chatId, entry.id);
+          const event = raw && this.notification(raw);
+          if (event) this.options.onEvent(event);
+        }
+        this.settleLate();
+      },
+      Math.max(0, due(this.late[0]!) - Date.now()),
+    );
+  }
+
+  private forgetLate(): void {
+    clearTimeout(this.lateTimer);
+    this.lateTimer = undefined;
+    this.late = [];
+  }
+
+  /** The notification for a message, as things are now, or null where it shouldn't notify. */
+  private notification(raw: TdObject): Extract<CoreEvent, { type: "notify" }> | null {
+    if (raw.is_outgoing === true || raw.disable_notification === true) return null;
+    const chatId = idOf(raw.chat_id);
+    const id = idOf(raw.id);
     const chat = chatId ? this.listed(chatId) : undefined;
-    if (!chat || !(positionIn(chat, "chatListMain") || positionIn(chat, "chatListArchive"))) return;
-    if (muteFor(chat, this.defaults) > 0 && raw.contains_unread_mention !== true) return;
-    if (this.withheldMessage(raw)) return;
+    if (!chat || !id || !(positionIn(chat, "chatListMain") || positionIn(chat, "chatListArchive"))) return null;
+    if (id <= (idOf(chat.last_read_inbox_message_id) ?? 0)) return null;
+    if (muteFor(chat, this.defaults) > 0 && raw.contains_unread_mention !== true) return null;
+    if (this.withheldMessage(raw)) return null;
     const message = this.view(raw);
     const key = chatKey(chat);
-    if (!message || !key) return;
+    if (!message || !key) return null;
     const sender = this.nameOf(message.senderId);
     const what = previewText(message) || "Message";
     const group = chatKind(chat) === "group";
-    this.options.onEvent({
+    return {
       type: "notify",
       serverId: TELEGRAM_ID,
       title: group ? str(chat.title, 256) || "Group" : sender,
@@ -1058,7 +1176,7 @@ export class TelegramSession {
       groupId: String(chatId),
       messageId: message.id,
       inUse: this.active,
-    });
+    };
   }
 
   private onChatAction(update: TdObject): void {

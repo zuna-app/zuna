@@ -15,6 +15,7 @@ final class CoreRuntimeTests: XCTestCase {
         var options = CoreRuntime.Options(dataDirectory: directory, deviceKey: Data(repeating: 5, count: 32), deviceName: "Runtime")
         options.logToStandardError = true
         options.listsBots = true
+        options.telegramPushed = true
         options.onAccountEvent = { [accountEvents] event in accountEvents.value.append(event) }
         runtime = try CoreRuntime(options: options)
         try await runtime.start()
@@ -128,9 +129,10 @@ final class CoreRuntimeTests: XCTestCase {
     }
 
     func testTheBundleKnowsWhatTheHostOffers() async {
-        let offered = await evaluate("[!!__zunaHost.listsBots, !!__zunaHost.testHooks, typeof __zunaTest.setClockOffset, !!__zunaHost.telegramRestricted].join(',')")
+        let offered = await evaluate("[!!__zunaHost.listsBots, !!__zunaHost.testHooks, typeof __zunaTest.setClockOffset, !!__zunaHost.telegramRestricted, !!__zunaHost.telegramPushed, !!__zunaHost.telegramCalls].join(',')")
         // Withholding what Telegram restricts is the App Store's rule, on in every iPhone and iPad host.
-        XCTAssertEqual(offered, "true,true,function,true")
+        // That Telegram pushes the app, and that it has Telegram's calls, are the app's to say.
+        XCTAssertEqual(offered, "true,true,function,true,true,false")
     }
 
     func testNotificationsOnAServerThisDeviceHasntJoinedAreRefused() async throws {

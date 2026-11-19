@@ -490,10 +490,17 @@ final class Notifications {
 
     /// Clears the notifications of a server's chats that have nothing unread,
     /// once its conversations are up to date, so a message the app hasn't
-    /// heard of yet keeps its notification.
+    /// heard of yet keeps its notification. On the linked Telegram account also
+    /// those of the messages read in a chat that has newer ones: nothing tells
+    /// a phone that a chat of Telegram's was read elsewhere while its app is
+    /// away, so they all wait for the engine to catch up here, and a Telegram
+    /// message's ID is its place in its chat, which is read up to one.
     func clearRead(serverId: String) async {
         guard let server = model.servers[serverId] else { return }
         let read = Set(server.allConversations.filter { $0.unread == 0 }.compactMap(\.groupId))
+        let readTo: [String: Int] = serverId == ServerEntry.telegram
+            ? Dictionary(server.allConversations.compactMap { chat in chat.groupId.map { ($0, chat.ownRead) } }, uniquingKeysWith: max)
+            : [:]
         let center = UNUserNotificationCenter.current()
         let stale = await center.deliveredNotifications().filter { notification in
             let info = notification.request.content.userInfo
@@ -502,7 +509,9 @@ final class Notifications {
             let telegram = info["serverId"] == nil && opened == nil ? TelegramPush(info) : nil
             guard (info["serverId"] as? String ?? opened?.serverId ?? telegram.map { _ in TelegramPush.serverId }) == serverId,
                   let groupId = info["groupId"] as? String ?? opened?.groupId ?? telegram?.groupId else { return false }
-            return read.contains(groupId)
+            if read.contains(groupId) { return true }
+            guard let to = readTo[groupId], let id = (info["messageId"] as? String ?? telegram?.messageIds.first).flatMap({ Int($0) }) else { return false }
+            return id <= to
         }.map(\.request.identifier)
         if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
     }

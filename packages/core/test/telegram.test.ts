@@ -10,11 +10,16 @@ import { serveCore, type RpcPort } from "../src/rpc";
 import { fromMarkup, toMarkup } from "../src/telegram/markup";
 import { attachmentsOf, conversationView, messageView, userView, waveformFromTelegram, waveformToTelegram } from "../src/telegram/map";
 import { previewText } from "../src/notify";
+import { telegramNotifyTiming } from "../src/telegram/session";
 import { TELEGRAM_ID, type CoreEvent, type TelegramLink } from "../src/types";
 import { BOT, CHANNEL, FakeTdlib, GRACE, GROUP, SECRET, SELF, serverId, sticker, textMessage } from "./fake-tdlib";
 import { loadCrypto, MemoryDbProvider } from "./helpers";
 
 beforeAll(loadCrypto);
+// The fake's messages are dated long ago, so each notifies as one heard of late: a moment after the engine is online.
+beforeAll(() => {
+  telegramNotifyTiming.settle = 20;
+});
 
 const settle = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -28,7 +33,7 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
   }
 }
 
-async function linkedClient(options: { authorized?: boolean; password?: string; restricted?: boolean; calls?: boolean; engine?: FakeTdlib } = {}) {
+async function linkedClient(options: { authorized?: boolean; password?: string; restricted?: boolean; calls?: boolean; pushed?: boolean; engine?: FakeTdlib } = {}) {
   const engine = options.engine ?? new FakeTdlib();
   engine.authorized = options.authorized ?? false;
   engine.password = options.password ?? null;
@@ -42,6 +47,7 @@ async function linkedClient(options: { authorized?: boolean; password?: string; 
     telegram: engine,
     telegramRestricted: options.restricted,
     telegramCalls: options.calls,
+    telegramPushed: options.pushed,
   });
   await client.open();
   const link = () => [...events].reverse().find((event): event is Extract<CoreEvent, { type: "telegram" }> => event.type === "telegram")?.link;
@@ -305,6 +311,81 @@ describe("a linked account's chats", () => {
     session.sendTyping(String(GRACE));
     session.sendTyping(String(GRACE));
     expect(engine.requests("sendChatAction")).toHaveLength(1);
+  });
+
+  it("notifies of what it hears late only once it has caught up, and only if it's still unread", async () => {
+    const { engine, events } = await ready();
+    telegramNotifyTiming.settle = 150;
+    try {
+      const notified = () => events.filter((event): event is Extract<CoreEvent, { type: "notify" }> => event.type === "notify").map((event) => event.body);
+      const now = () => Math.floor(Date.now() / 1000);
+      const connection = (state: string) => engine.emit({ "@type": "updateConnectionState", state: { "@type": state } });
+      const from = (id: number, text: string, date = now()) => engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(id), GRACE, text, { date }) });
+      // One that comes as it's sent notifies at once.
+      from(20, "Now");
+      await until(() => notified().length === 1, "the message sent now", 100);
+      // Read already, on another device, it never does.
+      from(1, "Read long ago");
+      // While the engine catches up, as after its computer slept, nothing notifies yet, however new.
+      connection("connectionStateUpdating");
+      from(21, "While away, read elsewhere");
+      from(22, "While away, deleted");
+      from(23, "While away, still unread");
+      // That the chat was read on another device comes after its messages.
+      engine.emit({ "@type": "updateChatReadInbox", chat_id: GRACE, last_read_inbox_message_id: serverId(21), unread_count: 2 });
+      engine.emit({ "@type": "updateDeleteMessages", chat_id: GRACE, message_ids: [serverId(22)], is_permanent: true, from_cache: false });
+      await settle(250);
+      expect(notified()).toEqual(["Now"]);
+      connection("connectionStateReady");
+      await settle(60);
+      expect(notified()).toEqual(["Now"]);
+      await until(() => notified().length === 2, "what's still unread");
+      expect(notified()).toEqual(["Now", "While away, still unread"]);
+      // A group's messages can come after the engine says it's caught up: one sent a while ago waits too.
+      from(24, "From a minute ago", now() - 60);
+      from(25, "From a minute ago, read elsewhere", now() - 60);
+      engine.emit({ "@type": "updateChatReadInbox", chat_id: GRACE, last_read_inbox_message_id: serverId(24), unread_count: 1 });
+      await settle(60);
+      expect(notified()).toHaveLength(2);
+      await until(() => notified().length === 3, "the one from a minute ago");
+      expect(notified()[2]).toBe("From a minute ago, read elsewhere");
+    } finally {
+      telegramNotifyTiming.settle = 20;
+    }
+  });
+
+  it("notifies of nothing it hears late where Telegram pushes the device, as a phone", async () => {
+    const { engine, events, client } = await linkedClient({ authorized: true, pushed: true });
+    client.linkTelegram();
+    await until(() => client.telegramSession.getConversations().length === 3, "the list");
+    const notified = () => events.filter((event): event is Extract<CoreEvent, { type: "notify" }> => event.type === "notify").map((event) => event.body);
+    const now = () => Math.floor(Date.now() / 1000);
+    const from = (id: number, text: string, date = now()) => engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(id), GRACE, text, { date }) });
+    // What came while the app was away, Telegram pushed, or left untold as read on another device.
+    engine.emit({ "@type": "updateConnectionState", state: { "@type": "connectionStateUpdating" } });
+    from(20, "While the app was away");
+    engine.emit({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });
+    from(21, "From hours ago", now() - 3 * 3600);
+    await settle(80);
+    expect(notified()).toEqual([]);
+    // What comes while the app runs still notifies, as nothing pushes that.
+    from(22, "Now");
+    await until(() => notified().length === 1, "the message sent now", 100);
+    // The messages themselves show in their chat all the same.
+    expect(events.filter((event) => event.type === "message" && event.isNew).length).toBe(3);
+  });
+
+  it("tells how old a message is by Telegram's clock, not the device's", async () => {
+    // The device's clock is an hour ahead of Telegram's: by it, every message was sent an hour ago.
+    const engine = new FakeTdlib();
+    engine.clock = () => Date.now() - 3_600_000;
+    const { events, client } = await linkedClient({ authorized: true, pushed: true, engine });
+    client.linkTelegram();
+    await until(() => client.telegramSession.getConversations().length === 3, "the list");
+    await until(() => engine.requests("getOption").some((request) => request.name === "unix_time"), "asking for Telegram's clock");
+    await settle();
+    engine.emit({ "@type": "updateNewMessage", message: textMessage(GRACE, serverId(20), GRACE, "Now", { date: Math.floor(engine.clock() / 1000) }) });
+    await until(() => events.some((event) => event.type === "notify"), "the message sent now", 100);
   });
 
   it("drops what it doesn't know, and keeps what was edited, reacted to and deleted in step", async () => {

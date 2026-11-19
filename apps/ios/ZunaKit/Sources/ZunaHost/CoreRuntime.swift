@@ -54,6 +54,10 @@ public final class CoreRuntime: @unchecked Sendable {
         /// The app has calls on the linked Telegram account, whose media it runs itself
         /// (docs/TELEGRAM_CALLS_PLAN.md). Without it, Telegram's own apps take them.
         public var telegramCalls = false
+        /// The app gives Telegram its push token, so Telegram pushes it the linked account's messages while
+        /// it's away (`setTelegramPushToken`): what the engine hears of late, as it catches up, the core
+        /// then notifies of nowhere, as the push told of it, or Telegram left it untold as read elsewhere.
+        public var telegramPushed = false
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -335,6 +339,9 @@ public final class CoreRuntime: @unchecked Sendable {
         }
         if options.telegramCalls {
             host.setObject(true, forKeyedSubscript: "telegramCalls" as NSString)
+        }
+        if options.telegramPushed {
+            host.setObject(true, forKeyedSubscript: "telegramPushed" as NSString)
         }
         // The App Store's rules: what TDLib restricts on a linked Telegram account is withheld on
         // every iPhone and iPad, with no way to lift it, and 18+ media unless the account lets it
