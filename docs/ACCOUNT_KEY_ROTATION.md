@@ -111,15 +111,15 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | **Identity key** | Every generation | A new lasting hybrid key, Ed25519 and ML-DSA-65, announced by a link. The root stays in `users.identity_key`, since every chain starts from it. |
 | **HPKE key** | Every generation | New pair, named in the link. The last 16 secrets stay in the core, because a contact who hasn't heard yet may still seal a grant to an old key. |
 | **Vault core** | Every generation | Sealed under the new account key. Holds the keys above and the older account keys until the generation closes. |
-| **Vault items that carry trust** (`pin:`, `verified:`, `trust:`, `chain:`, `prefs`, `device:`) | Every generation | Sealed again in the same server transaction as the rotation, since a new device believes them. |
-| **Epoch keys in the vault** (`ek:`) | Every generation | Sealed again in the background. They only ever fill gaps (`session.ts:893`), so they can wait. |
+| **The vault's manifest and device names** (`manifest`, `device:`) | Every generation | Sealed again in the same server transaction as the rotation, since a new device believes them. |
+| **Epoch keys in the vault** (`ek:`) | Every generation | Sealed again in the background. They only ever fill gaps (`saveEpochKey` in `session/groups.ts`), so they can wait. |
 | **Device certificates** | Reissued, lazily | Each device publishes a new one after installing the generation, and puts it in its leaves at its next commit. Being carried keeps the old one valid until then. |
 | **History grants** | No | Pending grants open with the retained HPKE secrets. New ones go to the new key. |
 | **Password and recovery slots** | The sealed key every generation, the key pair only when the secret changes | Section 7. |
 | **Device seal keys** | After each generation, by the device itself, keeping the last one for a rotation already under way | So a copy of a device, taken once without it being removed, stops being useful from the rotation after next. Each says which generation it's from, signed, and a device making a rotation refuses one older than it has seen, so a server can't offer an old one again. Only what this device has seen counts, so one that's never seen a newer one can't tell. |
 | **Device signing keys** | No | These are the continuity contacts can check, and the MLS leaf's key. |
 | **Sign-in keys** | Only when the password or recovery key changes | As today. |
-| **Sessions** | Those with no device end, as on a password change today | `store/users.go:436`. Sessions of removed devices end when they're removed, as today. |
+| **Sessions** | Those with no device end, as on a password change today | `ApplyRotation` in `store/generations.go`. Sessions of removed devices end when they're removed, as today. |
 | **Community key** | No | It's shared by the whole server. An evicted person keeps being able to read profiles if they get the server's data: a limit in `SECURITY_DETAILS.md`, unchanged. |
 | **Epoch keys and file keys already given out** | No | Can't be taken back. |
 | **Local database key, push key** | No | Per device. A removed device's push registration is already deleted. |
@@ -135,7 +135,7 @@ A server alone can say a device was removed, and each rotation costs every conta
 | The password changes | The device changing it | One transaction with the new password material (section 8.3). |
 | The recovery key is regenerated | The device doing it | One transaction, with a new recovery slot. |
 | Someone signs in with the recovery key | The new device | One transaction with the new password. |
-| A ban ends | The next device to sign in | Banning revokes every device (`store/users.go:351`), which the next device treats as an uncovered removal. |
+| A ban ends | The next device to sign in | Banning revokes every device (`BanUser` and `revokeAll` in `store/users.go`), which the next device treats as an uncovered removal. |
 
 Rules that apply to all of these:
 
@@ -171,11 +171,11 @@ sealed_key    = HPKE(seal public, AK_g)                            changes every
 ```
 
 - **A device making a generation** seals to the seal public key. It needs no secret, and no device ever stores a slot's secrets or the slot key.
-- **Someone signing in** gets `sealed_secret` and `sealed_key` from the server after proving the sign-in key, as they get the wrapper today. They derive the slot key, open the secret, and open the account key.
+- **Someone signing in** gets `sealed_secret` and `sealed_key` from the server after proving the sign-in key. They derive the slot key, open the secret, and open the account key.
 - **That key could have been sealed by anyone,** the server included, so it only counts if it's the account's. `sealed_secret` names the root, and only that secret can write it, so whoever signs in requires a core that has the root and can sign with its secret. Without this, a server could seal a key of its own and put a core of its own under it, and a new device would believe everything from there on. A slot that names no root is refused.
 - **Changing the secret** replaces the slot, which needs a new generation so that the slot's new public key is announced through a link.
-- **Guessing passwords offline costs the same as today.** A server can test a guess against `sealed_secret`, at one Argon2id per guess, as it can test one against `wrapped_key_password` now. The limit in `SECURITY_DETAILS.md` doesn't change.
-- **The slot key has its own HKDF label** and is bound to the server and username, like the sign-in key (`crypto.ts:74`), rather than reusing `zuna/wrap/v1`.
+- **Guessing passwords offline costs the same as today.** A server can test a guess against `sealed_secret`, at one Argon2id per guess, as it could against the symmetric wrapper before. The limit in `SECURITY_DETAILS.md` doesn't change.
+- **The slot key has its own HKDF label** and is bound to the server and username, like the sign-in key (`derivePasswordKeys` in `crypto.ts`).
 - **No new crypto functions.** Random key pairs sealed under the slot key need only what exists on both platforms, whereas deriving the pairs from the secret would need a new binding in Rust, wasm and Swift.
 
 ### 7.3 Device seal keys
@@ -199,7 +199,7 @@ A device making a generation only carries a device if one of these is true:
 1. The previous link already carried it.
 2. It has a valid enrollment proof from a slot this device has pinned.
 
-Anything else isn't carried, is revoked in the same transaction, and raises the warning that already exists for a device that isn't really someone's (`session.ts:1025`). The same check applies to leaves of this person's own devices, so a ghost of yourself gets removed from any tree you share, even if its certificate is valid. It also applies to whoever signed a link (section 9.1).
+Anything else isn't carried, is revoked in the same transaction, and raises the warning that already exists for a device that isn't really someone's (`removeStaleLeaves` in `session/changes.ts`). The same check applies to leaves of this person's own devices, so a ghost of yourself gets removed from any tree you share, even if its certificate is valid. It also applies to whoever signed a link (section 9.1).
 
 So a stolen identity key and a malicious server can't get a fake device the new account key, unless the attacker also knows the password or recovery key.
 
@@ -242,7 +242,7 @@ sequenceDiagram
   D->>D: 2. Build link, core, slots, bundles, trust items
   D->>S: 3. POST rotate (expected generation)
   S->>S: One transaction, compare and swap
-  S-->>O: account_rotated
+  S-->>O: account (new generation)
   S-->>C: user (new generation)
   D->>D: 4. Install, then uploads resume
   O->>S: 5. Fetch link, bundle, core, then install
@@ -259,7 +259,7 @@ sequenceDiagram
 5. **Others follow** (section 9).
 6. **New certificate and key packages.** Devices build the MLS client again with the new certificate and top up key packages. One-time packages already on the server stay valid, since the device is carried.
 7. **Seal everything else again and close** (section 8.5).
-8. **Refresh leaves.** A device with an older certificate in a leaf makes an update commit there before it next sends, using `leaf_node_parameters`. A device that never sends in a group keeps its older certificate there, which stays valid because it's carried. Today a commit only comes when someone sends after an epoch has lasted a week (`session.ts:3008`, `session.ts:3059`), which is too slow to count on here.
+8. **Refresh leaves.** A device whose leaf has an older certificate makes an update commit there as the group syncs, or before it next sends, whichever comes first (`rotateIfOld` and `leafIsBehind` in `session/sending.ts`), using `leaf_node_parameters`. The older certificate stays valid until then, because it's carried.
 
 ### 8.3 What a crash does
 
@@ -270,13 +270,13 @@ sequenceDiagram
 | While sending, reply lost | Unknown | Asks the server for its generation. If the generation at the intent's number has the intent's link hash, it succeeded: go to install. If it has another link, another device won: go to section 8.4. If the server is behind, send the same bytes again, which the server treats as the same request. |
 | After the server accepted, before installing | Published. Other devices may already be on it | As above, it finds its own link and installs. |
 | Between the index database and the server's database | The account state is new, the chain isn't | On start, an intent whose generation equals the account's only finishes the second write. |
-| During sealing older items | Partly done | Resumes from a local cursor. Sealing is idempotent, and any device can take over. |
+| During sealing older items | Partly done | Resumes by asking the server for what's still under an older generation (`GET /api/vault/older`). Sealing is idempotent, and any device can take over. |
 | The device is lost after publishing | Others have the generation | Any device at this generation seals older items and closes. |
 | The device is lost before publishing | Nothing happened | Another device sees the uncovered removal and rotates. |
 
 The password change in the same transaction matters. If the rotation came first, the old password's slot would hold the new key for a moment. If the password change came first, a crash would leave the keys unrotated, although the intent would still finish it. One request avoids both.
 
-A recovery sign-in today sets the password before creating the device (`account.ts:294`, `account.ts:301`). That has to change: device first, then one transaction, since rotating needs a device session. A crash before it leaves an extra device on the list and the old password in place, and the person simply tries again.
+A recovery sign-in makes its device first, then changes the password in the rotation's one transaction (`recover` in `account.ts`), since rotating needs a device session. A crash before it leaves an extra device on the list and the old password in place, and the person simply tries again.
 
 ### 8.4 Two devices at once
 
@@ -304,22 +304,22 @@ What does this buy, given that an old-key holder may have copied the ciphertext 
 
 1. An old-key holder who gets the server's data only later sees nothing they can open.
 2. Trust items can never again be planted under an old key. They're only ever accepted at the current generation, which is why they're sealed in the rotation's own transaction rather than in the background.
-3. Planted `ek:` items can't block a gap after closing. Before closing, a planted key can make one old epoch unreadable on a new device (it fills the gap first, `session.ts:903`), which is denial of service, and it's possible today.
+3. Planted `ek:` items can't block a gap after closing. Before closing, a planted key can make one old epoch unreadable on a new device (it fills the gap first, `saveEpochKey`), which is denial of service, and it's possible today.
 
-A read position sealed under the account key stays until it's next written, so clients try the keys they hold, newest first (`session.ts:1164`). The worst an old-key holder with the server can do is mark messages as read, since positions only go forward (`session.ts:1169`), and that stops at closing.
+A read position sealed under the account key stays until it's next written, so clients try the keys they hold, newest first (`applyReadState` in `session/groups.ts`). The worst an old-key holder with the server can do is mark messages as read, since positions only go forward, and that stops at closing.
 
 ## 9. How devices and contacts learn
 
 ### 9.1 The account's other devices
 
-A device learns from an `account_rotated` frame, from the `user` frame, or from its first sync, which checks the generation before reading the vault, ahead of the existing order (`session.ts:442`). It then:
+A device learns from an `account` frame, from the `user` frame, or from its first sync, which catches up on the account's keys before it reads the vault (`syncAccount`, then `syncVault`, in `session/lifecycle.ts`). It then:
 
 1. Fetches the links it's missing, and takes them in order. A device that was offline through several generations needs only the newest bundle, since the core holds the older keys.
 2. Checks each link: its generation is the next one, its previous hash is right, the previous and new identity keys signed it, it lists each device once, the log of keys names it for that generation, and the signer is a device this device accepts (section 7.4). A link the log doesn't name yet waits until it does. One under this device's own ID is its own only with its own key beside it.
-3. Checks that it's carried. **If it isn't,** it has been removed: this is the existing signed-out state (`session.ts:401`), and it erases nothing.
+3. Checks that it's carried. **If it isn't,** it has been removed: this is the existing signed-out state (`signedOut` in `session/lifecycle.ts`), and it erases nothing.
 4. Opens the bundle with its seal secret, and checks the result against the link's key commitment.
 5. Opens the core with that key, and checks that the generation, identity key, HPKE key and slot hash all match the link.
-6. Saves the account state. This needs a new path from the session to the index database (item 12 of section 3.2).
+6. Saves the account state, which reaches the index database through `onAccountChanged`.
 
 An attacker with the old identity key and the server can write a link that passes step 2's signature checks, but the signer also has to be accepted, and that takes a carried device or a slot. Sealing a bundle to a device is something anyone can do, which is why step 4 checks it against a link that had to pass step 2.
 
@@ -333,15 +333,15 @@ Contacts learn from the `user` frame or `GET /api/users` (`store/users.go:194`),
 
 **A leaf or device of a person counts only if its certificate is signed by that person's identity key at some generation, for the signing key the leaf uses, and the device is carried by every link after that generation.**
 
-Certificates from generation 0 are signed by the root. Beyond that it's today's check (`session.ts:1318`), and failing it leads where it does today: not genuine, removed, warned about. So a certificate made with an old identity key after the fact fails, because its device isn't on the list, and it's the signed list rather than the server's `revoked_at` that says so.
+Certificates from generation 0 are signed by the root. Beyond that it's today's check (`certificateStanding` in `session/chains.ts`), and failing it leads where it does today: not genuine, removed, warned about. So a certificate made with an old identity key after the fact fails, because its device isn't on the list, and it's the signed list rather than the server's `revoked_at` that says so.
 
 Details that follow from this:
 
-- **The first valid link for a generation wins, and stays.** A contact keeps its chain in `identity_chain`, and shares its position through the vault in `chain:` items, so a new device of theirs starts from what the account knows (the same reasoning as `session.ts:441`). `pin:` keeps the root the chain starts from. A different valid link for a generation already held is proof of a fork: the contact keeps its chain and raises the existing `changed` warning.
+- **The first valid link for a generation wins, and stays.** A contact keeps its chain in `identity_chain`, and shares its position through the vault's manifest (`chains`), so a new device of theirs starts from what the account knows. The manifest's `pins` keeps the root the chain starts from. A different valid link for a generation already held is proof of a fork: the contact keeps its chain and raises the existing `changed` warning.
 - **A shorter chain from the server changes nothing.** A server can't take a contact back.
-- **A certificate with a newer generation than the contact holds** makes it fetch the links. If the chain really doesn't reach that generation, the leaf is treated as not genuine. A server that withholds links can therefore get a real device removed, and it rejoins with the existing warning (`session.ts:1864`). That's disruption, and it shows.
+- **A certificate with a newer generation than the contact holds** makes it fetch the links. If the chain really doesn't reach that generation, the leaf is treated as not genuine. A server that withholds links can therefore get a real device removed, and it rejoins with the existing warning (`joinExternal` in `session/joining.ts`). That's disruption, and it shows.
 - **Trees are how a contact can't be kept in the dark.** The tree is shared and its hash binds every member, so once a real device refreshes its leaf, every contact in that group sees a newer generation and asks for it. To hide a rotation from a contact, a server has to split the group, which stops the real person's messages reaching them. This is the closest thing to gossip available without a central service.
-- **Devices that have left stay usable for checking old messages.** A device a contact already knew stays as `revoked`, whatever the server says. A device first seen after the link, with a certificate from an older generation, isn't accepted at all, unless this contact has no history with the person, in which case it's accepted as revoked only. Messages use the device's signing key as they do today (`session.ts:2285`), with `couldBeSent` still applied.
+- **Devices that have left stay usable for checking old messages.** A device a contact already knew stays as `revoked`, whatever the server says. A device first seen after the link, with a certificate from an older generation, isn't accepted at all, unless this contact has no history with the person, in which case it's accepted as revoked only. Messages use the device's signing key as they do today (`checkEnvelope` in `crypto.ts`), with `couldBeSent` still applied.
 - **The HPKE key for grants comes from the head link,** which is signed, rather than from the server's field.
 - **Profiles are checked against the head,** with a signature the rotating device makes over the existing ciphertext, so nothing has to be encrypted again.
 
@@ -352,7 +352,7 @@ Details that follow from this:
 | **Updated client, not verified** | Nothing | Nothing | The existing `changed` warning |
 | **Updated client, verified** | Nothing. Stays verified | The badge goes back to unverified, with a neutral line in the chat (owner's decision 2) | The existing `changed` warning |
 
-**Continuity** means that the device that signed the link has held a leaf in a tree this contact shares with that person for at least a week, as this contact observed it. It's measured on the contact's own clock, in a local table written when a tree is checked. A week matches the longest an epoch stays unrotated on an active conversation (`session.ts:100`), and the period the owner has to see the alert about a new device (`session.ts:632`).
+**Continuity** means that the device that signed the link has held a leaf in a tree this contact shares with that person for at least a week, as this contact observed it. It's measured on the contact's own clock, in a local table written when a tree is checked. A week matches the longest an epoch stays unrotated (`EPOCH_MAX_AGE_MS` in `session/shared.ts`).
 
 The tree is what gives this its force: a fake device in a tree shared with the real person is seen by their real devices, which remove it and warn (section 7.4). So a malicious server can't quietly age a fake device.
 
@@ -362,11 +362,11 @@ An everyday password change on a device someone has had for months therefore sho
 
 The current tables stay as they are, keeping the root:
 
-- `pinned_identities` and `pin:` items keep the root key.
-- `verified` and `verified:` items keep the root key too.
-- New `trust:<user>` items record the generation a verification reached.
+- `pinned_identities`, and `pins` in the manifest, keep the root key.
+- `verified`, and `verified` in the manifest, keep the root key too.
+- The manifest's `trust` records the generation a verification reached.
 
-So someone is verified if the root matches and `trust:` reaches the current head, whether by comparing emoji at that head or through a link with continuity.
+So someone is verified if the root matches and their `trust` reaches the current head, whether by comparing emoji at that head or through a link with continuity.
 
 Pressing "they match" (`markVerified`) says which key the emoji covered, and that's the only key it goes by, since the press is exactly when a server would choose to answer differently. That's also how someone gets out of `changed` after a fork: they keep the chain they hold if that's what they compared, or adopt the one the server shows if it ends in exactly that key. A server's `identity_key` is only pinned if the emoji covered it, with no chain held. If nothing fits any more, nothing changes, and they're asked to compare again.
 
@@ -383,7 +383,7 @@ Pressing "they match" (`markVerified`) says which key the emoji covered, and tha
 
 | Step | Holder, honest server | Server alone | Holder and server together |
 |---|---|---|---|
-| **Before anyone acts** | With the password: sign in, get all keys, register a device (which is listed, and raises the alert). With a device: everything it can do. Without either: nothing | Can't read content. Can delay or withhold, and guess passwords offline | Open all new vault items, and so read new messages. Sign a device any contact accepts, which only counts once it's in the log of keys, where the account's own devices see it and give the alert. Plant trust items. Today's worst case |
+| **Before anyone acts** | With the password: sign in, get all keys, register a device (which is listed, and asked about on each of the account's devices). With a device: everything it can do. Without either: nothing | Can't read content. Can delay or withhold, and guess passwords offline | Open all new vault items, and so read new messages. Sign a device any contact accepts, which only counts once it's in the log of keys, where the account's own devices see it and give the alert. Plant trust items. Today's worst case |
 | **1. Removal accepted, not published** | Session gone. Nothing, without the password | Can refuse the rotation. The device retries, and uploads stay paused, so nothing new is sealed under the old key. Can claim other devices were removed | Open what's already there. New epoch keys stop arriving. Can still add a ghost to contacts' groups, but own devices won't carry it |
 | **2. Published, others not yet updated** | Nothing | Can withhold the link from contacts or siblings, though the log of keys names it, so they know a generation is missing and their copies of the person's new certificates wait for it. Can't serve an old generation to a brand-new device, whose sign-in reads the log's newer link. Can't forge a link | Can forge a fork at this generation and show it to contacts who haven't got the real one, which has to be in the log, where the account's own devices see a link they didn't make, or in a second log, which the first message between a contact and anyone shown the first gives away. Unverified contacts accept it silently, verified ones drop their badge. Siblings refuse it, unless it's signed by a stolen device from the previous link and they haven't seen the real one. Doesn't get the real new account key |
 | **3. Contacts updated, older items being sealed** | Nothing | Can stall the sealing, which is safe | Can open older items it has. Planted trust items are refused. Planted `ek:` items can block a gap on a new device. A ghost signed by the old key is removed and warned about by contacts |
@@ -393,10 +393,10 @@ Pressing "they match" (`markVerified`) says which key the emoji covered, and tha
 
 1. **Reading what they could already read.** Everything under keys they hold, for as long as they keep a copy, or as long as the items stay there. That includes all past history in the vault.
 2. **Someone who knows the password or recovery key,** until it changes. No device stores the recovery key, so a password thief never sees it, and it needn't change with the password. A stolen recovery key needs replacing, and that remains the person's choice, in Settings as today.
-3. **A rotation by someone with a session.** Someone with the password can register a device and rotate first, leaving the real person's devices off the list. They could already remove those devices and change both secrets today (`api/accounts.go:666`, `api/accounts.go:453`, `api/accounts.go:497`). Rotation adds no power, and the devices dropped see themselves signed out. Question 9 asks whether the recovery key should outrank this.
+3. **A rotation by someone with a session.** Someone with the password can register a device and rotate first, leaving the real person's devices off the list. They could already remove those devices and change both secrets today. Rotation adds no power, and the devices dropped see themselves signed out. Question 9 asks whether the recovery key should outrank this.
 4. **Forks shown to anyone who hasn't got the real link.** A contact who sees the attacker's link first follows it until a shared tree or the emoji shows otherwise. This needs the old identity key and the server together. If the attacker also holds a stolen long-standing device, the fork even passes the continuity check, and a sibling that was offline during the real rotation can be misled too, into installing an account key the attacker chose. The server would then have to keep that sibling apart from the real chain, and every tree it shares with the person's other devices or with an updated contact gives the fork away.
 5. **A brand-new device being served an old generation, or keys chosen by a holder.** It has nothing to compare with, so it believes the newest thing the server shows. A server alone can only do this with generations that really happened. A holder, who has the root secret because every core does, can also make up a core and an account key the slot's check accepts, and read what that device then seals under it. It's found out quickly: an updated contact sees a certificate from an old generation that isn't carried, or one from a chain they don't hold, and removes and warns about it, and other devices of the account do the same. A device that already knows the account refuses a different root before erasing anything.
-6. **Forged old messages.** A removed device with old epoch keys and a colluding server can still present a message in an epoch before it left, which is possible today. `couldBeSent` only stops it for later epochs (`session.ts:2362`).
+6. **Forged old messages.** A removed device with old epoch keys and a colluding server can still present a message in an epoch before it left, which is possible today. `couldBeSent` only stops it for later epochs (`sendable.ts`).
 7. **Denial of service.** A server can refuse rotations. Keys stay safe, since uploads wait, but a new device's history falls behind. After a day of failing, the device says so with the existing security event (owner's decision 4).
 8. **Metadata.** The server sees when an account rotates, and can guess why. It already sees devices being removed.
 
@@ -404,7 +404,7 @@ Pressing "they match" (`markVerified`) says which key the emoji covered, and tha
 
 There's been no release, so nothing is kept for clients or servers from before any of this: an account has both slots from sign-up, every certificate is signed by the identity key of the generation it names, every device registers a seal key that says its generation, and the server has none of the older routes or wrappers. A client and a server have to be of the same version. Once there's a release, a change to any of this will need a plan for the versions in between.
 
-"Zuna accounts keep the same key for life" stopped being true with the identity chain, on the verify screens (`Overlays.tsx`, `VerifyView.swift`) and in `SECURITY.md`.
+"Zuna accounts keep the same key for life" stopped being true with the identity chain, on the verify screens (`Overlays.tsx`, `ui/overlays/verify.rs` in the native app, `VerifyView.swift`) and in `SECURITY.md`.
 
 ## 12. Not built
 
@@ -414,14 +414,14 @@ Dropping the root secret from the core. Signing in checks that a core can sign w
 
 ### For the reviewer
 
-1. **Slots.** Is a random HPKE pair and a random lasting signing key, both sealed under an HKDF output of the Argon2id master, a sound replacement for a symmetric wrapper? Anything in using one Argon2id output for the sign-in key, the old wrap key and the slot key beyond the labels (`crypto.ts:72`)?
+1. **Slots.** Is a random HPKE pair and a random lasting signing key, both sealed under an HKDF output of the Argon2id master, a sound replacement for a symmetric wrapper? Anything in using one Argon2id output for the sign-in key and the slot key beyond the labels (`derivePasswordKeys`)?
 2. **Enrollment proofs.** Do they really stop a fake device from getting the new key on an account with both slots, as section 7.4 claims? Can rule 3 of that section be narrowed for accounts with one slot?
 3. **Key commitment.** Is `HKDF(AK_g, label)` in a public link safe, and enough to stop different keys being given to different devices? Should sealed-to-slot and sealed-to-device keys bind the link's hash in HPKE's associated data as proposed, or is there a better way?
-4. **The link.** Is it right that there are three signatures, and is the possession signature worth having? Does signing exact JSON bytes, as certificates do (`crypto.ts:170`), leave any ambiguity worth closing with a binary format?
+4. **The link.** Is it right that there are three signatures, and is the possession signature worth having? Does signing a link's exact JSON bytes leave any ambiguity worth closing with a binary format, as certificates now have?
 6. **Continuity.** Does "held a leaf in a shared tree for a week" mean what section 9.3 says, against a server that splits trees? Is a week right, and should the rule apply to unverified contacts at all? Is it right that a non-continuous rotation is quiet, rather than the loud `changed`?
 7. **The emoji.** It covers the heads only (section 9.4). Is there anything a server gains by showing two people different chains, beyond a false mismatch?
-9. **Who outranks whom.** Should the recovery key outrank a hostile rotation? A recovery slot's signing key could sign a link that wins over another at the same generation, so someone who took over with a stolen password couldn't keep the owner out. That only holds if a password alone can no longer replace the recovery key, as it can today (`api/accounts.go:511`), which would be a change in itself.
-10. **Replay within a generation.** A server can still serve an older copy of a vault item under the same key, for instance a `verified:` from before a re-verification, since items have no version. That's possible today. Should items carry a counter, and how much does that matter here?
+9. **Who outranks whom.** Should the recovery key outrank a hostile rotation? A recovery slot's signing key could sign a link that wins over another at the same generation, so someone who took over with a stolen password couldn't keep the owner out. That only holds if a password alone can no longer replace the recovery key, as it can today, which would be a change in itself.
+10. **Replay within a generation.** Answered: what an account trusts is one manifest, under a number that only goes up, and the core carries the number it had reached, so a new device won't take an older one (`manifest.ts`, `manifest` in `VaultCore`).
 11. **Credential changes in MLS.** Is changing a `BasicCredential` in a self-update, keeping the signature key, sound in RFC 9420 terms, given that the tree check is what validates it? OpenMLS 0.9.2 accepts it, including for members who joined afterwards by Welcome and by external commit (`a_commit_gives_a_leaf_its_new_certificate` in `mls.rs`), which says it works, not that it's sound.
 13. **Post-quantum.** Built since this was asked, with MLS in the same change, as either alone leaves the other open ([POST_QUANTUM.md](POST_QUANTUM.md)): slots, bundles and grants are sealed with X-Wing, ML-KEM-768 and X25519 together, under `zuna/account-slot/v2` and `zuna/account-bundle/v2`, and identity keys, slots' signing keys and links are signed with Ed25519 and ML-DSA-65 together. Is anything in a rotation's design weaker for the larger keys, or for a link checked with hybrid signatures?
 15. **Seal key generations.** A seal key now also has a signature saying its generation, and the log of keys has an entry for each one a device registers, so a rotation seals only to the newest the log has for that device, which a device that never saw it can tell too. What a device has seen is only what's left while the log can't be read. Should a rotation also refuse a seal key from too far behind the current generation, at the cost of leaving out a device that's been away?
@@ -458,10 +458,10 @@ Hashes are SHA-256. Signed JSON is signed as the exact bytes sent. Every signatu
 ```
 payload = {
   v: 1, user, gen,
-  prev,                 H(previous payload), or H("zuna/identity-chain/v1/root" | user | IK_0) at gen 1
+  prev,                 H(previous payload), or H("zuna/identity-chain/v1/root|" | user | "|" | IK_0) at gen 1
   identity, hpke,       public keys of this generation
   key_commit,           HKDF(AK_gen, no salt, "zuna/account-key-commit/v1|user|gen", 32)
-  slots_hash,           H(password seal, password sign, recovery seal, recovery sign), absent parts empty
+  slots_hash,           H("zuna/account-slots/v1" | slot(password) | slot(recovery)), each 1 | seal | sign, or 0 if absent
   devices,              [{ id, key }], sorted by id
   removed,              [device id]
   signer                device id
@@ -504,7 +504,8 @@ Anything else, or one whose key isn't a device's, is refused (`createCertificate
 
 ```
 core       = AEAD(AK_gen, { gen, closed, root pair, identity pair, hpke pair, older account keys,
-                            older hpke secrets, community key, slot public keys },
+                            older hpke secrets, community key, slot public keys,
+                            the manifest's number },
                   "zuna/vault-core/v2|user|gen")                     gen >= 1
 core       = AEAD(AK_0, the same, "zuna/vault-core/v1")              gen = 0
 vault item = AEAD(AK_gen, data, "zuna/vault-item/v2|gen|id")        gen >= 1
@@ -512,27 +513,28 @@ vault item = AEAD(AK_0,   data, "zuna/vault-item/<id>")             gen = 0
 profile_sig = Sign(IK_gen, "zuna/profile-sig/v2|user|gen|" | profile ciphertext)
 ```
 
-The core has to fit in `maxDetailBytes` (16 KiB) or a new limit, which it does for a long time: closing a generation removes its account key, and the HPKE secrets that stay cost 32 bytes each.
+The core has a limit of its own, 64 KiB (`maxVaultCoreBytes`), as its hybrid keys alone come to many kilobytes. Closing a generation removes its account key, and the HPKE secrets that stay cost 32 bytes each.
 
 ### Server
 
 Columns on `users`: `key_generation`, `identity_head`, `profile_sig`. On `devices`: `seal_key`, `seal_generation`, `seal_proof`, `enroll_proof`. On `vault_items`: `generation`.
 
-New tables: `identity_links`, `account_slots`, `account_bundles`. All of this is added to the end of `migrations` (`store/store.go:98`).
+New tables: `identity_links`, `account_slots`, `account_bundles`. All of this is at the end of `migrations` in `store/migrations.go`, and of `postgresMigrations` in `store/postgres.go`.
 
 | Route | Wrapper | Purpose |
 |---|---|---|
-| `POST /api/account/rotate` | `withDevice`, tightly limited | The transaction in section 8.2 |
+| `POST /api/account/rotate` | `withDevice`, `proven`, tightly limited | The transaction in section 8.2 |
 | `GET /api/account` | `withDevice` | Generation, this device's bundle, the core |
-| `POST /api/account/bundles` | `withDevice` | Late delivery |
-| `POST /api/account/core` | `withDevice` | Closing a generation. Guarded by the generation |
-| `PUT /api/devices/{id}/seal-key` | `withDevice`, own device only | Registering a seal key, with its generation. Tells the account's other devices, which is what late delivery starts from |
-| `PUT /api/devices/{id}/certificate` | `withDevice`, own device only | Publishing a new certificate |
+| `POST /api/account/bundles` | `withDevice`, `proven` | Late delivery |
+| `POST /api/account/core` | `withDevice`, `proven` | Closing a generation. Guarded by the generation |
+| `PUT /api/devices/{id}/seal-key` | `withDevice`, `proven`, own device only | Registering a seal key, with its generation. Tells the account's other devices, which is what late delivery starts from |
+| `PUT /api/devices/{id}/certificate` | `withDevice`, `proven`, own device only | Publishing a new certificate |
 | `GET /api/users/{id}/identity-links` | `withDevice` | A person's links, after a given generation |
-| `GET`, `PUT /api/vault`, `GET /api/vault/older`, `POST /api/vault/reseal` | `withDevice` | The vault, with generations |
+| `GET /api/vault`, `GET /api/vault/older` | `withDevice` | The vault, with generations |
+| `PUT /api/vault`, `POST /api/vault/reseal` | `withDevice`, `proven` | Writing it, and sealing it again |
 | `GET /api/history-grants` | `withDevice` | Grants, which a device deletes once it has handled them |
 
-`POST /api/register` takes both slots and no wrapper. `POST /api/auth/login` and `/recover` give the slot for the secret used, the generation and the link at the head. `POST /api/devices` takes the generation the device signed in at, its seal key and the proof of its generation, and its enrollment proof, and refuses an old generation.
+`POST /api/auth/register` takes both slots. `POST /api/auth/login` and `/recover` give the slot for the secret used, the generation and the link at the head. `POST /api/devices` takes the generation the device signed in at, its seal key and the proof of its generation, and its enrollment proof, and refuses an old generation.
 
 ### On the device
 
