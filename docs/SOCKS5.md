@@ -8,7 +8,7 @@ It's built in the native desktop app, the iPhone and iPad app and `zuna-bot`. Th
 
 - **The server sees every device's address,** on its socket, on each signed-in request and on each sealed one. The table in `docs/SECURITY_DETAILS.md` lists it under Network, and `docs/SEALED_SENDER.md` under what a determined server can still tell.
 - **LiveKit sees it too,** for as long as someone is in a call, with the addresses of the device's local network, which every app offers as candidates ("Voice channels" in `docs/SECURITY_DETAILS.md`).
-- **So does every other place an app contacts:** a site whose link is previewed, YouTube once Watch is pressed, GitHub when the desktop app looks for an update.
+- **So does every other place an app contacts:** a site whose link is previewed, YouTube once Watch is pressed, GitHub when the desktop app looks for an update, and Telegram, on a device that linked an account.
 - **Nothing in the apps could change that** before this. A VPN for the whole system did, and was all there was.
 
 ## What it's for, and what it isn't
@@ -58,6 +58,7 @@ Every connection has to be found and sent through the proxy, so this is the list
 | A call's media: UDP to 7882, or TCP to 7881, on the machine LiveKit runs on | libwebrtc, inside LiveKit's SDK |
 | A linked Telegram account's call: UDP to Telegram's TURN servers, at its own addresses | libwebrtc, on a peer connection of the app's own (`apps/desktop/src/voice/telegram/media.rs`), each relay a port on loopback that carries it through the proxy in a UDP association (`media::through`, `Relays` in `voice/proxy.rs`) |
 | YouTube's player | WKWebView on macOS, WebView2 on Windows, `zuna-watch` (`apps/desktop/watch`) on Linux |
+| A linked Telegram account's engine, `zuna-telegram` | Its door, which connects through the proxy (`apps/desktop/src/telegram/door.rs`) |
 
 ### The iPhone and iPad app
 
@@ -71,12 +72,14 @@ Every connection has to be found and sent through the proxy, so this is the list
 | LiveKit's signalling | A URLSession LiveKit's Swift SDK makes for itself (`WebSocket.swift`, `HTTP.swift` in the SDK) |
 | A call's media | libwebrtc, in LiveKit's prebuilt framework |
 | YouTube's player | WKWebView in `Zuna/Voice/Watch.swift` |
+| A linked Telegram account's TDLib | `ZunaHost/TelegramDoor.swift`, a door on loopback whose connections take `NetworkProxy.apply` |
+| A Telegram call's media | `LiveKitWebRTC` in `Zuna/Voice/TelegramCall.swift`, through `CallProxy`'s relays |
 
 Apple's push service isn't on the list. The system holds that connection, no app can route it, and the server never sees a device's address through it.
 
 ### `zuna-bot`
 
-Everything goes through undici: its requests, its sealed ones on an agent of their own, and its socket (`pinnedAgent` and `sealedAgent` in `apps/bot/src/host.ts`). A bot joins no call.
+Everything goes through undici: its requests, its sealed ones on an agent of their own, and its socket (`pinnedAgent` and `sealedAgent` in `apps/bot/src/host.ts`). Only its webhook, which is its owner's own code, is reached directly. A bot joins no call.
 
 ## The setting
 
@@ -144,7 +147,7 @@ This is the part a mistake in would leak through, so it's written once, in the c
 
 A WebSocket from the proxy, and media from the proxy. Not the device's address, and no longer its local network's addresses, which today's apps send.
 
-Everyone behind one proxy shares its address, so they share the server's limits for an address too. A server whose members all use one proxy may need those raised, which `docs/SELF_HOSTING.md` should say.
+Everyone behind one proxy shares its address, so they share the server's limits for an address too. A server whose members all use one proxy may need those raised, as `docs/SELF_HOSTING.md` says.
 
 ### What it costs
 
@@ -186,7 +189,7 @@ Beside it, a recorder in front of the test server and the test LiveKit, which wr
 | Where | What runs |
 |---|---|
 | Core | The rewriter's tests. `ZUNA_TEST_SOCKS=1` runs the whole suite through the test proxy, as `ZUNA_TEST_JUNK_SENDERS` runs it behind another |
-| Desktop | Unit tests for `host/socks.rs`. `apps/desktop/test/proxy-check.mjs`, on macOS through the test control: two copies of the app through the test proxy, a chat, a file, then a call over UDP and again with UDP refused, with a tone heard at the other end. Linux and Windows have no check of their own yet |
+| Desktop | Unit tests for `host/socks.rs`. `apps/desktop/test/proxy-check.mjs`, on macOS through the test control: two copies of the app through the test proxy, a chat, a file, then a call over UDP and again with UDP refused, with a tone heard at the other end, and a video watched together in the fake player. Linux and Windows have no check of their own yet |
 | iPhone | `npm run test:ios` through the test proxy. `test:ios:voice` with the proxy on, both ways. A real iPhone for the call, as a simulator shares the Mac's network |
 | Bot | `npm run test:bot` with `--proxy` |
 | Web | Nothing. `web-check.mjs` must still pass |
@@ -210,4 +213,4 @@ Beside it, a recorder in front of the test server and the test LiveKit, which wr
 - **The web app,** and with it TURN on deployments.
 - **A proxy for the server itself,** such as for what `zuna-web` fetches.
 
-
+
