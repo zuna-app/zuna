@@ -9,7 +9,7 @@
     <a href="https://github.com/zuna-app/zuna/actions/workflows/coverage.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/zuna-app/zuna/coverage.yml?branch=main&label=tests"></a>
     <a href="https://codecov.io/gh/zuna-app/zuna"><img alt="Coverage" src="https://codecov.io/gh/zuna-app/zuna/graph/badge.svg"></a>
     <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/zuna-app/zuna"></a>
-    <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20web-555">
+    <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20iOS%20%7C%20web-555">
     <a href="docs/POST_QUANTUM.md"><img alt="MLS, post-quantum" src="https://img.shields.io/badge/encryption-MLS%20%2B%20post--quantum-6f42c1"></a>
   </p>
 
@@ -18,10 +18,11 @@
   <p>
     <a href="https://zuna.chat">Website</a> ·
     <a href="https://github.com/zuna-app/zuna/releases">Download</a> ·
-    <a href="https://apps.apple.com/app/id6766357402">App Store</a> ·
     <a href="docs/SELF_HOSTING.md">Host a server</a> ·
     <a href="SECURITY.md">Security model</a>
   </p>
+
+  <p><a href="https://apps.apple.com/app/id6766357402"><img alt="Download on the App Store" src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us" height="48"></a></p>
 </div>
 
 Zuna looks like the chat apps you know: servers as icons on a rail, channels anyone can join, direct messages with everyone on the server, and invite-only groups. The difference is that nobody owns it. Anyone can run a server in a few minutes, and that server only ever holds ciphertext, so even the person running it can't read a word.
