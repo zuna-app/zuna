@@ -21,8 +21,8 @@ flowchart LR
 
 | Part | Location | Technology | Why |
 |---|---|---|---|
-| Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
-| Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
+| Crypto core | `crypto/` | Rust, OpenMLS; native in the desktop app, through UniFFI on iOS, WebAssembly elsewhere | One audited MLS implementation, for every app |
+| Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so every app runs the same |
 | Desktop app | `apps/desktop/` | Rust, GPUI, the core in QuickJS, LiveKit's Rust SDK | Drawn on the GPU on Windows, Linux and macOS, with the system's own capture and codecs, and a fraction of a browser's memory (`docs/DESKTOP_APP.md`) |
 | iPhone and iPad app | `apps/ios/` | SwiftUI and UIKit, the core in JavaScriptCore, the crypto through UniFFI | Native on the phone, with the same core and crypto as every other app (`docs/IOS.md`) |
 | Web interface | `packages/ui/` | React, Motion | The web app's screens, which follow the same design. The web app gives it a `Platform` for what's outside the page |
@@ -68,7 +68,7 @@ A **voice channel** is a channel with a room on [LiveKit](https://livekit.io), w
 
 ```mermaid
 flowchart LR
-  subgraph App["Desktop or web app"]
+  subgraph App["Desktop, web or iPhone app"]
     Core["Client core"]
     Room["LiveKit room<br/>and its frame cryptor"]
     Mic["Microphone<br/>RNNoise, gate"]
