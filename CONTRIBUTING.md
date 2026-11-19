@@ -11,9 +11,9 @@ Rust builds the encryption core and the native desktop app. The encryption core 
 
 - **Windows:** the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`) and Visual Studio's C++ build tools.
 - **macOS:** Xcode, with its Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`), and an Apple Development identity to sign the app with.
-- **Linux:** clang, pkg-config, and the development files of libxkbcommon, wayland, fontconfig, freetype2, PipeWire, glib, libva and WebKitGTK 6.0, the last for the window a video watched together plays in. `scripts/linux-build-deps.sh` installs all of it on Debian and Ubuntu, as releases build.
+- **Linux:** clang 21 or later, which LiveKit's libwebrtc needs, pkg-config, cmake, and the development files of libxkbcommon, wayland, fontconfig, freetype2, PipeWire, glib, libva, libdrm, gbm, EGL, D-Bus and WebKitGTK 6.0, the last for the window a video watched together plays in. `scripts/linux-build-deps.sh` installs all of it on Debian 12, as releases build, with clang from LLVM's own packages.
 
-On Linux, `dev/setup.sh` checks Node, Go, Rust and wasm-bindgen for you, though not yet what the desktop app needs. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs the two commands below. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
+On Linux, `dev/setup.sh` checks Node, Go, Rust, wasm-bindgen and most of what the desktop app needs for you, though not the Wayland or WebKitGTK headers. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs `npm ci` and `npm run build:crypto`. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
 
 ## Getting started
 
@@ -25,7 +25,7 @@ npm install
 npm run build:crypto
 ```
 
-These cover day-to-day work. The `dev` folder has the same as files to double-click on Windows, or to run on Linux.
+These cover day-to-day work. The `dev` folder has the same as files to double-click on Windows, or to run on Linux and macOS.
 
 | Command | In `dev` | What it does |
 |---|---|---|
@@ -38,7 +38,7 @@ These cover day-to-day work. The `dev` folder has the same as files to double-cl
 
 **The app** opens at the welcome screen on a fresh start. Sign in with the details in `.dev-data/world/world.json` to land in the owner's account with conversations going, or paste the invite link that the server printed to try sign-up. A development build keeps its data in `.dev-data` too, apart from an installed Zuna's.
 
-**Cleaning** removes the `.dev-data` folder, which holds everything the test server and the development app store. It refuses to run while either is still open, and it can't affect an installed copy of Zuna, which keeps its data elsewhere.
+**Cleaning** removes the `.dev-data` folder, which holds everything the test server and the development app store. It refuses to run while the test server is still open, and on Windows while the development app is, so close the app first elsewhere. It can't affect an installed copy of Zuna, which keeps its data elsewhere.
 
 The web app keeps its data in the browser, which cleaning doesn't touch.
 
@@ -51,6 +51,8 @@ cd packages/core
 ```bash
 npx vite-node test/dev-bots.ts "<invite link>"
 ```
+
+A server that isn't on this machine or a private network needs passwords of your own for their accounts, in `ZUNA_DEV_OWNER_PASSWORD` and `ZUNA_DEV_PEOPLE_PASSWORD`.
 
 ## Tests
 
@@ -72,7 +74,7 @@ npm run build -w @zuna/web
 node apps/web/test/web-check.mjs
 ```
 
-The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs` and `linux-voice-check.mjs` on Linux, `mac-voice-check.mjs` on macOS, and `windows-update-check.mjs` on Windows, for the app updating itself. Its own tests are `cargo test` in `apps/desktop`, which `node scripts/windows-app.mjs test` runs on Windows with what it needs. Each says at its top what it needs.
+The native app has checks of its own in `apps/desktop/test`: `linux-check.mjs`, `linux-voice-check.mjs`, `linux-package-check.mjs` and `loss-check.mjs` on Linux, `mac-voice-check.mjs` and `proxy-check.mjs` on macOS, `windows-update-check.mjs` on Windows, for the app updating itself, and `key-log-check.mjs` and `codec-check.mjs` for screen sharing. Its own tests are `cargo test` in `apps/desktop`, which `node scripts/windows-app.mjs test` runs on Windows with what it needs. Each says at its top what it needs.
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
