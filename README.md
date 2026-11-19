@@ -18,6 +18,7 @@
   <p>
     <a href="https://zuna.chat">Website</a> ·
     <a href="https://github.com/zuna-app/zuna/releases">Download</a> ·
+    <a href="https://apps.apple.com/app/id6766357402">App Store</a> ·
     <a href="docs/SELF_HOSTING.md">Host a server</a> ·
     <a href="SECURITY.md">Security model</a>
   </p>
@@ -61,7 +62,7 @@ Zuna looks like the chat apps you know: servers as icons on a rail, channels any
 | **Linux**, x64, Wayland | `.deb`, `.rpm`, pacman package, AppImage and `.tar.gz` on releases |
 | **macOS** 14.2+, Apple silicon | Signed and notarized DMG on releases. Doesn't update itself yet |
 | **Web** | Chats, channels and calls in a browser, when a server's admins host it ([WEB.md](docs/WEB.md)) |
-| **iPhone and iPad** | Native SwiftUI app, built and in TestFlight for the team. Not public yet |
+| **iPhone and iPad**, iOS 18+ | Native SwiftUI app on the [App Store](https://apps.apple.com/app/id6766357402) |
 | **Android** | Planned ([ROADMAP.md](docs/ROADMAP.md)) |
 
 Every app runs the same client core (`packages/core`) and the same Rust crypto, so they all speak one protocol.
@@ -91,7 +92,7 @@ Update later with `sudo zuna-update`, which undoes a build that won't start. Eve
 
 ## Join a server
 
-1. Install Zuna from [releases](https://github.com/zuna-app/zuna/releases).
+1. Install Zuna from [releases](https://github.com/zuna-app/zuna/releases), or on an iPhone or iPad from the [App Store](https://apps.apple.com/app/id6766357402).
 2. Paste the invite link someone sent you.
 3. Pick a name and password, and save your recovery key. No email or phone number is asked for.
 

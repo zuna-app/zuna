@@ -1,6 +1,6 @@
 # The iPhone and iPad app
 
-A native app in SwiftUI, with UIKit where SwiftUI falls short, in `apps/ios`. It isn't released yet: each nightly that changes it goes to TestFlight for the team's testers ([RELEASES.md](RELEASES.md)), and [ROADMAP.md](ROADMAP.md) says what's left before it reaches people. This page is its design. How it's tested is in [IOS_TESTING.md](IOS_TESTING.md).
+A native app in SwiftUI, with UIKit where SwiftUI falls short, in `apps/ios`, on the [App Store](https://apps.apple.com/app/id6766357402) for iOS and iPadOS 18 and later. Each nightly that changes it goes to TestFlight for the team's testers, and each stable release to App Store Connect for the App Store ([RELEASES.md](RELEASES.md)). [ROADMAP.md](ROADMAP.md) says what's left. This page is its design. How it's tested is in [IOS_TESTING.md](IOS_TESTING.md).
 
 ## Summary
 
@@ -230,6 +230,7 @@ None of it has run on a phone: the simulator gets no silent push, and `simctl pu
 
 ## On the App Store
 
+- **The app** is at `https://apps.apple.com/app/id6766357402`, its App Store ID `6766357402`, which the README and the site (`APP_STORE` in `apps/site/src/downloads.ts`) link to.
 - **The server App Review signs in to** is `applereview.zuna.chat`, named "Zuna Demo", on the maintainers' own server, with LiveKit. How that server is set up is kept out of the repository. Reviewers sign in as its owner, `alex`, and the details and notes App Store Connect takes, the password, an invite link for a new account and the owner's recovery key, are only on that server, where only root reads them, and with the maintainers, never in the repository.
   - Its people, Sam, Jordan, Priya, Marek and Lena, with their chats, the group and the channels, are `packages/core/test/dev-bots.ts`'s world, given passwords of their own, as it asks of a server elsewhere. They run on that server from the bundle `packages/core/test/dev-bots-bundle.mjs` writes, so that each answers a direct message.
   - Nothing older than the newest code is kept working, so the server, and the people's bundle with it, is updated only to code the build in review works with.

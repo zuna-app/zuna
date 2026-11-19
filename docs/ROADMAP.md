@@ -4,13 +4,14 @@ Zuna 1.0 is chat, with text channels everywhere, voice channels and calls on the
 
 ## Phones
 
-**iPhone and iPad: built, not yet released**
+**iPhone and iPad: on the App Store**
 
 The app is native: SwiftUI, with the unchanged client core (`packages/core`) running in JavaScriptCore and the Rust crypto through UniFFI. It does everything the desktop does, and stays compatible with it. Notifications show the message, decrypted on the phone, and go where you are, as in Telegram. [IOS.md](IOS.md) has the design and the decisions behind it, and [IOS_TESTING.md](IOS_TESTING.md) how it's tested.
 
-Before it reaches people:
+It's on the [App Store](https://apps.apple.com/app/id6766357402), with what the App Store requires: deleting an account from the app, reporting someone to the server's admins, blocking people, on each device without the server, and agreeing to the [terms of use](https://zuna.chat/terms/) when creating an account.
 
-- **App Store requirements:** deleting an account from the app, reporting someone to the server's admins, blocking people, on each device without the server, and agreeing to the [terms of use](https://zuna.chat/terms/) when creating an account are built.
+What's left:
+
 - **Notifications in production:** deploying the push relay with the app's APNs key ([PUSH_RELAY.md](PUSH_RELAY.md)), and Apple's notification filtering entitlement, so muted chats and messages read elsewhere are handled on the phone rather than by the server.
 - **Testing on real devices,** from the TestFlight build each nightly that changes the app sends ([RELEASES.md](RELEASES.md)).
 

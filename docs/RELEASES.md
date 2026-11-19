@@ -2,7 +2,7 @@
 
 How the native app gets from a push to `main` to an Update button in someone's title bar, with nobody deciding a version number or clicking through a release by hand.
 
-Only the native app is released: its Windows installer, its Linux packages and its macOS DMG, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). The iPhone app goes to TestFlight with the nightlies, for the team's own testers, and to App Store Connect with stable releases, for the App Store, as [below](#the-iphone-app-on-testflight-and-the-app-store). The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
+Only the native app is released: its Windows installer, its Linux packages and its macOS DMG, on [GitHub Releases](https://github.com/zuna-app/zuna/releases). The iPhone app goes to TestFlight with the nightlies, for the team's own testers, and to App Store Connect with stable releases, for the [App Store](https://apps.apple.com/app/id6766357402), as [below](#the-iphone-app-on-testflight-and-the-app-store). The server, `zuna-web`, the bot and the images aren't on releases yet either (`docs/ROADMAP.md`).
 
 ## What happens
 
@@ -228,7 +228,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **Whether Windows Defender or SmartScreen leaves the unsigned installer alone** when it's downloaded in a browser.
 - **The Authenticode lock,** as no build is signed.
 - **The macOS DMG a release carries.** Nightly 1156 was built on a runner, in 21 minutes with nothing cached, signed with the Developer ID imported there from the environment, notarized with the key and stapled, and Gatekeeper accepted the app and its DMG on that runner. Opening a DMG downloaded from a release, with the quarantine a browser gives it, hasn't been seen.
-- **The iPhone app for the App Store from CI.** Nightlies archived, signed, checked and uploaded on CI reach the team's iPhones from TestFlight, as 1559 and 1601 did. A stable release's upload, unmarked for the App Store, hasn't run, nor has a build been submitted for review.
+- **The iPhone app for the App Store from CI.** Nightlies archived, signed, checked and uploaded on CI reach the team's iPhones from TestFlight, as 1559 and 1601 did. A stable release's upload, unmarked for the App Store, hasn't run.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
