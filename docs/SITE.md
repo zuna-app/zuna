@@ -31,12 +31,12 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 6 | Security | Private by math, not by promise. | MLS, audited OpenMLS, Argon2id and signed messages as a row of chips; a bento from `SECURITY.md`: MLS in every chat with a group key that changes as someone joins and leaves, the 16-emoji check, the password stretched on the device and never sent, every message signed by its device, every device checked before anything is encrypted, the log of keys the server can't rewrite (`docs/KEY_TRANSPARENCY.md`), the question each earlier device asks when another signs in, the SOCKS5 proxy that carries everything or nothing, and Settings' Your data with its rows' tags; a short "can see / can't read" with ciphertext behind what it can't; and the missing independent audit said up front, in a box of its own |
 | 7 | Compared | Zuna next to Matrix and Fluxer. | A table, feature by feature, with a check, a dash or a cross and a few words in each cell, Zuna's column lit: privacy (encrypted messages, the group encryption, encrypted calls, link previews, search), files (encrypted, the largest, metadata taken out), every day (channels, screen sharing, history on a new device, signing up), performance (native desktop and phone apps, the browser) and hosting (running a server, every feature free, open source); on a phone, each feature's three answers under it |
 | 8 | Platforms | Got an invite? You're three steps away. | Windows, macOS (Apple silicon), Linux, the web (if a server hosts it), iPhone and iPad (the App Store), Android (planned) |
-| 9 | FAQ | | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, how many people, Android, skipping the relay |
+| 9 | FAQ | Fair questions. | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, a forgotten password, how many people, skipping the relay, Android |
 | 10 | Self-hosting | One command. One folder to back up. | A terminal with tabs for Docker, which runs LiveKit too, and for systemd, which is `deploy/install.sh`, with LiveKit and a proxy it sets up or checks, each with its commands, a copy button, its own three steps and a link to its whole guide on GitHub; LiveKit for voice, the web app and backups |
 | 11 | Final call | Stop renting your group chat. | Download and Host a server |
 | 12 | Footer | | Links, the license, and that the page has no cookies, analytics or third-party requests |
 
-Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`, the terms of use everyone agrees to when they create an account, and `/support`. App Store Connect needs the privacy policy and support, and App Review terms with no tolerance for objectionable content.
+Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/terms`, the terms of use everyone agrees to when they create an account. App Store Connect needs the privacy policy and a support link, which goes to the repository, and App Review terms with no tolerance for objectionable content.
 
 ## Copy
 
@@ -47,7 +47,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`,
 
 ## Build
 
-- React 19, Vite 7 and `@vitejs/plugin-react` 5, the versions the rest of the repository uses.
+- React 19, Vite 8 and `@vitejs/plugin-react` 6, the versions the rest of the repository uses.
 - Prerendered at build time: Vite builds a server bundle, `react-dom/static` renders each page into its HTML, and the browser hydrates it. No framework.
 - Plain CSS with custom properties, as `packages/ui` does. Fonts from `@fontsource-variable`, icons from `lucide-react`.
 - Download links are fetched from the latest GitHub release at build time, since file names carry the version. GitHub's latest release leaves nightlies out, so until the first stable release they lead to the releases page. The visitor's browser never contacts GitHub.
@@ -77,4 +77,4 @@ Whatever serves it has to:
 
 ## Left to decide
 
-- A contact address for `/support` and `/privacy`, which Apple asks for.
+- A contact address for `/privacy`, which sends questions to the repository's issues for now.
