@@ -2039,6 +2039,7 @@
   "server.thatsTooManyRequestsAt": "Zbyt wiele żądań naraz. Odczekaj chwilę.",
   "server.thatsTooManyTriesAt": "Zbyt wiele prób naraz. Odczekaj chwilę.",
   "server.theCommitIsIncomplete": "Zatwierdzenie zmian jest niekompletne.",
+  "server.theConversationsKeysChanged": "Klucze rozmowy się zmieniły. Pobierz aktualny stan i spróbuj ponownie.",
   "server.theDeletionIsntValid": "Usunięcie jest nieprawidłowe.",
   "server.theDeviceDataIsIncomplete": "Dane urządzenia są niekompletne.",
   "server.theEditedMessageIsntValid": "Edytowana wiadomość jest nieprawidłowa.",

@@ -1911,6 +1911,7 @@
   "server.thatsTooManyRequestsAt": "That's too many requests at once. Please wait a moment.",
   "server.thatsTooManyTriesAt": "That's too many tries at once. Please wait a moment.",
   "server.theCommitIsIncomplete": "The commit is incomplete.",
+  "server.theConversationsKeysChanged": "The conversation's keys changed. Catch up and retry.",
   "server.theDeletionIsntValid": "The deletion isn't valid.",
   "server.theDeviceDataIsIncomplete": "The device data is incomplete.",
   "server.theEditedMessageIsntValid": "The edited message isn't valid.",

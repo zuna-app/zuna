@@ -1911,6 +1911,7 @@
   "server.thatsTooManyRequestsAt": "Trop de requêtes à la fois. Attends un instant.",
   "server.thatsTooManyTriesAt": "Trop de tentatives à la fois. Attends un instant.",
   "server.theCommitIsIncomplete": "La validation est incomplète.",
+  "server.theConversationsKeysChanged": "Les clés de la conversation ont changé. Mets-toi à jour et réessaie.",
   "server.theDeletionIsntValid": "La suppression est invalide.",
   "server.theDeviceDataIsIncomplete": "Les données de l’appareil sont incomplètes.",
   "server.theEditedMessageIsntValid": "Le message modifié est invalide.",

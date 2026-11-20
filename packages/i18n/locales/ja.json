@@ -1846,6 +1846,7 @@
   "server.thatsTooManyRequestsAt": "リクエストが集中しています。少しお待ちください。",
   "server.thatsTooManyTriesAt": "試行が集中しています。少しお待ちください。",
   "server.theCommitIsIncomplete": "コミットが不完全です。",
+  "server.theConversationsKeysChanged": "会話の鍵が変更されました。最新の状態にしてから再試行してください。",
   "server.theDeletionIsntValid": "削除操作が無効です。",
   "server.theDeviceDataIsIncomplete": "端末データが不完全です。",
   "server.theEditedMessageIsntValid": "編集したメッセージが無効です。",

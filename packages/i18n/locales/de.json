@@ -1911,6 +1911,7 @@
   "server.thatsTooManyRequestsAt": "Zu viele Anfragen auf einmal. Warte einen Moment.",
   "server.thatsTooManyTriesAt": "Zu viele Versuche auf einmal. Warte einen Moment.",
   "server.theCommitIsIncomplete": "Der Commit ist unvollständig.",
+  "server.theConversationsKeysChanged": "Die Schlüssel der Unterhaltung haben sich geändert. Hol den aktuellen Stand und versuch es erneut.",
   "server.theDeletionIsntValid": "Die Löschung ist ungültig.",
   "server.theDeviceDataIsIncomplete": "Die Gerätedaten sind unvollständig.",
   "server.theEditedMessageIsntValid": "Die bearbeitete Nachricht ist ungültig.",

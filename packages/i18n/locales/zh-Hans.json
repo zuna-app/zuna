@@ -1846,6 +1846,7 @@
   "server.thatsTooManyRequestsAt": "同时请求过多，请稍候。",
   "server.thatsTooManyTriesAt": "同时尝试过多，请稍候。",
   "server.theCommitIsIncomplete": "提交不完整。",
+  "server.theConversationsKeysChanged": "会话密钥已更改。请同步后重试。",
   "server.theDeletionIsntValid": "删除操作无效。",
   "server.theDeviceDataIsIncomplete": "设备数据不完整。",
   "server.theEditedMessageIsntValid": "编辑后的消息无效。",
