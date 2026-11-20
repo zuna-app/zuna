@@ -456,7 +456,7 @@ impl ImageViewer {
             (None, None) => return,
         };
         let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
-        let chosen = cx.prompt_for_new_path(&downloads, Some(&item.name));
+        let chosen = cx.prompt_for_new_path(&downloads, Some(&crate::ui::message::name_to_save(&item.name)));
         cx.spawn(async move |_| {
             if let Ok(Ok(Some(path))) = chosen.await {
                 match saved {

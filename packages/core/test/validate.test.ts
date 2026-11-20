@@ -209,6 +209,12 @@ describe("a message body", () => {
     expect(one({ round: true, mime: "video/mp4" })?.round).toBe(true);
     expect(one({ waveform: "not base64!" })?.waveform).toBeUndefined();
     expect(one({ share: "short" })?.share).toBeUndefined();
+    // A name alone, never a folder in front of it that a save dialog could take as where to save it.
+    expect(one({ name: "..\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\update.cmd" })?.name).toBe("update.cmd");
+    expect(one({ name: "\\\\attacker.example\\share\\report.pdf" })?.name).toBe("report.pdf");
+    expect(one({ name: "../.config/autostart/x.desktop" })?.name).toBe("x.desktop");
+    expect(one({ name: ".." })?.name).toBe("");
+    expect(one({ name: "notes: final.txt" })?.name).toBe("notes: final.txt");
     const parse = (value: unknown) => parseMessageBody({ attachments: [value] });
     refuses(parse, attachment, [
       ["fileId", 5],

@@ -2,7 +2,7 @@
 // says nothing about its shape. Everything is checked here, once, before the rest
 // of the app sees it. A malformed message must never be able to break the app.
 
-import { plainName } from "./hidden";
+import { fileName, plainName } from "./hidden";
 import { checkPreview } from "./links";
 import { WATCH_RATES, YOUTUBE_ID, type WatchSignal, type WatchState, type WatchVideo } from "./watch";
 import type { Attachment, AvatarRef, BotAdd, BotCommand, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, MessageButton, MessageSignal, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
@@ -105,7 +105,7 @@ function parseAttachment(value: unknown): Attachment | null {
   if (!isCount(chunks, MAX_CHUNKS) || !isString(name, MAX_NAME_LENGTH)) return null;
   if (!isString(mime, MAX_MIME_LENGTH) || (mime !== "" && !MIME.test(mime))) return null;
   if (!isCount(size, Number.MAX_SAFE_INTEGER)) return null;
-  const attachment: Attachment = { fileId, key, prefix, chunks, name: plainName(name), mime: mime || "application/octet-stream", size };
+  const attachment: Attachment = { fileId, key, prefix, chunks, name: fileName(name), mime: mime || "application/octet-stream", size };
   const width = side(value.width);
   const height = side(value.height);
   // Without a size it can't be laid out, so every app shows it as a file, which an SVG always is.

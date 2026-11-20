@@ -4,7 +4,7 @@ mod actions;
 mod media;
 mod text;
 
-pub use media::{data_url_image, save_attachment};
+pub use media::{data_url_image, name_to_save, save_attachment};
 pub(super) use actions::menu_entries;
 pub(super) use media::{attachments, location_card};
 pub(super) use text::{jumbo_body, mentionable_print, text_body, with_emote_card};

@@ -7,3 +7,9 @@ export const HIDDEN_CHARACTERS = /[؜​‎‏‪-‮⁠⁦-⁩﻿]/g;
 
 /** A name to show, as what it really says. */
 export const plainName = (name: string): string => name.replace(HIDDEN_CHARACTERS, "");
+
+/**
+ * A file's name as someone's app sent it, without a folder in front of it, which a save dialog
+ * could take as where to save it: an app sends a name alone, so anything before a slash is dropped.
+ */
+export const fileName = (name: string): string => (plainName(name).split(/[\\/]/).pop() ?? "").replace(/^\.+$/, "");

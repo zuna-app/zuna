@@ -253,10 +253,19 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
     column.into_any_element()
 }
 
+/// A file's name as someone else's app sent it, kept to a name a save dialog can't take for a
+/// folder, a drive, a share on another computer or a stream: the core keeps folders out already.
+pub fn name_to_save(name: &str) -> String {
+    let last = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let kept: String = last.chars().filter(|c| !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control()).take(200).collect();
+    let kept = kept.trim().trim_start_matches('.').to_string();
+    if kept.is_empty() { "file".into() } else { kept }
+}
+
 /// Decrypts a file and saves it where the person chooses.
 pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: serde_json::Value, name: String, cx: &mut App) {
     let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
-    let chosen = cx.prompt_for_new_path(&downloads, Some(&name));
+    let chosen = cx.prompt_for_new_path(&downloads, Some(&name_to_save(&name)));
     state.update(cx, |_, cx| {
         cx.spawn(async move |state, cx| {
             let Ok(Ok(Some(path))) = chosen.await else { return };
@@ -390,4 +399,21 @@ pub(in crate::ui) fn location_card(id: &str, location: &crate::models::SharedLoc
                 .when_some(location.accuracy, |el, meters| el.child(div().text_size(px(12.)).text_color(if own && !channel { theme.bubble_own_faint } else { theme.text2 }).child(crate::format::accuracy_text(meters)))),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::name_to_save;
+
+    #[test]
+    fn a_name_from_someone_else_is_a_name_alone() {
+        assert_eq!(name_to_save("report.pdf"), "report.pdf");
+        assert_eq!(name_to_save("..\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\update.cmd"), "update.cmd");
+        assert_eq!(name_to_save("\\\\attacker.example\\share\\report.pdf"), "report.pdf");
+        assert_eq!(name_to_save("../.config/autostart/x.desktop"), "x.desktop");
+        assert_eq!(name_to_save("C:report.pdf"), "Creport.pdf");
+        assert_eq!(name_to_save("notes.txt:hidden"), "notes.txthidden");
+        assert_eq!(name_to_save(".."), "file");
+        assert_eq!(name_to_save(""), "file");
+    }
 }
