@@ -123,6 +123,8 @@ save_conf() {
 
 # The commit whose build is running, written once every service it changed has started.
 BUILT=/etc/zuna/built
+# The version of the LiveKit installed, as this script built it, which root never runs to ask.
+LIVEKIT_BUILT=/etc/zuna/livekit-built
 
 # Updating by itself every night, or not: a timer that runs zuna-update, as root, as a
 # person would. Says so when that changes.
@@ -586,7 +588,17 @@ read -r LIVEKIT_TAG _ _ <"$SRC/deploy/livekit/version"
 LIVEKIT_VERSION="${LIVEKIT_TAG#v}-zuna.$(sha256sum "$SRC/deploy/livekit/zuna.patch" | cut -c1-12)"
 LIVEKIT_NEW=0
 LIVEKIT_GOFLAGS=""
-if [ "$VOICE" = on ] && [ "$(/usr/local/bin/livekit-server --version 2>/dev/null | awk '{print $NF}')" != "$LIVEKIT_VERSION" ]; then
+# Read from what this script wrote when it installed it: the binary is the build account's work,
+# and running it as root to ask would run whatever that account left there. One installed before
+# that was written is asked as nobody.
+livekit_installed() {
+  if [ -f "$LIVEKIT_BUILT" ]; then
+    cat "$LIVEKIT_BUILT"
+  elif [ -x /usr/local/bin/livekit-server ]; then
+    runuser -u nobody -- /usr/local/bin/livekit-server --version 2>/dev/null | awk '{print $NF}'
+  fi
+}
+if [ "$VOICE" = on ] && [ "$(livekit_installed)" != "$LIVEKIT_VERSION" ]; then
   LIVEKIT_NEW=1
   # Built one package at a time, it takes up to 830 MB at once, its linker most of it, which
   # was measured on 2026-11-12. With less free, it stops here, before anything has changed.
@@ -667,6 +679,17 @@ if [ -n "$RELAY_DOMAIN" ]; then build zuna-push; fi
 if [ -n "$WEB_DOMAIN" ]; then build_web; fi
 if [ "$LIVEKIT_NEW" = 1 ]; then build_livekit; fi
 
+# The build account's part is done. Anything of its still running, as a dependency's script could
+# leave behind, could change what root installs from here, so none of it is left, where that account
+# is for building alone, and what it built becomes root's before anything is taken from it.
+if [ "$BUILDER" = zuna-build ]; then
+  pkill -KILL -u zuna-build 2>/dev/null || true
+  sleep 1
+fi
+if [ -L "$BUILD" ] || [ ! -d "$BUILD" ]; then fail "the build's folder, $BUILD, was replaced while it was building. Nothing was installed."; fi
+chown -hR root:root "$BUILD"
+chmod -R go-w "$BUILD"
+
 # --- Install and configure ---
 
 step "Installing"
@@ -684,6 +707,8 @@ set_auto_update
 
 # Keeps the running binary as .previous, so a build that doesn't start can be undone.
 install_binary() {
+  # A file the build made, never a link to one somewhere else, which install would copy.
+  if [ -L "${2:-$BUILD/$1}" ] || [ ! -f "${2:-$BUILD/$1}" ]; then fail "$1 wasn't built as a file. Nothing more was installed."; fi
   install -m 0755 "${2:-$BUILD/$1}" "/usr/local/bin/$1.new"
   if [ -f "/usr/local/bin/$1" ]; then cp -p "/usr/local/bin/$1" "/usr/local/bin/$1.previous"; fi
   mv -f "/usr/local/bin/$1.new" "/usr/local/bin/$1"
@@ -699,6 +724,7 @@ if [ "$VOICE" = on ]; then
   add_user zuna-livekit /nonexistent
   if [ "$LIVEKIT_NEW" = 1 ]; then
     install_binary livekit-server
+    echo "$LIVEKIT_VERSION" >"$LIVEKIT_BUILT"
     VOICE_RESTART=1
   fi
   if ! cmp -s "$SRC/deploy/zuna-livekit.service" /etc/systemd/system/zuna-livekit.service; then
