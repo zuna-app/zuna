@@ -9,6 +9,7 @@
 //   node scripts/release.mjs stable <notes> [--dry-run] [--major]   cuts a stable release from main, or a
 //                                                            patch from the newest line's branch, release/X.Y
 //   node scripts/release.mjs owed [--hook]                   fails when pushed app commits have no nightly
+//   node scripts/release.mjs lines                           locks every line's branch on GitHub but the newest one's
 //   node scripts/release.mjs keygen <stable|nightly> --out <folder> [--spare] [--pq]   makes an update signing key, Ed25519's or ML-DSA-65's
 //
 // And for the workflow:
@@ -180,6 +181,12 @@ export const lineOf = (version) => parseVersion(version).slice(0, 2).join(".");
 
 /** The branch a line's stable releases are on, which holds the newest of them: release/0.11. */
 export const branchOf = (version) => `release/${lineOf(version)}`;
+
+/** The ruleset on GitHub that locks every line's branch but the newest one's, as only the newest line takes patches. */
+export const OLDER_LINES_RULESET = "Only the newest release line takes patches";
+
+/** The branches that ruleset locks: every line's, but `line`'s, or every line's while there's none. */
+export const olderLines = (line) => ({ include: ["refs/heads/release/*"], exclude: line ? [`refs/heads/release/${line}`] : [] });
 
 /** The line a release branch is for, or null for any other branch. */
 export function lineOfBranch(name) {
@@ -646,7 +653,7 @@ function cut(channel, args) {
   console.log(`${channel === "nightly" ? "Nightly" : "Stable"} ${labelOf(release)}, build ${build}, from ${branch}: ${commits.length} ${commits.length === 1 ? "commit" : "commits"} since ${last ? last.tag : "releases began"}, the highest of them ${level}. They change ${changed.join(" and ")}.\n`);
   console.log(notes);
   if (dryRun) {
-    const steps = [renumber && `the version would go from ${current} to ${version}`, own > 0 && `${own === 1 ? "a commit" : `${own} commits`} would give it a build of its own`, `${tag} would be pushed${lineBranch ? `, with ${lineBranch} at it` : ""}`].filter(Boolean);
+    const steps = [renumber && `the version would go from ${current} to ${version}`, own > 0 && `${own === 1 ? "a commit" : `${own} commits`} would give it a build of its own`, `${tag} would be pushed${lineBranch ? `, with ${lineBranch} at it, and every line before it locked` : ""}`].filter(Boolean);
     console.log(`A dry run: ${steps.join(", and ")}.`);
     return;
   }
@@ -676,6 +683,34 @@ function cut(channel, args) {
     fail(`${tag}${lineBranch ? ` and ${lineBranch}` : ""} weren't pushed${added > 0 ? `, though ${branch} has the numbering now` : ""}. Pull and run it again.`);
   }
   console.log(`Pushed ${tag}${lineBranch ? `, and ${lineBranch} at it` : ""}. The Release workflow builds and publishes it: gh run watch, or https://github.com/${REPOSITORY}/actions`);
+  // Only the newest line takes patches, so once a release from main is out, every line before its own is locked.
+  if (lineBranch) {
+    const problem = lockOlderLines(lineOf(version));
+    if (problem) console.log(`${problem}. Until node scripts/release.mjs lines runs, ${lineBranch} may take no patch, and the lines before it may.`);
+  }
+}
+
+/**
+ * Points the ruleset that locks the lines' branches at every one but `line`'s, on GitHub, which takes a
+ * repository admin's gh. Says why when it couldn't, and null when it did.
+ */
+function lockOlderLines(line) {
+  const listed = spawnSync("gh", ["api", `repos/${REPOSITORY}/rulesets?per_page=100`, "--jq", `.[] | select(.name == "${OLDER_LINES_RULESET}") | .id`], { encoding: "utf8" });
+  const id = listed.status === 0 ? listed.stdout.trim() : "";
+  if (!/^\d+$/.test(id)) return `GitHub didn't list the ruleset "${OLDER_LINES_RULESET}"`;
+  const body = JSON.stringify({ conditions: { ref_name: olderLines(line) } });
+  const set = spawnSync("gh", ["api", "--method", "PUT", `repos/${REPOSITORY}/rulesets/${id}`, "--input", "-"], { input: body, encoding: "utf8" });
+  return set.status === 0 ? null : `GitHub didn't change the ruleset "${OLDER_LINES_RULESET}": ${set.stderr.trim()}`;
+}
+
+/** Locks every line's branch but the newest stable release's line's, as a stable release from main does itself. */
+function lines() {
+  fetchReleases();
+  const newest = newestStable();
+  const line = newest ? lineOf(newest.version) : null;
+  const problem = lockOlderLines(line);
+  if (problem) fail(`${problem}.`);
+  console.log(line ? `Only release/${line} takes patches. Every other line's branch is locked.` : "There's no stable release yet, so every line's branch is locked.");
 }
 
 /**
@@ -849,7 +884,7 @@ function prune() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, ...args] = process.argv.slice(2);
-  const commands = { pending, nightly: () => cut("nightly", args), stable: () => cut("stable", args), owed: () => owed(args), keygen: () => keygen(args), plan: () => plan(args), manifest: () => manifest(args), prune };
+  const commands = { pending, nightly: () => cut("nightly", args), stable: () => cut("stable", args), owed: () => owed(args), lines, keygen: () => keygen(args), plan: () => plan(args), manifest: () => manifest(args), prune };
   if (!commands[command]) fail(`There's no command "${command ?? ""}" here. It takes ${Object.keys(commands).join(", ")}.`);
   commands[command]();
 }

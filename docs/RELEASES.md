@@ -47,6 +47,7 @@ A line is a minor version and its patches: `0.2` is `0.2.0`, `0.2.1` and on. Its
 
 - **A stable release from `main`** makes its line's branch at the commit it tags, or moves it up there, pushed with the tag in one atomic push, so neither goes out without the other. A patch release from `main`, when `main` has nothing that isn't ready, moves the branch along with it.
 - **A patch from the branch,** when `main` has something that shouldn't go out yet: the fix goes on `main` first, then `git cherry-pick -x` takes it onto `release/0.2`, which is pushed, and `npm run release:stable -- <notes>` runs there with every commit since the line's last release in the notes. Nothing goes under New, as what's new is released from `main`, and only the newest line takes patches: once `0.3.0` is out, `release/0.2` takes nothing more, so no app is asked to choose between two lines.
+- **GitHub keeps what's out from being changed,** by three rulesets on `release/*`, [below](#the-release-workflow): only the repository's admins make a line's branch or push to it, nobody force-pushes or deletes one, and every line's but the newest one's is locked, so nobody pushes to it at all. A stable release from `main` moves that lock itself, to the new line.
 - **A line's branch runs its own release script and workflow,** as a tag's run reads the workflow at the tagged commit. A change to either that a patch needs goes onto the branch too, with the fix.
 - **Nightlies come from `main` alone,** and the hook asks about `main`'s commits alone.
 
@@ -60,6 +61,7 @@ One script, with no dependency beyond git, Node and, for the keys, the cleanup a
 | `npm run release:nightly -- <notes file>` | Cuts a nightly from `origin/main` |
 | `npm run release:stable -- <notes file>` | Cuts a stable release from `main`, or a patch from the newest line's branch when that's what's checked out. `--major` makes one from `main` the next major one |
 | `node scripts/release.mjs owed` | For the hook below: fails when pushed app commits have no nightly |
+| `node scripts/release.mjs lines` | Locks every line's branch on GitHub but the newest stable release's line's, as a stable release from `main` does itself, for when that step failed. Takes a repository admin's `gh` |
 | `node scripts/release.mjs keygen <stable\|nightly> --out <folder> [--spare] [--pq]` | Makes an update signing key, Ed25519's, or with `--pq` ML-DSA-65's. The private half goes straight into its environment's secret, `UPDATE_SIGNING_KEY` or `UPDATE_SIGNING_KEY_PQ`, and into a file in the folder, and is never shown. A spare only goes into the file |
 | `node scripts/release.mjs plan`, `manifest`, `prune` | What the workflow calls, below |
 
@@ -85,6 +87,7 @@ Cutting a release:
 3. Stops, saying so, when no commit touches what the app is built from, nor what the iPhone app is. A session that only changed the server or the site cuts no nightly, as its build would be the last one again.
 4. Works out the version and the build, [above](#versions). If the files don't say the version yet, sets it in all of them and commits `release: numbered the next release 0.12.0`, and when the build would be no higher than a release's before it, commits `release: gave a build of its own to 0.12.0`, then pushes. Neither commit needs a line in any notes.
 5. Makes an annotated tag whose message is the changelog, and pushes it, for a stable release from `main` with its line's branch made or moved up to it, in one atomic push. CI takes it from there. A tag is never moved or deleted by hand.
+6. For a stable release from `main`, points the ruleset that locks the lines' branches at every line but its own. When GitHub refuses, it says so and that `node scripts/release.mjs lines` does it: the release is out by then, and until then the new line takes no patch.
 
 If the branch moved while it ran, it undoes its commits and says to pull and run it again, as the new commits aren't in the notes.
 
@@ -108,6 +111,7 @@ If the branch moved while it ran, it undoes its commits and says to pull and run
 
 - **Environments.** `release` for stable and `nightly` for nightlies, each holding only its own keys, as `UPDATE_SIGNING_KEY` and `UPDATE_SIGNING_KEY_PQ`. `testflight` holds what signs and uploads the iPhone app, and `macos` what signs and notarizes the macOS app. None has a reviewer, so a stable release waits for nobody's click. `nightly` only runs for `v*-nightly.*` tags, and `release`, `macos` and `testflight` for `v*` tags.
 - **Tags.** Three rulesets: only the repository's admins create `v*` tags, nobody moves one, and nobody deletes a stable one. Nightly tags can be deleted, which is how the workflow's cleanup removes them.
+- **Release lines.** Three rulesets on `release/*` branches: only the repository's admins make one or push to it, nobody force-pushes or deletes one, admins included, and nobody pushes to any but the newest line's, "Only the newest release line takes patches", which leaves out that line alone and is moved by the release script (`OLDER_LINES_RULESET`). A patch is a push of cherry-picks on top, so what a release's tag points at always stays in its line's history.
 - **A nightly that's overtaken is cancelled.** Two sessions ending close together leave one build, the newer.
 - **A failed build publishes nothing.** The next nightly carries its commits. A failed stable release is fixed and released under the next patch number, so its tag is never reused.
 - **The 30 newest nightlies are kept.** `publish` deletes older nightly releases and their tags. Stable releases stay for good.
@@ -226,6 +230,7 @@ A question can be forgotten at the end of a long session, so `.claude/settings.j
 ## What was set up once
 
 - The `nightly` and `release` environments, with their tag rules, and the three tag rulesets.
+- The three rulesets for the lines' branches, on 2026-11-20, the newest line then being `release/0.1`.
 - The `testflight` environment and its secrets, by `node scripts/ios-dist.mjs secrets`, [above](#the-iphone-app-on-testflight-and-the-app-store).
 - The `macos` environment and its secrets, by `node scripts/macos-dist.mjs secrets`, [above](#the-app-on-macos).
 - Four keys from `keygen`: the stable and the nightly one, each in its environment's secret and in a file kept offline, and a spare of each, which is only in a file kept offline. And four more with `--pq`, for `update.json.sig2`, the same way.
@@ -244,6 +249,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The macOS DMG a release carries.** Nightly 1156 was built on a runner, in 21 minutes with nothing cached, signed with the Developer ID imported there from the environment, notarized with the key and stapled, and Gatekeeper accepted the app and its DMG on that runner. Opening a DMG downloaded from a release, with the quarantine a browser gives it, hasn't been seen.
 - **The iPhone app for the App Store from CI.** Nightlies archived, signed, checked and uploaded on CI reach the team's iPhones from TestFlight, as 1559 and 1601 did. A stable release's upload, unmarked for the App Store, hasn't run.
 - **A patch from a line's branch on GitHub,** as none has been needed yet. The script cut one from `release/0.1` in a throwaway clone, with a local origin, after a stable release from `main` had made the branch, and refused a nightly there, a patch with something new, one past the newest nightly and one on an older line.
+- **The lines' rulesets refusing a push.** GitHub lists them as the rules of `release/0.1`, and of any older line's name, but no force-push, deletion or push to a locked line was tried, and a stable release from `main` hasn't yet moved the lock to a new line: `node scripts/release.mjs lines` set it, to `release/0.1`, on GitHub.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work
@@ -251,6 +257,5 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **macOS's updater,** as on Windows: at start, every hour and on Check now, the newest release on its channel, the zip unpacked with `ditto`, kept only if `SecStaticCodeCheckValidity` finds it signed by the same team as the app running, and put in place of the bundle as the app quits, checked against the same manifest. A build that isn't signed that way wouldn't update itself.
 - **An update button on Linux** isn't planned: updates there come with the system's packages or a new AppImage. A package repository would be the way.
 - **An Authenticode certificate,** for the first download's warning.
-- **A ruleset for `release/*` branches,** as there is for tags: nobody force-pushes or deletes one.
 - **The changelog as TestFlight's What to Test,** set through App Store Connect's API once a build is processed.
 - **The server and `zuna-web` back on releases,** when they're ready to be.

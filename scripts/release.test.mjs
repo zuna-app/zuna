@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { appKeys, branchOf, bump, changedApps, classify, compareVersions, headingsIn, labelOf, lineOf, lineOfBranch, manifestOf, newKey, newPqKey, nextVersion, parseNotes, parseTag, patchVersion, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
+import { appKeys, branchOf, bump, changedApps, classify, compareVersions, headingsIn, labelOf, lineOf, lineOfBranch, manifestOf, newKey, newPqKey, nextVersion, olderLines, parseNotes, parseTag, patchVersion, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
 
 const commit = (hash, subject, ...files) => ({ hash: hash.padEnd(40, "0"), subject, files });
 const app = "apps/desktop/src/main.rs";
@@ -61,6 +61,13 @@ test("each line of stable releases has a branch", () => {
   assert.equal(branchOf("1.2.3"), "release/1.2");
   assert.equal(lineOfBranch("release/0.11"), "0.11");
   for (const other of ["main", "release/0.11.0", "release/0", "release/x.1", "releases/0.11", "release/0.11/fix"]) assert.equal(lineOfBranch(other), null);
+});
+
+test("every line's branch but the newest one's is locked", () => {
+  assert.deepEqual(olderLines("0.11"), { include: ["refs/heads/release/*"], exclude: ["refs/heads/release/0.11"] });
+  assert.equal(`refs/heads/${branchOf("0.11.2")}`, olderLines(lineOf("0.11.2")).exclude[0]);
+  // Before the first stable release, every one.
+  assert.deepEqual(olderLines(null), { include: ["refs/heads/release/*"], exclude: [] });
 });
 
 test("a patch on a line's branch is the next after the newest stable release", () => {
