@@ -409,9 +409,10 @@ func TestMessageLifecycle(t *testing.T) {
 	owner.commit(group.ID, 0, nil)
 	path := "/api/sealed/groups/" + group.ID + "/messages"
 
-	// Stale epochs are refused, so content can't use a key a removed member knows.
+	// Only the current epoch is taken, so content can't use a key a removed member knows; epoch 0,
+	// which no commit made a key for, is nobody's (sealed_test.go has an epoch that was).
 	status, resp, _ := owner.sendWith(group.ID, 0, store.NewID(), nil)
-	if status != http.StatusConflict || resp["error"] != "stale_epoch" {
+	if status != http.StatusForbidden || resp["error"] != "not_sealed" {
 		t.Fatalf("stale send: %d %v", status, resp)
 	}
 

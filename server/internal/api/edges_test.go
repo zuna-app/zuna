@@ -428,7 +428,7 @@ func TestThingsThatAreThereAlready(t *testing.T) {
 			status, _ := h.sealedDo("PUT", "/api/sealed/groups/"+w.dm.ID+"/messages/"+id, w.owner.sealedAs(w.dm.ID, 1, itemSecretFor(id)), map[string]any{"envelope": []byte("e")}, nil)
 			return status
 		}},
-		{"a message for an old epoch", http.StatusConflict, func() int {
+		{"a message for an epoch no commit made a key for", http.StatusForbidden, func() int {
 			status, _, _ := w.owner.sendWith(w.dm.ID, 0, store.NewID(), nil)
 			return status
 		}},

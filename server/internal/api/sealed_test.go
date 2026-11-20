@@ -31,8 +31,14 @@ func TestASealedRequestTakesTheCurrentSendKeyAndNothingElse(t *testing.T) {
 	if status, _ := owner.commit(group, 1, nil); status != http.StatusOK {
 		t.Fatal("a commit")
 	}
-	if status, resp := h.sealedDo("POST", path, sealed{secret: sendSecretFor(group, 1), epoch: 1, token: outsider.tokenFor(store.SmallToken)}, message(), nil); status != http.StatusConflict || resp["error"] != "stale_epoch" {
+	if status, resp := h.sealedDo("POST", path, sealed{secret: sendSecretFor(group, 1), epoch: 1, token: outsider.tokenFor(store.SmallToken)}, message(), nil); status != http.StatusConflict || resp["error"] != "stale_epoch" || resp["epoch"] != nil {
 		t.Fatalf("the last epoch's key gave %d %v", status, resp)
+	}
+	// Anyone else asking about an old epoch, or a later one, is told nothing about which is current.
+	for _, epoch := range []int64{1, 3, 7} {
+		if status, resp := h.sealedDo("POST", path, sealed{secret: guessed, epoch: epoch, token: outsider.tokenFor(store.SmallToken)}, message(), nil); status != http.StatusForbidden || resp["error"] != "not_sealed" {
+			t.Fatalf("a guess at epoch %d gave %d %v", epoch, status, resp)
+		}
 	}
 	if status, resp := h.sealedDo("POST", path, sealed{secret: sendSecretFor(group, 1), epoch: 2, token: outsider.tokenFor(store.SmallToken)}, message(), nil); status != http.StatusForbidden || resp["error"] != "not_sealed" {
 		t.Fatalf("the last epoch's key claiming this one gave %d %v", status, resp)

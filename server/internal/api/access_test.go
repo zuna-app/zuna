@@ -41,7 +41,8 @@ func TestADeletionCarriesWhatItsDeviceSigned(t *testing.T) {
 	owner.start(group)
 	base := "/api/sealed/groups/" + group + "/messages/"
 	first := owner.send(group, 1, store.NewID())
-	if status, _ := h.sealedDo("DELETE", base+first.ID, owner.sealedAs(group, 0, itemSecretFor(first.ID)), map[string]any{"deletion": []byte("signed")}, nil); status != http.StatusConflict {
+	// Epoch 0, which no commit made a key for, is nobody's to sign for.
+	if status, _ := h.sealedDo("DELETE", base+first.ID, owner.sealedAs(group, 0, itemSecretFor(first.ID)), map[string]any{"deletion": []byte("signed")}, nil); status != http.StatusForbidden {
 		t.Fatalf("a proof for another epoch gave %d", status)
 	}
 	var deleted store.Message

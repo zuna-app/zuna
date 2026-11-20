@@ -578,6 +578,16 @@ func (d *DB) SendKey(ctx context.Context, groupID string) (int64, []byte, error)
 	return epoch, key, err
 }
 
+// SendKeyAt is the send key the commit that made an epoch gave, or nil if none is kept.
+func (d *DB) SendKeyAt(ctx context.Context, groupID string, epoch int64) ([]byte, error) {
+	var key []byte
+	err := d.sql.QueryRowContext(ctx, `SELECT send_key FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ? ORDER BY seq DESC LIMIT 1`, groupID, epoch).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return key, err
+}
+
 // pinsQuery picks a group's pins seen from a sequence number on. The unary + keeps
 // SQLite from taking messages_seq for the range on seq, which reads every message
 // in the group, over messages_pinned, which holds only the few that are pinned.

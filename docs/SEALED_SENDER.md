@@ -67,7 +67,7 @@ send key    = its public half, which the server holds for the group's current ep
 
 - **Whoever makes an epoch gives the server its send key** with the commit (`send_key`), external commits too. The server can't check it, and needn't.
 - **A sealed request is signed with the send secret,** and the server checks it against the one key it holds for the group. Any member's signature looks the same.
-- **Only the current epoch's key is taken,** so someone removed can't write. A request for an older epoch is answered `409 stale_epoch`, and `sealAndRetry` tries again.
+- **Only the current epoch's key is taken,** so someone removed can't write. A request for another epoch is answered `409 stale_epoch` only if it's signed with the key the commit that made that epoch gave, which the server keeps with the commit, and `sealAndRetry` tries again; any other is `403 not_sealed`, as a bad signature for the current epoch is. Neither says which epoch is current, so nobody without a session, who needs no more than a group's ID, can watch when its members or keys change.
 - **The server forgets the key when a device goes without a commit:** its person leaves, is banned or deletes their account, or the device is signed out or removed (`voidSendKey`, `voidSendKeysOf` in `server/internal/store/commits.go`). That device is still in the tree, so it would make the key, and pay with tokens it fetched before, until a member's commit took it out. Nothing sealed is taken for the group until that commit gives the next epoch's key, which an app sends before anything else (`ensureTreeClean`), and a send refused with `not_sealed` reads who's in the group again and does the same.
 - **The secret is never stored or handed on,** like `voiceKey`: not in the vault, not in a history grant. Its exporter label isn't the content key's, so holding old content keys gives no way to write.
 - **Every member checks the server's key against its own** when it applies a commit or reads the group (`checkSendKey` in `session/changes.ts`). One that differs is put right by a member's commit after a random wait, as every commit carries a key.
@@ -185,7 +185,7 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 
 ## What the audit left as it is
 
-- **The server says a group's epoch before it checks the signature,** as it holds only the current epoch's key and a member who's behind signs with an older one. Someone who knows a group's ID, as a former member does, can ask how many times its keys have changed since.
+- **A former member can still ask whether an epoch they were in has ended,** with that epoch's key, which only says what their leaving already did. Until the audit of 2026-11-20 anyone who knew a group's ID could ask which epoch was current, which the server said before checking the signature.
 - **A message the server's retention erased can be sent again by a member** while its epoch lasts, with its ID and the bytes its author signed, as nothing is left to say the ID was used. It shows as its author's, at a new time, with the note apps show when a message's own time differs from the server's. A disappearing message can't: it runs out by its signed time, wherever it arrives (`expiryOf`).
 - **A pin's proof can be sent again** by a member, as it could before sealed sender. Apps take the latest by its signed revision, so only a device that never saw a later one shows it.
 

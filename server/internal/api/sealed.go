@@ -100,12 +100,24 @@ func (s *Server) sealed(next sealedHandler) http.HandlerFunc {
 			writeFailure(w, err)
 			return
 		}
-		// Only the current epoch's key is taken, so someone removed can't write.
+		input := sealedInput(r.Method, r.URL.EscapedPath(), at, epoch, token, body)
+		// Only the current epoch's key is taken, so someone removed can't write. A request under
+		// another epoch is told so only if it's signed with that epoch's key, and never which epoch
+		// is current, so that someone with no session, who needs no more than the group's ID,
+		// can't watch when its members or keys change.
 		if epoch != current {
-			writeFailure(w, &store.EpochConflictError{Current: current})
+			old, err := s.db.SendKeyAt(r.Context(), groupID, epoch)
+			if err != nil {
+				writeFailure(w, err)
+				return
+			}
+			if len(old) != ed25519.PublicKeySize || !ed25519.Verify(old, input, seal) {
+				writeError(w, http.StatusForbidden, "not_sealed", "The sender isn't a current member of this conversation.")
+				return
+			}
+			writeError(w, http.StatusConflict, "stale_epoch", "The conversation's keys changed. Catch up and retry.")
 			return
 		}
-		input := sealedInput(r.Method, r.URL.EscapedPath(), at, epoch, token, body)
 		if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, input, seal) {
 			writeError(w, http.StatusForbidden, "not_sealed", "The sender isn't a current member of this conversation.")
 			return
