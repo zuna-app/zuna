@@ -326,6 +326,15 @@ func (d *DB) hiddenFrom(ctx context.Context, viewer string) (map[string]bool, er
 	return hidden, err
 }
 
+// saysDeleted is whether a body is the entry that says its account is deleted, which
+// names the account's ID and nothing else.
+func saysDeleted(body []byte) bool {
+	var entry struct {
+		T string `json:"t"`
+	}
+	return json.Unmarshal(body, &entry) == nil && entry.T == "deleted"
+}
+
 // Log is the records after a place in the current era, each with its body if its
 // account is there for `viewer`, and the signed head where they end. A viewer with no
 // device gets only their own account's bodies. Asked about another era, it starts
@@ -377,7 +386,10 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 		if err := rows.Scan(&entry.Idx, &entry.Record, &entry.Body, &entry.UserID, &endRoot); err != nil {
 			return nil, err
 		}
-		if (withDevice && hidden[entry.UserID]) || (!withDevice && entry.UserID != viewer) {
+		// That a hidden account is deleted goes to every device all the same. Its username is free
+		// for another account then, and a device has to tell that account from one made under a
+		// name whose holder is kept back from it.
+		if (withDevice && hidden[entry.UserID] && !saysDeleted(entry.Body)) || (!withDevice && entry.UserID != viewer) {
 			entry.Body = nil
 		}
 		page.Entries = append(page.Entries, entry)
@@ -394,13 +406,19 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 }
 
 // LogBodies is every body of one account's entries in the current era, for someone
-// it has only now become there for.
-func (d *DB) LogBodies(ctx context.Context, userID string) (int64, []LogEntry, error) {
+// it has only now become there for. Asked for an earlier era, it's that era's, as it
+// was kept, for a device that read it before this one and was given its records about
+// the account without their bodies. It says which era it answered with.
+func (d *DB) LogBodies(ctx context.Context, userID string, era int64) (int64, []LogEntry, error) {
 	state, err := readLogState(ctx, d.sql)
 	if err != nil {
 		return 0, nil, err
 	}
-	rows, err := d.sql.QueryContext(ctx, `SELECT idx, body FROM log_entries WHERE era = ? AND user_id = ? ORDER BY idx`, state.era, userID)
+	served := state.era
+	if era >= 1 && era < state.era {
+		served = era
+	}
+	rows, err := d.sql.QueryContext(ctx, `SELECT idx, body FROM log_entries WHERE era = ? AND user_id = ? ORDER BY idx`, served, userID)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -413,7 +431,7 @@ func (d *DB) LogBodies(ctx context.Context, userID string) (int64, []LogEntry, e
 		}
 		entries = append(entries, entry)
 	}
-	return state.era, entries, rows.Err()
+	return served, entries, rows.Err()
 }
 
 // StartLogEra starts the log again, under its next era and the same key, written

@@ -25,7 +25,8 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request, sess *store.S
 }
 
 // handleLogBodies gives every body of one account's entries, to someone it has only
-// now become there for, such as a private bot they were just put in a chat with.
+// now become there for, such as a private bot they were just put in a chat with. With
+// `era`, they're those of an earlier era, as it was kept.
 func (s *Server) handleLogBodies(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	userID := r.URL.Query().Get("user")
 	if !store.ValidID(userID) {
@@ -35,7 +36,7 @@ func (s *Server) handleLogBodies(w http.ResponseWriter, r *http.Request, sess *s
 	if !s.canSee(w, r, sess, userID) {
 		return
 	}
-	era, bodies, err := s.db.LogBodies(r.Context(), userID)
+	era, bodies, err := s.db.LogBodies(r.Context(), userID, queryInt(r, "era", 0))
 	if err != nil {
 		writeFailure(w, err)
 		return

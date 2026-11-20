@@ -325,6 +325,31 @@ func TestAPrivateBotsEntriesAreForWhoeverItsThereFor(t *testing.T) {
 	}
 }
 
+func TestThatAPrivateBotIsDeletedIsForEveryone(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	member := h.register("member", owner.newInvite())
+	stranger := h.register("stranger", owner.newInvite())
+	owner.setSettings(map[string]any{"allow_member_bots": true})
+	bot := member.runBot("hidden", map[string]any{"listed": false})
+	h.mustDo("DELETE", "/api/bots/"+bot.userID, member.token, nil, nil)
+	// Its username is free again, and whoever couldn't see it has to tell the account that takes
+	// it from one under a name whose holder is kept back from them.
+	_, entries := h.readLog(stranger.token, 1000)
+	if got := kindsSince(entries, 0, bot.userID); !slices.Equal(got, []string{"deleted"}) {
+		t.Fatalf("someone a private bot wasn't there for was given %v of it once it was deleted", got)
+	}
+	// Whoever is signing in is given nothing but their own account's, as before.
+	var login struct {
+		Token string `json:"token"`
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
+	_, bare := h.readLog(login.Token, 1000)
+	if got := kindsSince(bare, 0, bot.userID); len(got) != 0 {
+		t.Fatalf("a session with no device was given %v of a deleted bot", got)
+	}
+}
+
 func TestASessionWithNoDeviceReadsOnlyItsOwnBodies(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -406,6 +431,30 @@ func TestANewEraIsWhatTheTablesHold(t *testing.T) {
 		}
 		if after == len(before) {
 			break
+		}
+	}
+	// One account's entries in the era before, for a device that was given its records there
+	// without their bodies, and in this one for whoever doesn't say which.
+	var kept, current struct {
+		Era    int64       `json:"era"`
+		Bodies []logRecord `json:"bodies"`
+	}
+	h.mustDo("GET", "/api/log/bodies?user="+owner.userID+"&era="+itoa(era), member.token, nil, &kept)
+	h.mustDo("GET", "/api/log/bodies?user="+owner.userID, member.token, nil, &current)
+	if kept.Era != era || current.Era != next || len(kept.Bodies) == 0 || len(current.Bodies) == 0 {
+		t.Fatalf("an account's entries came from eras %d and %d, %d and %d of them", kept.Era, current.Era, len(kept.Bodies), len(current.Bodies))
+	}
+	for _, body := range kept.Bodies {
+		if !bytes.Equal(body.Body, before[body.Idx].raw) || before[body.Idx].body["user"] != owner.userID {
+			t.Fatalf("the era before's entry %d, asked for by its account, isn't what it was", body.Idx)
+		}
+	}
+	if got := len(kindsSince(before, 0, owner.userID)); got != len(kept.Bodies) {
+		t.Fatalf("%d of an account's %d entries in the era before came", len(kept.Bodies), got)
+	}
+	for _, body := range current.Bodies {
+		if !bytes.Equal(body.Body, after[body.Idx].raw) {
+			t.Fatalf("this era's entry %d, asked for by its account, isn't this era's", body.Idx)
 		}
 	}
 	// One never kept, or this one, is this era from its start, as always.
