@@ -291,7 +291,9 @@ pub(crate) fn quit(cx: &mut App) {
     cx.quit();
 }
 
-/// Checks of the hosted core with no window, for development:
+/// Checks of the hosted core with no window, for development, in a debug build or one with the test
+/// control alone, as they hand whoever starts the app its device key's worth: on macOS, any program
+/// of the person's could borrow the signed app past the keychain's question to read and send:
 /// `zuna --core-eval <script>...` and `zuna --core-check <method> [args as JSON...]`, on
 /// macOS `zuna --write-notification-sound <path>` as the bundle is made, and on Linux
 /// `zuna --check-dmabuf [render node]`.
@@ -315,6 +317,7 @@ fn checks(args: &[String]) -> Option<i32> {
                 Some(1)
             }
         },
+        #[cfg(any(debug_assertions, feature = "test-control"))]
         Some("--core-eval") => {
             let dir = host::data_dir();
             let key = host::device_key::load(&dir).expect("a device key");
@@ -329,6 +332,7 @@ fn checks(args: &[String]) -> Option<i32> {
             }
             Some(0)
         }
+        #[cfg(any(debug_assertions, feature = "test-control"))]
         Some("--core-check") => {
             let dir = host::data_dir();
             let key = host::device_key::load(&dir).expect("a device key");
