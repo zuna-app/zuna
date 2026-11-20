@@ -63,6 +63,8 @@ enum Label {
     Stream,
     Clone,
     Own,
+    SendTo,
+    SendMsg,
 }
 
 // The parts of `struct seccomp_data` the filter reads: the call, the architecture, and the low
@@ -71,6 +73,11 @@ const NR: u32 = 0;
 const ARCH: u32 = 4;
 const ARG0: u32 = 16;
 const ARG1: u32 = 24;
+const ARG2: u32 = 32;
+const ARG3: u32 = 40;
+/// Sends data with a TCP connection's first packet, to wherever the call names: a connection
+/// Landlock never hears of, as it rules on `connect` alone.
+const MSG_FASTOPEN: u32 = 0x2000_0000;
 
 #[cfg(target_arch = "x86_64")]
 const AUDIT_ARCH: u32 = 0xc000_003e;
@@ -149,12 +156,15 @@ fn filter(me: u32) -> Vec<libc::sock_filter> {
     ops.push(Op::Jump(eq, libc::SYS_clone3 as u32, NoSystemCall, Next));
     ops.push(Op::Jump(eq, libc::SYS_socket as u32, Socket, Next));
     ops.push(Op::Jump(eq, libc::SYS_clone as u32, Clone, Next));
+    ops.push(Op::Jump(eq, libc::SYS_sendto as u32, SendTo, Next));
+    ops.push(Op::Jump(eq, libc::SYS_sendmmsg as u32, SendTo, Next));
+    ops.push(Op::Jump(eq, libc::SYS_sendmsg as u32, SendMsg, Next));
     for call in [libc::SYS_kill, libc::SYS_tgkill, libc::SYS_rt_sigqueueinfo, libc::SYS_rt_tgsigqueueinfo] {
         ops.push(Op::Jump(eq, call as u32, Own, Next));
     }
     ops.push(Op::Return(ALLOW));
     // A socket: TCP over IPv4 or IPv6, and nothing else, so no UDP, no local socket of another
-    // program's, no netlink.
+    // program's, no netlink, and no MPTCP, which is a stream too, and which Landlock doesn't rule on.
     ops.extend([
         Op::At(Socket),
         Op::Load(ARG0),
@@ -163,7 +173,20 @@ fn filter(me: u32) -> Vec<libc::sock_filter> {
         Op::At(Stream),
         Op::Load(ARG1),
         Op::And(0xf),
-        Op::Jump(eq, libc::SOCK_STREAM as u32, Allow, Deny),
+        Op::Jump(eq, libc::SOCK_STREAM as u32, Next, Deny),
+        Op::Load(ARG2),
+        Op::Jump(eq, 0, Allow, Next),
+        Op::Jump(eq, libc::IPPROTO_TCP as u32, Allow, Deny),
+    ]);
+    // Sending with the first packet of a connection, which `connect` never saw, isn't done:
+    // sendto's and sendmmsg's flags are their fourth argument, sendmsg's its third.
+    ops.extend([
+        Op::At(SendTo),
+        Op::Load(ARG3),
+        Op::Jump(set, MSG_FASTOPEN, Deny, Allow),
+        Op::At(SendMsg),
+        Op::Load(ARG2),
+        Op::Jump(set, MSG_FASTOPEN, Deny, Allow),
     ]);
     // clone: a thread, in the namespaces it has, and never a process. 0x80 is CLONE_NEWTIME.
     let namespaces = (libc::CLONE_NEWNS | libc::CLONE_NEWCGROUP | libc::CLONE_NEWUTS | libc::CLONE_NEWIPC | libc::CLONE_NEWUSER | libc::CLONE_NEWPID | libc::CLONE_NEWNET) as u32 | 0x80;

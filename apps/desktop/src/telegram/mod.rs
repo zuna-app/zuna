@@ -209,11 +209,25 @@ impl Engine {
             }
         };
         let directory = folder(&self.data_dir);
+        // A folder, never a link, which an engine taken over could have put in its place for its
+        // next box to be drawn around wherever it leads: what was in it is gone with it anyway.
+        if std::fs::symlink_metadata(&directory).is_ok_and(|found| !found.is_dir()) {
+            log::warn!(target: "telegram", "the engine's folder was replaced, so it's made again");
+            std::fs::remove_file(&directory).map_err(|error| error.to_string())?;
+        }
         std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
         // By the name the system gives it: Seatbelt holds the engine to its folder by that, and
         // lets it follow no link on the way there, as /var's to /private/var is.
         #[cfg(target_os = "macos")]
-        let directory = directory.canonicalize().map_err(|error| error.to_string())?;
+        let directory = {
+            let real = directory.canonicalize().map_err(|error| error.to_string())?;
+            // Where the app expects it, by the real name of the folder it's in.
+            let parent = directory.parent().and_then(|parent| parent.canonicalize().ok());
+            if parent.as_deref() != real.parent() || std::fs::symlink_metadata(&real).map_or(true, |found| !found.is_dir()) {
+                return Err(crate::i18n::t("telegram.box.leaks").to_string());
+            }
+            real
+        };
 
         // In its box (platform/sandbox.rs): its folder, its pipes and nothing else of the person's.
         // The tests' stand-in for it is a program of the system's, which no box would let start.

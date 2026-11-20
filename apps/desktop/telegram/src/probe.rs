@@ -174,6 +174,20 @@ fn linux(found: &mut serde_json::Value, socket: Option<String>) {
         // and which on a shared one would be a way in.
         "bindOther": outcome(TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map(|listener| format!("{:?}", listener.local_addr()))),
         "udp": outcome(UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).map(|_| "bound".to_string())),
+        // MPTCP, a stream too, which Landlock doesn't rule on: denied.
+        "mptcp": outcome(errno(unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 262) } as libc::c_long, "made an MPTCP socket")),
+        // Data with a connection's first packet, which Landlock never sees as a connect: denied.
+        "fastOpen": outcome((|| {
+            let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let address = libc::sockaddr_in { sin_family: libc::AF_INET as libc::sa_family_t, sin_port: 443u16.to_be(), sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes([1, 1, 1, 1]) }, sin_zero: [0; 8] };
+            let sent = unsafe { libc::sendto(fd, b"x".as_ptr().cast(), 1, 0x2000_0000, (&address as *const libc::sockaddr_in).cast(), std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t) };
+            let result = errno(sent as libc::c_long, "sent 1.1.1.1:443 a byte with a fast-open connection");
+            unsafe { libc::close(fd) };
+            result
+        })()),
         // Another program's local socket, as the session's bus is: denied.
         "localSocket": outcome(match &socket {
             Some(path) => std::os::unix::net::UnixStream::connect(path).map(|_| format!("{path} connected")),

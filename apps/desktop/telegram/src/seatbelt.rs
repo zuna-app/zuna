@@ -36,7 +36,10 @@ const PROFILE: &str = r#"
 (deny default)
 
 ; Its own folder: TDLib's database, the files it downloads and sends, and what it moves between them.
-(allow file-read* file-write* (subpath (param "FOLDER")))
+; Everything in it, but not the folder itself, which it could otherwise remove and put a link to
+; somewhere else of the person's in place of, for its next box to be drawn around.
+(allow file-read* (subpath (param "FOLDER")))
+(allow file-write* (require-all (subpath (param "FOLDER")) (require-not (literal (param "FOLDER")))))
 
 ; The system's random numbers, which OpenSSL may read, and the null device.
 (allow file-read-data (literal "/dev/random") (literal "/dev/urandom"))

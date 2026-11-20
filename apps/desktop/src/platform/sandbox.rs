@@ -801,7 +801,7 @@ mod tests {
                 });
                 holds(&found);
                 let said = |key: &str| found[key].as_str().unwrap_or("").to_string();
-                for key in ["udp", "localSocket", "signal", "ptrace", "namespace", "fork"] {
+                for key in ["udp", "mptcp", "fastOpen", "localSocket", "signal", "ptrace", "namespace", "fork"] {
                     assert!(said(key).starts_with("denied"), "{way}, {key} is {}", said(key));
                 }
                 // Another port of its own is harmless in a network of its own, and refused by
