@@ -112,7 +112,7 @@ async function visit(context, path, width) {
   await page.close();
 }
 
-/** The ways to host and the download links. */
+/** How to host and the download links. */
 async function interactions(browser) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const { outside, problems } = watch(page);
@@ -125,27 +125,12 @@ async function interactions(browser) {
     while (!reveal.classList.contains("is-in")) await new Promise(requestAnimationFrame);
     await Promise.all(reveal.getAnimations().map((animation) => animation.finished));
   });
-  // Where they sit in the page, not in the window, as Firefox through WebDriver BiDi scrolls a tab it clicks.
-  const place = () =>
-    page.evaluate(() => JSON.stringify(["#host", "#host .terminal"].map((selector) => {
-      const box = document.querySelector(selector).getBoundingClientRect();
-      return [box.x + scrollX, box.y + scrollY, box.width, box.height].map(Math.round);
-    })));
-  const placed = await place();
-  const shownPanels = () =>
-    page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible").map((panel) => panel.textContent));
-  await page.getByRole("tab", { name: "systemd" }).click();
-  const script = await shownPanels();
-  check("systemd's tab shows only the installer", script.length === 1 && script[0].includes("install.sh") && !script[0].includes("docker"), script.join(" | "));
-  const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
-  check("and its guide is the script's", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/LINUX.md"));
-  check("and the steps follow it", steps.length === 1 && steps[0].includes("Run one command"), steps.join(" | "));
-  const moved = await place();
-  check("switching how to host doesn't move the page", moved === placed, `${placed} to ${moved}`);
-  await page.keyboard.press("ArrowLeft");
-  const docker = await shownPanels();
-  check("the arrow keys go back to Docker", docker.length === 1 && docker[0].includes("docker compose up"), docker.join(" | "));
-  check("and to the whole self-hosting guide", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/SELF_HOSTING.md"));
+  const script = (await page.locator("#host .terminal-body").textContent()) ?? "";
+  check("the terminal shows the one command", script.includes("curl -fsSL https://zuna.chat/install.sh | sudo sh") && !script.includes("docker"), script);
+  check("and its guide is the installer's", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/LINUX.md"));
+  const steps = (await page.locator("#host .steps").textContent()) ?? "";
+  check("and the steps follow it", steps.includes("Run one command"), steps);
+  check("Docker is said to be coming", ((await page.locator("#host .host-soon").textContent()) ?? "").includes("Docker is coming soon"));
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
   check("Windows, macOS, Linux and the iPhone each have a download", downloads.length === 4, String(downloads.length));
@@ -170,8 +155,8 @@ async function withoutScript(browser) {
   check("without script, every section shows", hidden === 0, `${hidden} hidden`);
   const answers = await page.locator(".faq-list details").count();
   check("without script, the questions still open", answers >= 8, String(answers));
-  const methods = await page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible" && panel.offsetHeight > 0).length);
-  check("without script, both ways to host show", methods === 2, String(methods));
+  const command = await page.locator("#host .terminal-body").evaluate((element) => element.offsetHeight > 0 && element.textContent.includes("install.sh"));
+  check("without script, the command to host shows", command);
   await close();
 }
 

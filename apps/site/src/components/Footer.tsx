@@ -19,7 +19,7 @@ const COLUMNS = [
       { href: doc("docs/SELF_HOSTING.md"), label: "Self-hosting guide" },
       { href: doc("docs/WEB.md"), label: "The web app" },
       { href: doc("docs/PUSH_RELAY.md"), label: "The push relay" },
-      { href: doc("docs/LINUX.md"), label: "Without Docker" },
+      { href: doc("docs/LINUX.md"), label: "On Linux" },
     ],
   },
   {
