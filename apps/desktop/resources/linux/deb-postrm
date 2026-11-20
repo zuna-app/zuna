@@ -1,0 +1,13 @@
+#!/bin/sh
+# Takes away with the app the AppArmor profile its postinst installed.
+set -e
+
+target=/etc/apparmor.d/zuna
+
+if { [ "$1" = remove ] || [ "$1" = purge ]; } && [ -f "$target" ]; then
+  if command -v apparmor_parser >/dev/null 2>&1 && [ -d /sys/kernel/security/apparmor ]; then
+    apparmor_parser --remove "$target" >/dev/null 2>&1 || true
+  fi
+  rm -f "$target"
+fi
+exit 0

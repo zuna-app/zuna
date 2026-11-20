@@ -1,0 +1,14 @@
+# Lets Zuna make the namespaces the box around its Telegram engine is made of, where AppArmor keeps
+# them from programs it has no profile for, as Ubuntu does from 23.10, and its derivatives with it
+# (apps/desktop/src/platform/sandbox.rs). Nothing else of what the app may do changes: it's
+# unconfined, as with no profile at all. The .deb's postinst puts it in /etc/apparmor.d only where
+# this system's AppArmor reads it.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile zuna /usr/lib/zuna/zuna flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/zuna>
+}

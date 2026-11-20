@@ -108,6 +108,7 @@ async function packages(dist) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const icons = join(root, "apps", "desktop", "resources", "icons");
+  const linuxResources = join(root, "apps", "desktop", "resources", "linux");
   const sizes = readdirSync(icons).filter((name) => /^\d+x\d+\.png$/.test(name));
   const description = "Zuna: private, end-to-end encrypted chat on servers you run.";
   // As the app writes its own from an AppImage or a .tar.gz (platform/linux/desktop_entry.rs).
@@ -168,6 +169,11 @@ async function packages(dist) {
       deb: {
         depends: ["libc6", "libxkbcommon0", "libwayland-client0", "libvulkan1", "libfontconfig1", "libfreetype6", "libpipewire-0.3-0t64 | libpipewire-0.3-0", "xdg-desktop-portal", "libwebkitgtk-6.0-4", "gstreamer1.0-plugins-good"],
         recommends: ["mesa-vulkan-drivers", "fonts-noto-color-emoji", "geoclue-2.0", "gstreamer1.0-libav"],
+        // The AppArmor profile that lets the app make the namespaces its Telegram engine's box is made
+        // of where AppArmor keeps them from programs, as Ubuntu does, which postinst puts in place only
+        // where this system's AppArmor reads it. A list here takes the place of the one above.
+        contents: [...contents, { src: join(linuxResources, "apparmor-profile"), dst: "/usr/lib/zuna/apparmor-profile", file_info: { mode: 0o644 } }],
+        scripts: { postinstall: join(linuxResources, "deb-postinst"), postremove: join(linuxResources, "deb-postrm") },
       },
       rpm: {
         // The good plugins are named one way on Fedora and another on openSUSE, either of which will do.

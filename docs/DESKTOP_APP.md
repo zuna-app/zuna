@@ -45,7 +45,7 @@ The app is built for Wayland. Under X11 it says it needs a Wayland session, and 
 npm run dev:linux
 ```
 
-That fetches the FFmpeg `scripts/ffmpeg.mjs` pins the first time, bundles the core and starts a debug build. `npm run build:linux` writes a release build to `dist/linux`, and `npm run dist:linux` makes its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages`. It never updates itself: updates come with the system's packages, or a new AppImage.
+That fetches the FFmpeg `scripts/ffmpeg.mjs` pins the first time, bundles the core and starts a debug build. `npm run build:linux` writes a release build to `dist/linux`, and `npm run dist:linux` makes its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages`. The .deb also installs an AppArmor profile, where the system's AppArmor reads it, that lets the app make the namespaces the Telegram engine's box is made of (`apps/desktop/resources/linux`). It never updates itself: updates come with the system's packages, or a new AppImage.
 
 Its checks each run it in a KWin of its own, with its own session bus, keyring and sound devices nobody hears: `apps/desktop/test/linux-check.mjs` for the window, the tray, notifications, the device key and a chat, `linux-voice-check.mjs` for voice, calls, cameras, push to talk, screen sharing, voice and video messages and a video watched together, with the web app in Chromium as the other side, and `linux-package-check.mjs` for the AppImage and the .tar.gz. Only KDE Plasma has been checked.
 

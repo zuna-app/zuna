@@ -1,0 +1,23 @@
+#!/bin/sh
+# Installs the AppArmor profile that lets the app make the namespaces its Telegram engine's box is
+# made of, where AppArmor keeps them from programs, as Ubuntu does from 23.10. It's the same on any
+# system dpkg installs on: one whose AppArmor doesn't read the profile, as Debian 12's, older than
+# its rule, doesn't, or that has no AppArmor, is left as it is, and the app boxes the engine there
+# as it can (docs/SECURITY_DETAILS.md). Nothing here stops the package from installing.
+set -e
+
+profile=/usr/lib/zuna/apparmor-profile
+target=/etc/apparmor.d/zuna
+
+if [ "$1" = configure ] && [ -f "$profile" ] && [ -d /etc/apparmor.d ] && command -v apparmor_parser >/dev/null 2>&1; then
+  if apparmor_parser --skip-kernel-load --debug "$profile" >/dev/null 2>&1; then
+    cp -f "$profile" "$target"
+    # Loaded now, where there's a kernel to load it into, rather than at the next start.
+    if [ -d /sys/kernel/security/apparmor ] && ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+      apparmor_parser --replace --write-cache --skip-read-cache "$target" >/dev/null 2>&1 || true
+    fi
+  else
+    rm -f "$target"
+  fi
+fi
+exit 0
