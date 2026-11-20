@@ -218,7 +218,9 @@ impl NotificationCenter {
     fn hide_slow(&mut self, id: u64) {
         let reduce = self.reduce_motion;
         if let Some(card) = self.shown.iter_mut().find(|card| card.id == id && !card.gone) {
-            let from = fade_value(&card.fade, reduce, Instant::now()).0;
+            // One still fading in fades out from where it was going: from where it was, one that
+            // came just as the mouse left would stay all but invisible until it went.
+            let from = if card.fade.is_some_and(|fade| fade.to >= 1.) { 1. } else { fade_value(&card.fade, reduce, Instant::now()).0 };
             card.fade = Some(Fade { from, to: 0., start: Instant::now(), duration: SLOW, slow: true });
         }
     }
@@ -420,6 +422,12 @@ impl NotificationCenter {
     }
 
     fn tick(&mut self, now: Instant, cx: &mut Context<Self>) -> bool {
+        // Where the pointer is, not what each card heard: as the stack grows and shifts under a
+        // pointer that stays still, a card's hover events come in any order, and one leaving
+        // after the next had come started them all hiding with the mouse still on them.
+        if let Some((x, y, width, height)) = self.placed {
+            self.set_hovered(platform::pointer_within(x, y, width, height), cx);
+        }
         let due: Vec<u64> = self.shown.iter().filter(|card| card.hide_at.is_some_and(|at| at <= now) && !card.gone).map(|card| card.id).collect();
         for id in due {
             if let Some(card) = self.shown.iter_mut().find(|card| card.id == id) {
@@ -470,6 +478,8 @@ impl NotificationCenter {
                 platform::later(cx, move || platform::hide_window(windows::Win32::Foundation::HWND(hwnd as *mut _)));
             }
             self.placed = None;
+            // Nothing's under the pointer once the window has gone, whatever it last saw.
+            self.hovered = false;
             return;
         }
         self.ensure_window(cx);

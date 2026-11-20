@@ -60,10 +60,6 @@ impl NotificationsView {
             .line_height(px(18.))
             .text_color(theme.text1)
             .when(!replying, |el| el.cursor_pointer())
-            .on_hover({
-                let center = center.clone();
-                move |hovered, _, cx| center.update(cx, |center, cx| center.set_hovered(*hovered, cx))
-            })
             .on_mouse_down(MouseButton::Right, {
                 let center = center.clone();
                 move |_, _, cx| center.update(cx, |center, cx| center.dismiss(id, cx))

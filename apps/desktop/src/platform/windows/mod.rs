@@ -153,6 +153,12 @@ pub fn place_popup(hwnd: HWND, x: i32, y: i32, width: i32, height: i32) {
     }
 }
 
+/// Whether the pointer is inside this rectangle of physical pixels, as `place_popup` takes it.
+pub fn pointer_within(x: i32, y: i32, width: i32, height: i32) -> bool {
+    let mut point = windows::Win32::Foundation::POINT::default();
+    unsafe { GetCursorPos(&mut point) }.is_ok() && (x..x + width).contains(&point.x) && (y..y + height).contains(&point.y)
+}
+
 pub fn hide_window(hwnd: HWND) {
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);

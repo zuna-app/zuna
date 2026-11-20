@@ -101,6 +101,25 @@ fn notifications_queue_open_and_go(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_card_that_comes_as_the_mouse_leaves_still_shows(cx: &mut TestAppContext) {
+    let _app = App::open(cx, &World::new("notification-hover"));
+    let center = center(cx);
+    center.update(cx, |center, cx| {
+        center.show(payload(&format!("user:{BOB}"), "m-1"), false, cx);
+        center.set_hovered(true, cx);
+        center.show(payload(&format!("group:{GROUP}"), "m-2"), false, cx);
+        // The stack grew under the pointer, which counts as leaving the first card.
+        center.set_hovered(false, cx);
+        center.show(payload(&format!("user:{BOT}"), "m-3"), false, cx);
+    });
+    // All three hide slowly, the middle one too, rather than from the start of its fade-in.
+    let soon = Instant::now() + Duration::from_millis(500);
+    let shown: Vec<f32> = cx.read(|cx| center.read(cx).shown.iter().map(|card| fade_value(&card.fade, false, soon).0).collect());
+    assert_eq!(shown.len(), 3);
+    assert!(shown.iter().all(|opacity| *opacity > 0.9), "{shown:?}");
+}
+
+#[gpui::test]
 fn a_reply_written_in_a_notification(cx: &mut TestAppContext) {
     let app = App::open(cx, &World::new("notification-reply"));
     app.answer("sendMessage", |_| Ok(serde_json::Value::Null));
