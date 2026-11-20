@@ -51,7 +51,7 @@ A large enough quantum computer would break X25519, Ed25519 and P-256, which wer
 - **The emoji check hashes both people's whole identity keys** under `zuna/safety/v3`, so its golden value changed once, for every platform, as there's one implementation.
 - **The log's key is a lasting key** the server makes from a seed it keeps, and a head is signed under `zuna/log/head/v2`. The shared vectors were written again (`UPDATE_LOG_VECTORS=1`), and as ML-DSA signs hedged, they hold the head's signature to the key rather than to bytes. An invite link carries `SHA-256("zuna/log/key/v1|" | key)` in place of the key, so it doesn't grow by two kilobytes, and whoever signs up through it takes the key the server gives their new session only if it has that hash.
 - **A bot's setup link** carries the 32-byte seed of a lasting key, and a hash of its owner's identity key (`zuna/bot-owner/v1`), which the bot holds the key the server lists for its owner to as it signs up, and pins.
-- **Request proofs** are a device's hybrid signature, 3,316 characters of base64 in `X-Zuna-Proof`: under the 8 KiB a header nginx and Apache take, so they stay in the header. The server remembers proofs it has seen by their hash.
+- **Request proofs** are a device's hybrid signature, 3,316 characters of base64 in `X-Zuna-Proof`: under the 8 KiB a header nginx and Apache take, so they stay in the header. The server remembers proofs it has seen by their hash, for the five minutes one is taken, and takes none signed before it started, which a server before a restart may have seen: the device is told the time and signs again. A proof covers a request's method, path, query, time and body.
 
 ### Updates
 

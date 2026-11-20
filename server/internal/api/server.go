@@ -158,7 +158,10 @@ type Server struct {
 	commitHolds       *ratelimit.Backoff
 
 	proofs seenProofs
-	seals  seenProofs
+	// When this process started: the signatures seen before it are forgotten, so none from
+	// before is taken (checkProof).
+	started time.Time
+	seals   seenProofs
 
 	voice        *voiceRooms
 	voiceLimiter *ratelimit.Keyed
@@ -218,6 +221,7 @@ func New(cfg Config, db *store.DB) *Server {
 		emotes:      emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		callers:     callers,
 		proofs:      seenProofs{most: maxSeenProofs, mostOfOne: maxSeenOfADevice},
+		started:     time.Now(),
 		seals:       seenProofs{most: maxSeenSeals},
 		authLimiter: keyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		// Friends behind one home router share an address, and a bot may answer in many

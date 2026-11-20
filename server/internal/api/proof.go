@@ -36,9 +36,13 @@ const (
 )
 
 // requestProofInput is what a device signs for a request: its method, its path
-// as sent, the time, and its body.
-func requestProofInput(method, path string, at int64, body []byte) []byte {
+// as sent, the time, and its body. A request with a query signs that too, under a
+// label of its own, so that nothing a route could read is left out.
+func requestProofInput(method, path, query string, at int64, body []byte) []byte {
 	sum := sha256.Sum256(body)
+	if query != "" {
+		return append([]byte(fmt.Sprintf("zuna/request/v2|%s|%s?%s|%d|", method, path, query, at)), sum[:]...)
+	}
 	return append([]byte(fmt.Sprintf("zuna/request/v1|%s|%s|%d|", method, path, at)), sum[:]...)
 }
 
@@ -142,12 +146,14 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 	signature, err := base64.StdEncoding.DecodeString(encoded)
 	at, timeErr := strconv.ParseInt(r.Header.Get("X-Zuna-Time"), 10, 64)
 	if err != nil || timeErr != nil ||
-		!hybrid.VerifyKind(hybrid.Device, key, requestProofInput(r.Method, r.URL.EscapedPath(), at, body), signature) {
+		!hybrid.VerifyKind(hybrid.Device, key, requestProofInput(r.Method, r.URL.EscapedPath(), r.URL.RawQuery, at, body), signature) {
 		writeError(w, http.StatusUnauthorized, "proof_invalid", "This request couldn't be checked. Please try again.")
 		return false
 	}
 	now := time.Now()
-	if gap := now.Sub(time.UnixMilli(at)); gap > proofWindow || gap < -proofWindow {
+	// One signed before this process started may have been seen by the one before it, whose
+	// memory is gone: it's signed again, which the device does at once on being told the time.
+	if gap := now.Sub(time.UnixMilli(at)); gap > proofWindow || gap < -proofWindow || at < s.started.UnixMilli() {
 		// The device's clock may be off: the server's time lets it sign again with this one.
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "proof_stale", "message": "This device's clock is too far from the server's.", "now": now.UnixMilli()})
 		return false

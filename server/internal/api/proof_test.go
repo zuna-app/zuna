@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,8 +46,24 @@ func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	if status, _, _ := h.raw("PATCH", "/api/admin/settings", token, []byte(`{"retention_days":1}`), signed("PATCH", "/api/admin/settings", settings, time.Now())); status != http.StatusUnauthorized {
 		t.Fatalf("a signature for another body gave %d", status)
 	}
+	// A query is signed too: one that wasn't, or was another, is refused.
+	if status, _, _ := h.raw("PATCH", "/api/admin/settings?retention=1", token, settings, signed("PATCH", "/api/admin/settings", settings, time.Now())); status != http.StatusUnauthorized {
+		t.Fatalf("a query left out of the signature gave %d", status)
+	}
+	if status, _, _ := h.raw("PATCH", "/api/admin/settings?retention=1", token, settings, signed("PATCH", "/api/admin/settings?retention=2", settings, time.Now())); status != http.StatusUnauthorized {
+		t.Fatalf("a signature for another query gave %d", status)
+	}
+	if status, body, _ := h.raw("PATCH", "/api/admin/settings?retention=1", token, settings, signed("PATCH", "/api/admin/settings?retention=1", settings, time.Now())); status != http.StatusOK {
+		t.Fatalf("a signed query gave %d %s", status, body)
+	}
+	// One signed before this process started, within the window, which the one before it may
+	// have seen and this one can't know of, is signed again.
+	status, body, _ := h.raw("PATCH", "/api/admin/settings", token, settings, signed("PATCH", "/api/admin/settings", settings, time.Now().Add(-2*time.Minute)))
+	if !strings.Contains(string(body), "proof_stale") || status != http.StatusUnauthorized {
+		t.Fatalf("a request signed before the server started gave %d %s", status, body)
+	}
 	// A device whose clock is off is told the server's time.
-	status, body, _ := h.raw("PATCH", "/api/admin/settings", token, settings, signed("PATCH", "/api/admin/settings", settings, time.Now().Add(-time.Hour)))
+	status, body, _ = h.raw("PATCH", "/api/admin/settings", token, settings, signed("PATCH", "/api/admin/settings", settings, time.Now().Add(-time.Hour)))
 	var stale struct {
 		Error string `json:"error"`
 		Now   int64  `json:"now"`
@@ -133,7 +150,11 @@ func signingDevice(h *harness) (string, *hybrid.Key) {
 
 func proofHeaders(private *hybrid.Key, method, path string, body []byte, at time.Time) map[string]string {
 	sum := sha256.Sum256(body)
-	input := append([]byte(fmt.Sprintf("zuna/request/v1|%s|%s|%d|", method, path, at.UnixMilli())), sum[:]...)
+	label := fmt.Sprintf("zuna/request/v1|%s|%s|%d|", method, path, at.UnixMilli())
+	if strings.Contains(path, "?") {
+		label = fmt.Sprintf("zuna/request/v2|%s|%s|%d|", method, path, at.UnixMilli())
+	}
+	input := append([]byte(label), sum[:]...)
 	signature, err := private.Sign(input)
 	if err != nil {
 		panic(err)

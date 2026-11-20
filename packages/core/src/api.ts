@@ -591,7 +591,9 @@ export class Api {
     for (let attempt = 0; ; attempt++) {
       if (prove && method !== "GET") {
         const at = Date.now() + this.clockOffset;
-        const input = concat(utf8(`zuna/request/v1|${method}|${path.split("?")[0]}|${at}|`), wasm.sha256(bytes));
+        // The query too, when there is one, so that nothing a route could read goes unsigned.
+        const label = path.includes("?") ? `zuna/request/v2|${method}|${path}|${at}|` : `zuna/request/v1|${method}|${path}|${at}|`;
+        const input = concat(utf8(label), wasm.sha256(bytes));
         headers["X-Zuna-Proof"] = toBase64(prove(input));
         headers["X-Zuna-Time"] = String(at);
       }
