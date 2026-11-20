@@ -185,7 +185,7 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 
 ## What the audit left as it is
 
-- **A former member can still ask whether an epoch they were in has ended,** with that epoch's key, which only says what their leaving already did. Until the audit of 2026-11-20 anyone who knew a group's ID could ask which epoch was current, which the server said before checking the signature.
+- **A former member can still ask whether an epoch they were in has ended,** with that epoch's key, which only says what their leaving already did.
 - **A message the server's retention erased can be sent again by a member** while its epoch lasts, with its ID and the bytes its author signed, as nothing is left to say the ID was used. It shows as its author's, at a new time, with the note apps show when a message's own time differs from the server's. A disappearing message can't: it runs out by its signed time, wherever it arrives (`expiryOf`).
 - **A pin's proof can be sent again** by a member, as it could before sealed sender. Apps take the latest by its signed revision, so only a device that never saw a later one shows it.
 
