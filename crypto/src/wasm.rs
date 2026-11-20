@@ -6,6 +6,15 @@ use wasm_bindgen::prelude::*;
 
 type JsResult<T> = Result<T, JsError>;
 
+/// An epoch as JavaScript holds it, exactly: one past 2^53 is refused, where cutting it to 32 bits
+/// would have taken one made up at n + 2^32 for epoch n, and a key held for n with it.
+fn epoch_js(epoch: u64) -> JsResult<f64> {
+    if epoch > (1u64 << 53) - 1 {
+        return Err(JsError::new("that epoch is past what can be held exactly"));
+    }
+    Ok(epoch as f64)
+}
+
 fn to_js<T>(result: primitives::Result<T>) -> JsResult<T> {
     result.map_err(|e| JsError::new(&e))
 }
@@ -270,8 +279,8 @@ impl MlsClient {
 
     /// Starts a group; `roster` is null for one without a roster.
     #[wasm_bindgen(js_name = createGroup)]
-    pub fn create_group(&self, group_id: &[u8], roster: Option<Vec<u8>>) -> JsResult<u32> {
-        to_js(self.inner.create_group(group_id, roster.as_deref())).map(|epoch| epoch as u32)
+    pub fn create_group(&self, group_id: &[u8], roster: Option<Vec<u8>>) -> JsResult<f64> {
+        to_js(self.inner.create_group(group_id, roster.as_deref())).and_then(epoch_js)
     }
 
     /// Returns `{ commit, welcome, groupInfo }`; `welcome` and `groupInfo` may be null.
@@ -292,8 +301,8 @@ impl MlsClient {
     }
 
     #[wasm_bindgen(js_name = mergePending)]
-    pub fn merge_pending(&self, group_id: &[u8]) -> JsResult<u32> {
-        to_js(self.inner.merge_pending(group_id)).map(|epoch| epoch as u32)
+    pub fn merge_pending(&self, group_id: &[u8]) -> JsResult<f64> {
+        to_js(self.inner.merge_pending(group_id)).and_then(epoch_js)
     }
 
     #[wasm_bindgen(js_name = clearPending)]
@@ -312,7 +321,7 @@ impl MlsClient {
     pub fn process_commit(&self, group_id: &[u8], commit: &[u8]) -> JsResult<Object> {
         let processed = to_js(self.inner.process_commit(group_id, commit))?;
         let object = Object::new();
-        set(&object, "epoch", JsValue::from(processed.epoch as u32));
+        set(&object, "epoch", JsValue::from(epoch_js(processed.epoch)?));
         set(
             &object,
             "senderCredential",
@@ -339,7 +348,7 @@ impl MlsClient {
         let (group_id, epoch) = to_js(self.inner.join_from_welcome(welcome, group_id))?;
         let object = Object::new();
         set(&object, "groupId", bytes(&group_id));
-        set(&object, "epoch", JsValue::from(epoch as u32));
+        set(&object, "epoch", JsValue::from(epoch_js(epoch)?));
         Ok(object)
     }
 
@@ -349,7 +358,7 @@ impl MlsClient {
         let (commit, epoch) = to_js(self.inner.join_external(group_id, group_info))?;
         let object = Object::new();
         set(&object, "commit", bytes(&commit));
-        set(&object, "epoch", JsValue::from(epoch as u32));
+        set(&object, "epoch", JsValue::from(epoch_js(epoch)?));
         Ok(object)
     }
 
@@ -358,8 +367,8 @@ impl MlsClient {
         to_js(self.inner.export_group_info(group_id))
     }
 
-    pub fn epoch(&self, group_id: &[u8]) -> JsResult<u32> {
-        to_js(self.inner.epoch(group_id)).map(|epoch| epoch as u32)
+    pub fn epoch(&self, group_id: &[u8]) -> JsResult<f64> {
+        to_js(self.inner.epoch(group_id)).and_then(epoch_js)
     }
 
     /// The roster in a group's context now, or undefined if it has none.
