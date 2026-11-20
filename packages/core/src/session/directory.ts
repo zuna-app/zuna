@@ -45,6 +45,8 @@ const BODIES_RETRY_MS = 5000;
 const BODIES_RETRY_MAX_MS = 5 * 60 * 1000;
 /** How often the manifest is written only to carry a newer head. */
 const HEAD_IN_MANIFEST_MS = 24 * 3600 * 1000;
+/** A record of an account the log says is deleted, which was never there for this device (`log_records.opened`). */
+const GONE = 2;
 
 const LOG_STATE = "log";
 const HEADS_SENT = "log_sent";
@@ -65,6 +67,22 @@ interface LogState {
   ownBefore?: string[];
   /** A head the log has to hold, from the invite link or the manifest, until it's been read that far. */
   floor: { era: number; size: number; root: string; from: "link" | "manifest" } | null;
+  /**
+   * The head a device signed in with, of the server's own era, when its manifest's is of an era
+   * before: that era is read first, held to the manifest's, and then the server's, held to this.
+   */
+  floorAfter?: { era: number; size: number; root: string; from: "link" | "manifest" };
+  /** The head the log last held, of those. */
+  held?: { era: number; size: number; from: "link" | "manifest" };
+  /** The era held was read only to hold that head to, before the server's own later one, which hasn't begun yet (`readEraOfFloor`). */
+  heldOnly?: boolean;
+  /**
+   * The era such a head was of, when the server's own was a later one: what it said is kept, for
+   * every era after it to be held to (`log_kept_records`, `log_kept_names`). `owed` is the accounts
+   * whose first key is still owed from it, and `checked` whether everyone it named was looked for
+   * in the era read after it.
+   */
+  kept?: { era: number; from: "link" | "manifest"; owed: string[]; checked: boolean };
   /** Two signed heads that can't both be true, once there are. */
   proof: WireHead[] | null;
 }
@@ -76,6 +94,11 @@ export interface LoggedAccount {
   twice?: boolean;
   /** Made under a username an account before it held, so it counts for nothing. */
   void?: boolean;
+  /**
+   * Its first key is owed from the era this device's link or manifest was of, where its records
+   * came without their bodies: nothing of it counts until that's come (`askForKept`).
+   */
+  owed?: boolean;
   deleted?: number;
   devices: Record<string, LoggedDevice>;
   /** Each generation's link, by the hash of its payload. */
@@ -113,6 +136,12 @@ const WARNINGS = {
 
 const fromWire = (wire: WireHead | null): LogHead | null => (wire ? fromWireHead(wire) : null);
 
+/** Whether a record is about an account, which only its ID says. */
+function isAbout(record: Uint8Array, userId: string): boolean {
+  const parts = readRecord(record);
+  return !!parts && equalBytes(userTag(userId, parts.nonce), parts.userTag);
+}
+
 export abstract class SessionDirectory extends SessionChains {
   // --- Key transparency ---
 
@@ -142,8 +171,12 @@ export abstract class SessionDirectory extends SessionChains {
   protected bodiesFailed = new Map<string, number>();
   /** Unopened records were tested against the accounts known, this session. */
   protected withheldLooked = false;
-  /** The era a link's or manifest's head was of was just read, before the server's own (`readEraOfFloor`). */
-  protected floorEraRead = false;
+  /** Accounts whose entries in the era kept are being asked for, and how many times in a row asking failed. */
+  protected keptAsked = new Set<string>();
+  protected keptFailed = new Map<string, number>();
+  /** How many times the server refused the era a link's or manifest's head is of, and the next try, while one waits. */
+  protected floorRefused = 0;
+  protected floorRetry: ReturnType<typeof setTimeout> | null = null;
 
   protected logState(): LogState {
     if (!this.logLoaded) {
@@ -238,10 +271,26 @@ export abstract class SessionDirectory extends SessionChains {
       // One of an era before that head's is refused, and one of a later era is taken only once the
       // head's own era, as the server kept it, has been read to it and held to it.
       if (state.era === 0 && state.floor && state.floor.era !== page.era) {
-        if (state.floor.era > page.era || !(await this.readEraOfFloor(key))) return void this.refuseLog(state.floor.from);
+        const { era, from } = state.floor;
+        if (era < page.era && (await this.readEraOfFloor(key))) continue;
+        this.refuseLog(from);
+        // A link's head that can't be held stops here, and whoever joins can ask for another link. A
+        // new device of an account has no other way in, and has its other devices' key for everyone
+        // from the manifest, which the server's era is held to as it is: it's told, and reads on.
+        if (from !== "manifest" || era > page.era) return;
+        const now = this.logState();
+        now.floor = now.floorAfter ?? null;
+        delete now.floorAfter;
+        this.saveLogState();
         continue;
       }
-      if (page.era > state.era) this.startLogEra(page.era, page.size);
+      if (page.era > state.era) {
+        this.startLogEra(page.era, page.size);
+      } else if (state.heldOnly) {
+        // The server's own era after all: this device goes on in it as any other does.
+        delete state.heldOnly;
+        this.saveLogState();
+      }
       // A page with nothing in it that says there's more would be asked for again and again.
       if (page.records.length === 0 && this.logState().frontier.size < page.size) return void this.refuseLog();
       const done = this.takeLogPage(page.records, head, page.size);
@@ -255,8 +304,10 @@ export abstract class SessionDirectory extends SessionChains {
     if (read || !this.withheldLooked) {
       this.withheldLooked = true;
       this.lookForWithheld();
+      this.askForOwed();
     }
     this.checkFloor();
+    this.checkKept();
     if (this.logState().own === null && this.logState().frontier.size > 0) this.warnOnce("log/own", t(WARNINGS.ownLeftOut), this.account.userId);
   }
 
@@ -267,11 +318,19 @@ export abstract class SessionDirectory extends SessionChains {
   protected startLogEra(era: number, size: number): void {
     const state = this.logState();
     // A device that only read an earlier era to hold its link's head to is still taking its first.
-    const first = state.era === 0 || this.floorEraRead;
-    this.floorEraRead = false;
+    const first = state.era === 0 || !!state.heldOnly;
+    // What that era said stays, for this one and those after it to be held to: the records that came
+    // without their bodies, and the usernames it gave.
+    const keep = state.heldOnly && state.held ? { era: state.era, from: state.held.from, owed: [], checked: false } : null;
     // A log written again is quiet about what it said before, but not about a device of this account it never named.
     const ownBefore = first ? undefined : [...new Set([...(state.ownBefore ?? []), ...Object.keys(this.loggedAccount(this.account.userId)?.devices ?? {})])];
     this.db.transaction(() => {
+      if (keep) {
+        this.db.run("DELETE FROM log_kept_records");
+        this.db.run("DELETE FROM log_kept_names");
+        this.db.run("INSERT INTO log_kept_records(idx, record, gone) SELECT idx, record, CASE WHEN opened = 0 THEN 0 ELSE 1 END FROM log_records WHERE opened != 1");
+        this.db.run("INSERT INTO log_kept_names(tag, sealed) SELECT tag, sealed FROM log_names");
+      }
       this.db.run("DELETE FROM log_records");
       this.db.run("DELETE FROM log_accounts");
       this.db.run("DELETE FROM log_names");
@@ -280,6 +339,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.logBumps.clear();
     this.standingCache.clear();
     this.withheldUsers.clear();
+    this.keptRecords = null;
     // What the log says of a device decides whose leaves are stale, so every tree is checked again.
     this.cleanEpochs.clear();
     this.logLoaded = {
@@ -291,7 +351,10 @@ export abstract class SessionDirectory extends SessionChains {
       // What a log written again says of this account's devices isn't news.
       quietBelow: first ? 0 : size,
       ownBefore,
-      floor: state.floor && state.floor.era === era ? state.floor : null,
+      floor: [state.floor, state.floorAfter].find((floor) => floor && floor.era === era) ?? null,
+      floorAfter: state.floorAfter && state.floorAfter.era > era ? state.floorAfter : undefined,
+      heldOnly: undefined,
+      kept: keep ?? state.kept,
     };
     this.saveLogState();
     if (!first) this.warnOnce(`log/era/${era}`, t(WARNINGS.era));
@@ -302,8 +365,10 @@ export abstract class SessionDirectory extends SessionChains {
    * the server's own later one: to that head and held to it, taking each account's first key from it
    * as any device that read it then did. The later era is then held to those keys, so a key the
    * server changed across the two is `changed`, and a backup restored, which changes none, says
-   * nothing. False, with this device back where it was, if the server didn't keep that era, or it
-   * doesn't reach the head or hold it.
+   * nothing. What that era kept back, and the names it gave, are kept for the later one to be held
+   * to as well (`startLogEra`). False, with this device back where it was, if the server didn't
+   * keep that era, or it doesn't reach the head or hold it. A server can't hold a device here by
+   * refusing the request either: it's asked again, and the third refusal is the link's warning.
    */
   protected async readEraOfFloor(key: Uint8Array): Promise<boolean> {
     const before = this.logState();
@@ -322,11 +387,34 @@ export abstract class SessionDirectory extends SessionChains {
       }
       // A head the log went past is let go once it's held (`takeLogPage`): one still there wasn't reached.
       read = this.logState().floor === null;
-      this.floorEraRead = read;
+      if (read) {
+        this.logState().heldOnly = true;
+        this.saveLogState();
+      }
+      this.floorRefused = 0;
       return read;
+    } catch (error) {
+      this.noteFloorFailed(floor.from, error);
+      throw error;
     } finally {
       if (!read) this.backToNothingRead(before);
     }
+  }
+
+  /**
+   * Reading the era a link's or manifest's head is of failed. It's tried again, and a server that
+   * answered with a refusal three times, some seconds apart, has kept it from this device.
+   */
+  protected noteFloorFailed(from: "link" | "manifest", error: unknown): void {
+    if (this.stopped || this.floorRetry || (error instanceof ApiError && error.status === 401)) return;
+    // Not being able to reach the server at all says nothing of it.
+    if (error instanceof ApiError && error.status !== 0) this.floorRefused++;
+    if (this.floorRefused >= BODIES_TRIES) this.warnOnce(`log/floor/${from}`, t(WARNINGS[from]));
+    this.floorRetry = setTimeout(() => {
+      this.floorRetry = null;
+      if (!this.stopped) void this.syncLog().catch((failure) => console.warn("[zuna] reading the log of keys", failure));
+    }, Math.min(BODIES_RETRY_MS * 2 ** Math.max(this.floorRefused - 1, 0), BODIES_RETRY_MAX_MS));
+    (this.floorRetry as { unref?: () => void }).unref?.();
   }
 
   /** Puts this device back to having read none of the log, as it was before `readEraOfFloor`. */
@@ -341,7 +429,6 @@ export abstract class SessionDirectory extends SessionChains {
     this.standingCache.clear();
     this.withheldUsers.clear();
     this.cleanEpochs.clear();
-    this.floorEraRead = false;
     this.logLoaded = { ...state };
     this.saveLogState();
   }
@@ -389,9 +476,13 @@ export abstract class SessionDirectory extends SessionChains {
       this.saveLoggedAccounts();
       state.frontier = frontier.toJSON();
       state.head = toWireHead(head);
-      if (floor && frontier.size >= floor.size) state.floor = null;
+      if (floor && frontier.size >= floor.size) {
+        state.floor = null;
+        state.held = { era: floor.era, size: floor.size, from: floor.from };
+      }
       this.saveLogState();
     });
+    this.askForOwed();
     return true;
   }
 
@@ -407,11 +498,13 @@ export abstract class SessionDirectory extends SessionChains {
     const floor = state.floor;
     if (!floor || floor.era !== state.era || floor.size > state.frontier.size) return;
     state.floor = null;
-    this.saveLogState();
-    if (!equalBytes(this.rootAt(floor.size), fromBase64(floor.root))) {
+    if (equalBytes(this.rootAt(floor.size), fromBase64(floor.root))) {
+      state.held = { era: floor.era, size: floor.size, from: floor.from };
+    } else {
       this.logRead = false;
       this.warnOnce(`log/floor/${floor.from}`, t(WARNINGS[floor.from]));
     }
+    this.saveLogState();
   }
 
   /** The tree's root when it was `size` records long, worked out from the frontier kept at the checkpoint before. */
@@ -470,6 +563,223 @@ export abstract class SessionDirectory extends SessionChains {
     this.db.run("INSERT OR REPLACE INTO log_names(tag, sealed) VALUES(?, ?)", [tag, this.sealJson("log-name", tag, holder)]);
   }
 
+  // What the era a link's or manifest's head was of said, kept across the server's later ones
+  // (`readEraOfFloor`): its records that came without their bodies, and the usernames it gave.
+
+  /**
+   * The records kept from that era, as read from the table. `gone` is one of an account the log said
+   * was deleted, which holds its username no longer, and is still what its first key is taken from.
+   */
+  protected keptRecords: { idx: number; record: Uint8Array; gone: number }[] | null = null;
+
+  protected keptBare(): { idx: number; record: Uint8Array; gone: number }[] {
+    if (!this.logState().kept) return [];
+    this.keptRecords ??= this.db.all<{ idx: number; record: Uint8Array; gone: number }>("SELECT idx, record, gone FROM log_kept_records ORDER BY idx");
+    return this.keptRecords;
+  }
+
+  /** The records kept from that era that are about an account. */
+  protected keptFits(userId: string): { idx: number; record: Uint8Array; gone: number }[] {
+    return this.keptBare().filter((row) => isAbout(row.record, userId));
+  }
+
+  /** This era's records before a place that came without their bodies, but for those of an account the log says is deleted. */
+  protected bareBefore(idx: number): { idx: number; record: Uint8Array }[] {
+    return this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0 AND idx < ?", [idx]);
+  }
+
+  protected keptNameHolder(username: string): { user: string; idx: number; deleted?: number } | null {
+    const tag = this.nameKey(username);
+    const row = this.db.get<{ sealed: Uint8Array }>("SELECT sealed FROM log_kept_names WHERE tag = ?", [tag]);
+    return row ? this.openValue<{ user: string; idx: number; deleted?: number } | null>("log-name", tag, row.sealed, null) : null;
+  }
+
+  protected setKeptNameHolder(username: string, holder: { user: string; idx: number; deleted?: number }): void {
+    const tag = this.nameKey(username);
+    this.db.run("INSERT OR REPLACE INTO log_kept_names(tag, sealed) VALUES(?, ?)", [tag, this.sealJson("log-name", tag, holder)]);
+  }
+
+  /**
+   * Whether a username an account is made under was another's before it, as far as this device can
+   * tell: the era its link or manifest was of gave it to an account no era since says is deleted,
+   * or a record from before, of that era or this one, that came without its body is filed under
+   * the name and isn't this account's. The server keeps an entry back only about a private bot that
+   * isn't there for this device, and says when one is deleted (`forgetDeleted`), so a name held
+   * that way isn't free. The account counts for nothing then, and the person is told.
+   */
+  protected nameHeldBefore(userId: string, username: string, idx: number, before: { idx: number; record: Uint8Array }[]): boolean {
+    const state = this.logState();
+    const kept = state.kept;
+    const holder = kept ? this.keptNameHolder(username) : null;
+    if (kept && holder && holder.user !== userId && holder.deleted === undefined) {
+      if (this.loggedAccount(holder.user)?.deleted === undefined) {
+        this.warnOnce(`log/floor/${kept.from}`, t(WARNINGS[kept.from]));
+        return true;
+      }
+      // This era says its holder is gone, so the name was free.
+      this.setKeptNameHolder(username, { ...holder, deleted: idx });
+    }
+    const filedUnder = (record: Uint8Array): boolean => {
+      const parts = readRecord(record);
+      return !!parts && equalBytes(nameTag(username, parts.nonce), parts.nameTag) && !equalBytes(userTag(userId, parts.nonce), parts.userTag);
+    };
+    if (kept && this.keptBare().some((row) => !row.gone && filedUnder(row.record))) {
+      this.warnOnce(`log/floor/${kept.from}`, t(WARNINGS[kept.from]));
+      return true;
+    }
+    const here = before.find((row) => filedUnder(row.record));
+    if (!here) return false;
+    // Below the head this device's link or manifest carried, that's the record the server departs from.
+    const head = state.floor ?? state.held;
+    const from = head && head.era === state.era && here.idx < head.size ? head.from : null;
+    if (from) this.warnOnce(`log/floor/${from}`, t(WARNINGS[from]));
+    else this.warnOnce(`log/name-kept/${here.idx}`, t(WARNINGS.withheld), userId);
+    return true;
+  }
+
+  /**
+   * The log says an account that was never there for this device is deleted. The records about it,
+   * which came without their bodies, hold its username no longer, so another account may take it.
+   * They're still what the account's first key is taken from, should a later era name it after all.
+   */
+  protected forgetDeleted(userId: string): void {
+    for (const row of this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0")) {
+      if (isAbout(row.record, userId)) this.db.run("UPDATE log_records SET opened = ? WHERE idx = ?", [GONE, row.idx]);
+    }
+    for (const row of this.keptFits(userId)) this.db.run("UPDATE log_kept_records SET gone = 1 WHERE idx = ?", [row.idx]);
+    this.keptRecords = null;
+  }
+
+  /** An account whose first key is owed from the era kept, which is asked for once what's being applied is kept. */
+  protected noteOwed(userId: string): void {
+    const kept = this.logState().kept;
+    if (kept && !kept.owed.includes(userId)) kept.owed.push(userId);
+  }
+
+  /** Asks for what the era kept says of each account whose first key is owed from it. */
+  protected askForOwed(): void {
+    const kept = this.logState().kept;
+    if (!kept || this.stopped) return;
+    for (const userId of kept.owed) {
+      if (this.keptAsked.has(userId)) continue;
+      this.keptAsked.add(userId);
+      void this.askForKept(userId)
+        .then(
+          () => this.keptFailed.delete(userId),
+          (error) => this.noteKeptFailed(userId, error),
+        )
+        .finally(() => this.keptAsked.delete(userId));
+    }
+  }
+
+  /** Asking for an account's entries in the era kept failed: it's asked again, and the third refusal is the link's warning. */
+  protected noteKeptFailed(userId: string, error: unknown): void {
+    console.warn("[zuna] asking for an earlier era's entries about someone", error);
+    const kept = this.logState().kept;
+    // Not being able to reach the server at all says nothing of it.
+    const refusals = (this.keptFailed.get(userId) ?? 0) + (error instanceof ApiError && error.status !== 0 ? 1 : 0);
+    this.keptFailed.set(userId, refusals);
+    if (kept && refusals >= BODIES_TRIES) this.warnOnce(`log/floor/${kept.from}`, t(WARNINGS[kept.from]));
+    if (this.stopped) return;
+    const timer = setTimeout(() => this.askForOwed(), Math.min(BODIES_RETRY_MS * 2 ** Math.max(refusals - 1, 0), BODIES_RETRY_MAX_MS));
+    (timer as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * Asks for what the era this device's link or manifest was of says of one account, whose records
+   * there came without their bodies, now that a later era names it. The account's first key is that
+   * era's, as it is for everyone whose entries there came whole, and this era's is held to it. A
+   * server that doesn't give every one of those entries, each fitting its record, gets the link's
+   * warning, and nothing of the account counts until it does.
+   */
+  protected async askForKept(userId: string): Promise<void> {
+    const kept = this.logState().kept;
+    if (!kept) return;
+    const refused = () => this.warnOnce(`log/floor/${kept.from}`, t(WARNINGS[kept.from]));
+    const places = this.keptFits(userId);
+    // Nothing of that era is about it any more, so this era's word for its key stands.
+    if (places.length === 0) return this.settleOwed(userId, null);
+    let answer: { era: number; bodies: { idx: number; body: string }[] };
+    try {
+      answer = await this.api.logBodies(userId, kept.era);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      // The server named the account to this device itself, in the era after.
+      if (await this.stillThere(userId)) refused();
+      return;
+    }
+    if (answer.era !== kept.era) return refused();
+    const given = new Map(answer.bodies.map((item) => [item.idx, decode(item.body)]));
+    let first: Extract<LogBody, { t: "account" }> | null = null;
+    let deleted: number | undefined;
+    for (const place of places) {
+      const bytes = given.get(place.idx);
+      const parts = readRecord(place.record);
+      const body = bytes ? parseBody(bytes) : null;
+      if (!bytes || !parts || !body || body.user !== userId || !bodyFits(parts, bytes, body)) return refused();
+      if (body.t === "account") first ??= body;
+      else if (body.t === "deleted") deleted = place.idx;
+    }
+    if (!first) return refused();
+    await this.settleOwed(userId, { places, first, deleted });
+  }
+
+  /** What the era kept said of an account whose first key was owed from it, now that it's come, or null if it said nothing. */
+  protected async settleOwed(
+    userId: string,
+    said: { places: { idx: number }[]; first: Extract<LogBody, { t: "account" }>; deleted: number | undefined } | null,
+  ): Promise<void> {
+    const state = this.logState();
+    this.db.transaction(() => {
+      const account = this.loggedAccount(userId);
+      if (said) {
+        this.takeLoggedRoot(userId, said.first.root);
+        if (said.first.username && !this.keptNameHolder(said.first.username)) {
+          this.setKeptNameHolder(said.first.username, { user: userId, idx: said.places[0]!.idx, ...(said.deleted === undefined ? {} : { deleted: said.deleted }) });
+        }
+        for (const place of said.places) this.db.run("DELETE FROM log_kept_records WHERE idx = ?", [place.idx]);
+        this.keptRecords = null;
+      } else if (account?.account && !account.void) {
+        this.takeLoggedRoot(userId, fromBase64(account.account.root));
+      }
+      if (account?.owed) {
+        delete account.owed;
+        this.unsavedAccounts.add(userId);
+        this.saveLoggedAccounts();
+      }
+      if (state.kept) state.kept.owed = state.kept.owed.filter((id) => id !== userId);
+      this.saveLogState();
+      this.logBumps.set(userId, (this.logBumps.get(userId) ?? 0) + 1);
+      this.standingCache.clear();
+      this.cleanEpochs.clear();
+    });
+    // This era's key for them, if it isn't that one, is a key that changed.
+    if (this.loggedRootDisagrees(userId)) this.noteLoggedRootChanged(userId);
+    this.logTouched.add(userId);
+    await this.refreshLogTouched();
+  }
+
+  /**
+   * Once the era after the one kept has been read: everyone that era named, and didn't say was
+   * deleted, has to be in this one, which a server's tables hold whatever it restored. An account
+   * left out of it is the link's warning.
+   */
+  protected checkKept(): void {
+    const state = this.logState();
+    const kept = state.kept;
+    if (!kept || kept.checked || !this.logRead) return;
+    kept.checked = true;
+    this.saveLogState();
+    let bare: { record: Uint8Array }[] | null = null;
+    for (const row of this.db.all<{ tag: string; sealed: Uint8Array }>("SELECT tag, sealed FROM log_kept_names")) {
+      const holder = this.openValue<{ user: string; deleted?: number } | null>("log-name", row.tag, row.sealed, null);
+      if (!holder || holder.deleted !== undefined || holder.user === this.account.userId || this.loggedAccount(holder.user)?.account) continue;
+      // One whose records here came without their bodies is asked about as any such account is (`lookForWithheld`).
+      bare ??= this.db.all<{ record: Uint8Array }>("SELECT record FROM log_records WHERE opened = 0");
+      if (!bare.some((item) => isAbout(item.record, holder.user))) return this.warnOnce(`log/floor/${kept.from}`, t(WARNINGS[kept.from]));
+    }
+  }
+
   /** What an entry says, held to what came before it (the table in section 5.5 of the plan). */
   protected applyLogEntry(idx: number, body: LogBody): void {
     const self = this.account.userId;
@@ -488,7 +798,13 @@ export abstract class SessionDirectory extends SessionChains {
           this.noteLoggedRootChanged(body.user);
           break;
         }
+        // An account doesn't begin once the log has said it's gone.
+        if (account.deleted !== undefined) {
+          odd();
+          break;
+        }
         account.account = { idx, username: body.username, root: toBase64(body.root), hpke: toBase64(body.hpke) };
+        const before = body.user === self ? [] : this.bareBefore(idx);
         if (body.username) {
           const holder = this.nameHolder(body.username);
           if (holder && holder.user !== body.user && holder.deleted === undefined) {
@@ -497,11 +813,25 @@ export abstract class SessionDirectory extends SessionChains {
           } else {
             this.setNameHolder(body.username, { user: body.user, idx });
           }
+          // Nor is the name free while an account from before holds it that this device can't see
+          // the end of: one the era its link was of named, or one whose entry was kept back from it.
+          if (body.user !== self && !account.void && this.nameHeldBefore(body.user, body.username, idx, before)) account.void = true;
         }
         if (body.user === self) {
           if (!equalBytes(body.root, this.account.core.rootPublic) || body.username.toLowerCase() !== this.account.username.toLowerCase()) {
             this.warnOnce("log/own-account", t(WARNINGS.ownHistory), self);
           }
+        } else if (account.void) {
+          // It counts for nothing, so no key is held for it.
+        } else if (state.kept && !this.pinnedIdentity(body.user) && this.keptFits(body.user).length > 0) {
+          // The era this device's link was of had entries about this account, which came without
+          // their bodies. Its first key is what they say, not this era's word for it.
+          account.owed = true;
+          this.noteOwed(body.user);
+        } else if (before.some((row) => isAbout(row.record, body.user))) {
+          // So did this era, before this entry, which isn't the account's first then. Its key is taken
+          // once all of them have come, in their order (`askForBodies`), and nothing of it counts until then.
+          account.owed = true;
         } else {
           this.takeLoggedRoot(body.user, body.root);
         }
@@ -562,6 +892,14 @@ export abstract class SessionDirectory extends SessionChains {
         break;
       }
       case "deleted": {
+        if (!account.account && account.deleted === undefined) {
+          // An account that isn't there for this device, a private bot's: the server says that it's
+          // gone and keeps the rest back. If it never was there, the records about it hold its
+          // username no longer. One this device knows has them asked for, as ever (`lookForWithheld`).
+          account.deleted = idx;
+          if (!this.users.has(body.user) && !this.pinnedIdentity(body.user)) this.forgetDeleted(body.user);
+          break;
+        }
         if (!account.account || account.deleted !== undefined) {
           odd();
           break;
@@ -699,6 +1037,17 @@ export abstract class SessionDirectory extends SessionChains {
     return false;
   }
 
+  /** Whether an account is there for this device, whatever the server says of its entries: it shares a conversation with it, or the server lists it. */
+  protected async stillThere(userId: string): Promise<boolean> {
+    return (
+      this.sharesAConversation(userId) ||
+      (await this.api.user(userId).then(
+        () => true,
+        (failure: unknown) => (failure instanceof ApiError && failure.status === 404 ? false : Promise.reject(failure)),
+      ))
+    );
+  }
+
   /** The records already opened that fit an account, whose bodies the server has to give again. */
   protected openedFor(userId: string): number[] {
     const out: number[] = [];
@@ -724,14 +1073,7 @@ export abstract class SessionDirectory extends SessionChains {
       answer = await this.api.logBodies(userId);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 404) throw error;
-      // Someone this device shares a conversation with is there for it, whatever the server says now.
-      const listed =
-        this.sharesAConversation(userId) ||
-        (await this.api.user(userId).then(
-          () => true,
-          (failure: unknown) => (failure instanceof ApiError && failure.status === 404 ? false : Promise.reject(failure)),
-        ));
-      if (listed) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
+      if (await this.stillThere(userId)) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
       return;
     }
     const state = this.logState();
@@ -767,6 +1109,7 @@ export abstract class SessionDirectory extends SessionChains {
       this.saveLogState();
     });
     this.withheldUsers.delete(userId);
+    this.askForOwed();
     await this.refreshLogTouched();
   }
 
@@ -802,6 +1145,8 @@ export abstract class SessionDirectory extends SessionChains {
   /** Whether the log names a device of an account, with this signing key and a certificate of this hash. */
   protected logStanding(userId: string, deviceId: string, key: Uint8Array, certificate: Uint8Array): LogStanding {
     const account = this.loggedAccount(userId);
+    // Nothing of an account counts while its first key is owed from the era before.
+    if (account?.owed && !this.pinnedIdentity(userId)) return "unknown";
     const device = account?.devices[deviceId];
     if (account && !account.void && !account.twice && device && device.key === toBase64(key)) {
       if (device.revoked !== undefined) return "gone";
@@ -834,10 +1179,19 @@ export abstract class SessionDirectory extends SessionChains {
     return hash ? fromBase64(hash) : null;
   }
 
-  /** The key an account began with, as the log says. */
+  /**
+   * The key an account began with, as the log says, for a device with none for it to go by: not that
+   * of an account made under a name another held, nor one this era gives where an earlier era's is owed.
+   */
   protected loggedRoot(userId: string): Uint8Array | null {
-    const root = this.loggedAccount(userId)?.account?.root;
+    const account = this.loggedAccount(userId);
+    const root = account && !account.void && !account.owed ? account.account?.root : null;
     return root ? fromBase64(root) : null;
+  }
+
+  /** Whether what the log says of an account can't be gone by yet: entries about it came without their bodies, in this era or the one before. */
+  protected keptBack(userId: string): boolean {
+    return this.withheldUsers.has(userId) || (this.loggedAccount(userId)?.owed === true && !this.pinnedIdentity(userId));
   }
 
   /** Whether the log says something about an account's first key that doesn't fit: a second account entry, or one that isn't its pin. */
@@ -980,8 +1334,16 @@ export abstract class SessionDirectory extends SessionChains {
     }
     if (log.era < state.era) return;
     if (log.era > state.era || log.size > state.frontier.size) {
-      if (!state.floor || state.floor.era < log.era || state.floor.size < log.size) {
-        state.floor = { era: log.era, size: log.size, root: log.root, from: "manifest" };
+      const floor = { era: log.era, size: log.size, root: log.root, from: "manifest" as const };
+      const held = state.floor;
+      if (!held || held.era < log.era || (held.era === log.era && held.size < log.size)) {
+        state.floor = floor;
+        this.saveLogState();
+      } else if (held.era > log.era && state.era === 0) {
+        // The head this device signed in with is of a later era than the one its other devices
+        // held: that era is read first, to their head, and the later one held to it (`readEraOfFloor`).
+        state.floor = floor;
+        state.floorAfter = held;
         this.saveLogState();
       }
       if (state.era > 0) void this.syncLog().catch((error) => console.warn("[zuna] reading the log of keys", error));

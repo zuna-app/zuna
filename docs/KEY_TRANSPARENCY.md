@@ -115,17 +115,19 @@ record = nonce (16) | user tag (16) | name tag (16) | body hash (32)
 
 - **The user tag** is a hash of the account's ID and the nonce. IDs are 16 random bytes, so only someone who knows an ID can tell a record is about it.
 - **The name tag,** on an `account` entry, is a hash of the username and the nonce. On every other entry it's 16 random bytes, so nobody can tell kinds apart.
-- **The body** goes only to those `canSee` allows, as everything else about an account does.
+- **The body** goes only to those `canSee` allows, as everything else about an account does. The one exception is the entry that says an account is deleted, which every device gets: it names the account's ID and nothing else, and it's what frees the account's username.
 
 A device checks tags in both directions:
 
 - **A body it's given** must hash to the record, name an ID the user tag fits, and for an `account`, a username the name tag fits. So a server can't file an entry about Bob under a tag Bob wouldn't recognize.
 - **A record about the device's own account always comes with its body.** A page that has one without is refused whole, as at sign-in: read bare and asked for afterwards, it would be taken as old news, a new device in it too.
-- **A record it's given no body for** is tested against every other ID the device knows, and against the usernames it knows. A match means the server is keeping back something about someone who's there for this device, which may be that one of their devices was removed. Until the bodies come, none of that account's devices is encrypted to, as an unchecked leaf isn't, and none of its key packages is taken. The device asks again, however the request fails, and says so after three tries, or at once if the server says the account isn't there while this device shares a conversation with it.
+- **A record it's given no body for** is tested against every other ID the device knows, and against its own username. A match means the server is keeping back something about someone who's there for this device, which may be that one of their devices was removed. Until the bodies come, none of that account's devices is encrypted to, as an unchecked leaf isn't, and none of its key packages is taken. The device asks again, however the request fails, and says so after three tries, or at once if the server says the account isn't there while this device shares a conversation with it.
 - **An answer to `GET /api/log/bodies` has to hold every body of that account's the device opened before,** as what it says of the account is worked out again from the answer alone: leaving out a removal would take it back. One that doesn't is refused, and said so.
 - **When an account becomes visible later,** as a private bot does to someone added to a chat with it, the device tests the records it holds against the new ID and asks for those bodies (`GET /api/log/bodies`).
+- **An `account` entry that follows records about the same ID that came without their bodies** isn't that account's first, whatever it says. No key is taken from it, and nothing of the account counts until all of them have come, in their order.
+- **A username an account is made under** is tested against every record before it that came without its body. One filed under that name that isn't this account's is an account that held the name first, which the server keeps from this device: the later account counts for nothing, as under any held name (5.5), and the device says the server is keeping part of someone's record back. The server keeps a body back only for a private bot that isn't there for the device, and a bot's `deleted` entry comes to everyone, so a name a deleted bot had is free (`nameHeldBefore`, `forgetDeleted`).
 
-What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. `SECURITY_DETAILS.md` says so under bots.
+What leaks: a modified app can count records about nobody it can see, which says that private bots exist and that their keys changed, and can test guesses at a private bot's username offline, where today it would have to try signing up under each. It learns when one was deleted, with its ID, which says which of those records were its. `SECURITY_DETAILS.md` says so under bots.
 
 ### 5.4 Heads
 
@@ -149,12 +151,12 @@ For each batch of new records, in order:
 
 | Kind | Rule | Breaking it |
 |---|---|---|
-| `account` | The first for this ID. Its username isn't held by an earlier account with no `deleted` entry. If this device has a pin for the ID, the key is the pin's | A second for an ID, or a key that isn't the pin's, is today's `changed`. An account under a held name counts for nothing, and its devices with it |
+| `account` | The first for this ID. Its username isn't held by an earlier account with no `deleted` entry, nor is an earlier record that came without its body filed under it (5.3). If this device has a pin for the ID, the key is the pin's | A second for an ID, or a key that isn't the pin's, is today's `changed`. An account under a held name counts for nothing, and its devices with it |
 | `device` | The account exists and isn't deleted, and the device's ID is new for it | Ignored, and said once |
 | `certificate`, `seal` | The device exists and isn't revoked | Ignored |
 | `revoked` | The device exists | Ignored |
 | `link` | Its generation is the account's next. The link fetched for it must have the payload hash the entry names, and then passes `verifyLink` as today | A second for a generation is today's fork (`noteFork`). A link the server won't hand over is a generation this device knows it's missing, and it keeps asking |
-| `deleted` | The account exists | Ignored |
+| `deleted` | The account exists, or was never there for this device (5.3). No `account` entry for the ID follows it | Ignored |
 
 A device with no pin for someone takes it from their `account` entry. It no longer pins what `GET /api/users` shows.
 
@@ -215,6 +217,12 @@ A server restored from a backup has a shorter log than its members' devices have
 - **Devices take a newer era** signed by the key they pinned, say so once, and read it from the start.
 - **Nothing they hold is given up.** Pins, chains and known devices are kept in tables of their own, and the new era's entries are held to them by the rules in 5.5. A key that changed across the reset is `changed`, as it would be today.
 - **The eras before are kept** as they were, and given whole, with heads signed for them, to whoever asks for one (`GET /api/log?era=…&past=1`). A device that has read nothing yet, whose invite link's or manifest's head is of an earlier era than the server's, reads that era first, held to the head, taking each account's first key from it as a device that read it then did, and then the server's era, held to those as any device's is. So whoever was there when the link was made keeps the key they had, one the new era changes is `changed`, and a restored backup, which changes nobody's, says nothing to them. A server that keeps no such era, or answers in one before the head's, gets the link's warning, as a log that doesn't fit the head does (`readEraOfFloor`).
+- **What that era said is kept across the move** (`log_kept_records`, `log_kept_names`), as its head holds the records, not what the server says is in them, and the later era is held to it three ways:
+  - **What it kept back.** Its records that came without their bodies stay. When a later era names an account one of them is about, that account's first key is owed from the earlier era: the device asks for those entries (`GET /api/log/bodies?user=…&era=…`), holds each to its record, and takes the key from the `account` entry among them, so the later era's key for them is `changed` if it's another. Until they come, no key is taken for the account and nothing of it counts, and a server that doesn't give every one of them gets the link's warning (`askForKept`). A private bot that wasn't there for the device when it joined, and is later, goes the same way, and nothing is said. Records of an account that era said was deleted stop holding its username, and are still what its key is taken from, should a later era have it after all.
+  - **Usernames.** A username that era gave to an account doesn't go to another in a later one unless the later one says the first is deleted, and nor does one that a record it kept back was filed under. Such an account counts for nothing, with the link's warning (`nameHeldBefore`).
+  - **Who was there.** Once the later era has been read, everyone that era named and didn't say was deleted has to be in it, as a server's tables hold them whatever it restored. Someone left out is the link's warning (`checkKept`).
+- **A server that refuses that era** is asked again, and its third refusal, some seconds apart, is the link's warning. Until it's given, the device has read nothing, and counts nobody.
+- **A new device of an account** signs in under the server's own era, with a head of it (5.7), while its manifest's head may be of the era before. It reads that era first, held to the manifest's head, and then the server's, held to the head it signed in with and to what the earlier one said, as above. If the server has none of that era left, the device says so with the manifest's warning and reads on: it has no other way in, and it holds everyone's key from the manifest already, which the server's era is held to.
 
 So a malicious server gains nothing by starting again but a warning on every device. A server's log starts empty, at era 1, with its key (`ensureLog`). Writing it from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 
@@ -252,9 +260,10 @@ Every line but one is a notice through the existing `security` event, or somethi
 2. **Reach someone who's alone.** A server that gives a person a log of their own, and stands between them and every contact, can rewrite the heads that pass. It has to do that in every conversation they're in, for as long as it wants to go unnoticed. One emoji check ends it: a verified contact's messages can't be rewritten, so their head is real, and it ties that person's log to everyone that contact talks to. An invite link's head ends it sooner, for everyone who was there before the link.
 3. **Speak for someone who isn't asked.** There are no outside witnesses. A server with one member has nobody to compare with.
 4. **Stop an era being started.** Anyone with the log key can start the log again. Everyone is told, and it changes nothing they hold.
-5. **Hide the log's shape.** Members learn the order of changes, and that hidden accounts exist (5.3).
-6. **Keep a member from raising the milder warning** (5.9), as with token keys today.
-7. **Anything about messages.** What a removed device could already read, forged old messages, and metadata are as the rotation's design leaves them.
+5. **Tell a deletion the server made up from a real one.** A `deleted` entry is the server's word, signed by nobody else. It frees the account's username, so a server can say someone is gone and give their name to another account: a different one, with another ID and a key of its own, which shows as new to everyone, beside the account it says is gone, shown as deleted.
+6. **Hide the log's shape.** Members learn the order of changes, and that hidden accounts exist (5.3).
+7. **Keep a member from raising the milder warning** (5.9), as with token keys today.
+8. **Anything about messages.** What a removed device could already read, forged old messages, and metadata are as the rotation's design leaves them.
 
 ## 9. Alternatives considered
 
@@ -349,8 +358,8 @@ Tables: `log_entries(era, idx, record, body, user_id, root)`, with `root` the tr
 
 | Route | Wrapper | Purpose |
 |---|---|---|
-| `GET /api/log?era=&after=&limit=` | `authed`. A session with a device gets each body its account is there for, and one with none yet, signing in, only its own account's | The signed head, and the records after a place, each with its body if its account is there for whoever asks |
-| `GET /api/log/bodies?user=` | `withDevice` | The bodies of one account's entries, for someone it has just become visible to |
+| `GET /api/log?era=&after=&limit=` | `authed`. A session with a device gets each body its account is there for, and every `deleted` entry's, and one with none yet, signing in, only its own account's | The signed head, and the records after a place, each with its body if its account is there for whoever asks. With `past=1`, an earlier era as it was kept |
+| `GET /api/log/bodies?user=&era=` | `withDevice` | The bodies of one account's entries, for someone it has just become visible to. With `era`, those of an earlier era as it was kept, for a device that was given its records there without them |
 | `GET /api/users` | `withDevice` | Also says the log's era and size |
 | `GET /api/info` | `pageLimited` | Also gives `log_key` to someone signed in |
 
@@ -358,14 +367,14 @@ The `log` frame says an era and a size, to everyone connected.
 
 ### On the device
 
-A local migration adds `log_records(idx, record, frontier, opened)`, `log_accounts` and `log_names` at the end of `MIGRATIONS`. The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
+A local migration adds `log_records(idx, record, frontier, opened)`, `log_accounts` and `log_names` at the end of `MIGRATIONS`, and a later one `log_kept_records(idx, record)` and `log_kept_names`, for what an era read before the server's own said (5.10). The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
 
 ## Implementation notes
 
 Where the code goes into more detail than the design above:
 
 - **Roots before now.** A device keeps the tree's frontier after every 256th record rather than a root after each (`log_records.frontier`), and works out a root from before from the nearest one, which is at most 256 records to hash again. A root after every record would have tripled the hashing of a first read.
-- **Bodies.** A device doesn't keep the bodies, only whether each record's came (`log_records.opened`), and what they say of each account, sealed, one row each (`log_accounts`), with the usernames held, by a keyed hash of the name (`log_names`).
+- **Bodies.** A device doesn't keep the bodies, only whether each record's came (`log_records.opened`, which also marks the records of a deleted account that was never there for the device), and what they say of each account, sealed, one row each (`log_accounts`), with the usernames held, by a keyed hash of the name (`log_names`).
 - **Every page is signed.** `GET /api/log` signs the head at the end of each page, not only the newest, so a device checks each page as it comes and keeps none it can't.
 - **A floor.** The head an invite link or the manifest carries is a floor the log has to hold: a page that runs past it with another root is refused whole, as is a log that ends before it, which gets the warning.
 - **Timing.** A first read of 100,000 records, checked and hashed, took about half a second in Node, and the same hashing through the iOS host's crypto in JavaScriptCore without a JIT, as on a device, 2.9 seconds (`tests/e2e/test/performance.test.ts`), both on an M-series Mac. That's in the background and once, so hashing stays in the core. QuickJS, the native desktop app's, wasn't timed.

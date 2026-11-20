@@ -696,6 +696,31 @@ describe("eras and seal keys", () => {
     expect(securityEvents(frank)).toEqual([]);
   });
 
+  it("says nothing of a private bot someone knew, deleted before the log was written again", async () => {
+    const dave = await person("dave");
+    const name = `helper${Date.now() % 100000}`;
+    const { bot, link } = await alice.session.createBot({ username: name, name });
+    const helper = await new TestApp(name).open();
+    open.push(helper);
+    await helper.registerBot(link);
+    const groupId = await groupWith(alice, [dave]);
+    await alice.session.addMembers(groupId, [bot.id]);
+    await waitFor(() => sessionOf(dave).users.get(bot.id)?.devices.size === 1, "dave to know the bot");
+    helper.client.stop();
+    await alice.session.deleteBot(bot.id);
+    await waitFor(() => sessionOf(dave).users.get(bot.id)?.deleted === true, "dave to hear the bot is gone");
+    await caughtUp(dave);
+    const before = securityEvents(dave).length;
+    // In the log written again the bot isn't there for dave: all of it he's given is that it's deleted.
+    startNewEra(dataDir());
+    await sessionOf(dave).syncLog();
+    expect(await caughtUp(dave)).toBe(true);
+    await sleep(300);
+    expect(sessionOf(dave).loggedAccount(bot.id)).toMatchObject({ account: null });
+    expect(sessionOf(dave).loggedAccount(bot.id).deleted).toBeDefined();
+    expect(securityEvents(dave).slice(before).map((event) => event.message).filter((message) => !message.includes("reset its record"))).toEqual([]);
+  });
+
   it("shows a key changed across a new era as changed", async () => {
     const dave = await person("dave");
     const erin = await person("erin");

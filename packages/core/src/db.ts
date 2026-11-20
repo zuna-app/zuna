@@ -211,6 +211,14 @@ const MIGRATIONS: string[] = [
   // Every key a channel's members handed on for an epoch, sealed, with whose device signed it,
   // until one opens something: a member may hand on a wrong one, which mustn't stand in the way.
   `CREATE TABLE granted_keys (group_id TEXT NOT NULL, epoch INTEGER NOT NULL, signer TEXT NOT NULL, key BLOB NOT NULL, PRIMARY KEY (group_id, epoch, signer));`,
+  // What the era of the log a device's invite link or manifest was of said, when the server's own
+  // was a later one, kept for every era after it to be held to: its records that came without their
+  // bodies, those of an account it said was deleted marked, and the usernames it gave, as log_names
+  // holds this era's.
+  `
+  CREATE TABLE log_kept_records (idx INTEGER PRIMARY KEY, record BLOB NOT NULL, gone INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE log_kept_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

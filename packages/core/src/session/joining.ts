@@ -164,9 +164,11 @@ export abstract class SessionJoining extends SessionGroups {
       // Someone not known yet is looked up by checkTree, which runs on any change to the tree.
       // Until that's worked, nothing about this leaf has been checked, so it counts for nothing.
       const pinned = this.pinnedIdentity(cert.userId);
+      // An account made under a name another held counts for nothing, so no key is held for it, and its leaf is a false one.
+      if (!pinned && this.loggedVoid(cert.userId)) return { ...found, genuine: false };
       if (!pinned) return { ...found, genuine: false, unchecked: true };
       // What the log says of them came without its body, and may be that this device was removed.
-      if (this.withheldUsers.has(cert.userId)) return { ...found, genuine: false, unchecked: true };
+      if (this.keptBack(cert.userId)) return { ...found, genuine: false, unchecked: true };
       const standing = this.certificateStanding(cert.userId, pinned, member.credential);
       // A certificate from a generation the log has a link for, which the server hasn't handed over,
       // is a real device's: it waits for the link rather than being removed over it.

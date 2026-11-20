@@ -246,7 +246,7 @@ export abstract class SessionGroups extends SessionRotation {
    */
   protected async claimKeyPackages(userId: string, groupId: string, exceptDevice?: string): Promise<{ deviceId: string; data: Uint8Array }[]> {
     // While what the log says of them can't be read, none of their devices is known to still be theirs.
-    if (this.withheldUsers.has(userId)) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
+    if (this.keptBack(userId)) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
     const user = await this.ensureUser(userId, true);
     if (!user) return [];
     const pinned = this.pinnedIdentity(userId) ?? user.identityKey;
