@@ -261,6 +261,11 @@ jobs:
             apps/desktop/.deps/ffmpeg-*.tar.xz
           key: macos-cargo-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/media-ffmpeg/Cargo.lock', 'scripts/ffmpeg.mjs') }}
           restore-keys: macos-cargo-
+      # FFmpeg's source by itself, which release.yml restores without the Cargo cache: it's checked against its hash before it's used.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/desktop/.deps/ffmpeg-*.tar.xz
+          key: ffmpeg-source-${{ hashFiles('scripts/ffmpeg.mjs') }}
       - name: Get Xcode's Metal Toolchain
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
       # TDLib as tdlib.yml saved it on main, or built here from its pinned source.

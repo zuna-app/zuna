@@ -25,9 +25,15 @@
 //                              says what a build here is stamped with, building nothing: what CI
 //                              finds its saved build by (.github/actions/tdlib), so that a change
 //                              to this script that changes nothing built keeps it.
+//   node scripts/tdlib.mjs [--ios] --digest
+//                              says the SHA-256 of what's built here, every file by its path, for
+//                              `BUILT` below, which tdlib.yml prints once it's built one.
+//   node scripts/tdlib.mjs --check-built <windows|linux|macos|ios>
+//                              fails unless what's built here is the build `BUILT` names for this
+//                              stamp, which is how a release takes a saved build (ZUNA-08).
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism, freemem, homedir, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -121,6 +127,50 @@ const stampOf = (value) => createHash("sha256").update(JSON.stringify(value)).di
 
 /** What a build for this system is made from: the sources, and on Windows the tools it fetches. */
 const desktopPins = () => ({ ...sources, ...(process.platform === "win32" ? windowsTools : {}) });
+
+/**
+ * The builds tdlib.yml saved on main that a release takes from the cache, by system: the stamp each
+ * was made for and the SHA-256 of what it holds (`--digest`). Any job on main can save a cache under
+ * any key, so a release takes a saved build only if it's this one, and builds it from source otherwise.
+ * Put a system's here from what tdlib.yml prints, once it has built for a new stamp.
+ */
+const BUILT = {
+  windows: null,
+  linux: null,
+  macos: null,
+  ios: null,
+};
+
+/** The SHA-256 of every file under a folder, each by its path from there, in order, and a link by where it points. */
+export function builtDigest(dir) {
+  const hash = createHash("sha256");
+  const walk = (relative) => {
+    for (const name of readdirSync(join(dir, relative)).sort()) {
+      const path = relative ? `${relative}/${name}` : name;
+      const full = join(dir, path);
+      const info = lstatSync(full);
+      if (info.isDirectory()) walk(path);
+      else {
+        const data = info.isSymbolicLink() ? Buffer.from(`link:${readlinkSync(full)}`) : readFileSync(full);
+        hash.update(`${path}\0${data.length}\0`);
+        hash.update(data);
+      }
+    }
+  };
+  walk("");
+  return hash.digest("hex");
+}
+
+/** Whether what's built for a system is the build `BUILT` names for its stamp now. */
+function checkBuilt(system) {
+  const pinned = BUILT[system];
+  const dir = system === "ios" ? join(iosDeps, "tdlib") : tdlibDir;
+  const stamp = system === "ios" ? tdlibIosStamp() : tdlibStamp();
+  if (!pinned || pinned.stamp !== stamp) return `No build of TDLib for ${system} is pinned for stamp ${stamp}.`;
+  if (!existsSync(dir)) return `There's no TDLib for ${system} in ${dir}.`;
+  const digest = builtDigest(dir);
+  return digest === pinned.digest ? null : `TDLib for ${system} is ${digest}, not the pinned ${pinned.digest}.`;
+}
 
 /** What a build for this system is stamped with, which changes with what it's made from and how. */
 export function tdlibStamp() {
@@ -563,7 +613,13 @@ export async function ensureTdlibIos(depsDir = iosDeps, sdks = IOS_SDKS) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const ios = process.argv.includes("--ios");
-    if (process.argv.includes("--stamp")) console.log(ios ? tdlibIosStamp() : tdlibStamp());
+    const check = process.argv.indexOf("--check-built");
+    if (check > 0) {
+      const problem = checkBuilt(process.argv[check + 1]);
+      if (problem) throw new Error(problem);
+      console.log("TDLib is the pinned build.");
+    } else if (process.argv.includes("--digest")) console.log(`stamp ${ios ? tdlibIosStamp() : tdlibStamp()}, digest ${builtDigest(ios ? join(iosDeps, "tdlib") : tdlibDir)}`);
+    else if (process.argv.includes("--stamp")) console.log(ios ? tdlibIosStamp() : tdlibStamp());
     else if (ios) console.log(`TDLib for the iPhone is in ${await ensureTdlibIos(iosDeps)}`);
     else console.log(`TDLib is in ${await ensureTdlib(nativeAppDeps)}`);
   } catch (error) {

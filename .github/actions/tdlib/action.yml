@@ -12,6 +12,12 @@ inputs:
   lookup-only:
     description: Only says whether it's saved, fetching nothing
     default: "false"
+  verify:
+    description: >-
+      Keeps what was restored only if it's the build scripts/tdlib.mjs pins for its stamp, and
+      otherwise leaves it to be built from source, as a release does: any job on main can save a
+      cache under any key
+    default: "false"
 outputs:
   key:
     description: The key it's saved under
@@ -46,3 +52,13 @@ runs:
         path: ${{ steps.stamp.outputs.path }}
         key: ${{ steps.stamp.outputs.key }}
         lookup-only: ${{ inputs.lookup-only }}
+    - if: ${{ inputs.verify == 'true' && steps.restore.outputs.cache-hit == 'true' }}
+      shell: bash
+      env:
+        SYSTEM: ${{ inputs.system }}
+        TDLIB_PATH: ${{ steps.stamp.outputs.path }}
+      run: |
+        if ! node scripts/tdlib.mjs --check-built "$SYSTEM"; then
+          echo "Building TDLib from source instead of the saved build." >&2
+          rm -rf "$TDLIB_PATH"
+        fi
