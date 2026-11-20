@@ -81,37 +81,7 @@ SOCKS5 isn't encrypted, so between this machine and the proxy its password and t
 
 ### In a container
 
-`apps/bot/Dockerfile` makes an image of the two files:
-
-```sh
-npm run build:bot && docker build -t zuna-bot -f apps/bot/Dockerfile dist/bot
-```
-
-Given a setup link the first time, it sets the bot up and then runs it. The bot's code shares its network, so it reaches the API at `127.0.0.1`:
-
-```yaml
-services:
-  zuna-bot:
-    image: zuna-bot
-    restart: unless-stopped
-    environment:
-      # Only needed for the first start. It works once, so take it out after.
-      ZUNA_BOT_LINK: "https://chat.example.com/invite/…"
-    volumes:
-      - bot-data:/data
-
-  my-bot:
-    build: ./my-bot
-    restart: unless-stopped
-    # The same network as zuna-bot, so its API is at http://127.0.0.1:8081.
-    network_mode: "service:zuna-bot"
-    volumes:
-      # For the token, which is all it needs from there.
-      - bot-data:/zuna-bot:ro
-
-volumes:
-  bot-data:
-```
+Docker is coming soon.
 
 ## Writing a bot
 
