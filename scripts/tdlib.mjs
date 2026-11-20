@@ -135,9 +135,9 @@ const desktopPins = () => ({ ...sources, ...(process.platform === "win32" ? wind
  * Put a system's here from what tdlib.yml prints, once it has built for a new stamp.
  */
 const BUILT = {
-  // tdlib.yml's run 44751625116, of 2026-11-20.
+  // tdlib.yml's runs 44751625116 and, for Linux, 44753566679, of 2026-11-20.
   windows: { stamp: "900f305490475265fe97fbb7be70b98b55a3b1db764b9ec22ee423220d76ce73", digest: "cbcb140462fdbf8cfea4d33887d93825568cadc56ffc9a1a82fcd8348b251f62" },
-  linux: null,
+  linux: { stamp: "2db4509d6d1195602705b4c800cab42fe422174f410fc7a5d5d3c8711ced2b31", digest: "262009b7dcfbeb8fc1bd5aead98fc6519cb0a577d7ab34e4299cbd2c48ed6258" },
   macos: { stamp: "2db4509d6d1195602705b4c800cab42fe422174f410fc7a5d5d3c8711ced2b31", digest: "8677f58be5c34b6ae2286df6b5575e65f966e3791a6244e7c66555f6354c1aa7" },
   ios: { stamp: "94f28ca9ba9a79cf1e1043c6c77f67547b2bf8af6d2edb55cc1959b57c617030", digest: "91d1c4940bb8c84a70e2d418cced3ba9ad8f88dad236b84291d06313c0260d4e" },
 };
