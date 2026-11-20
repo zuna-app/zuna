@@ -12,7 +12,7 @@ import { createCertificate, lastingKeyFromSeed, newLastingKey, randomId } from "
 import { equalBytes, fromHex, toBase64, toHex, utf8 } from "../src/encoding";
 import { Frontier, bodyFits, bodyHash, fromWireHead, headInput, headSigned, leafHash, linkHead, logKeyHash, nameTag, parseBody, parseLinkHead, readRecord, toWireHead, userTag } from "../src/transparency";
 import { TestApp, loadCrypto, sendKeyOf, sleep, waitFor } from "./helpers";
-import { accountKeys, appendToLog, b64, entryOf, harmless, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
+import { accountKeys, appendToLog, b64, entryOf, harmless, logSeed, logSize, makeEntry, restoreLog, secondLog, serverEntries, serverHead, startNewEra, truncateLog } from "./log-setup";
 import { alice, apiOf, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
@@ -762,6 +762,48 @@ describe("eras and seal keys", () => {
     await sentAndSeen(erin, [dave], groupId, "from an era before");
     await sleep(300);
     expect(securityEvents(dave).slice(before)).toEqual([]);
+  });
+
+  it("holds someone's head of the era before to what this device read of it, and to where the server said it ended", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const groupId = await groupWith(dave, [erin]);
+    await caughtUp(dave);
+    await caughtUp(erin);
+    const ended = heldHead(dave);
+    startNewEra(dataDir());
+    await caughtUp(dave);
+    await caughtUp(erin);
+    // Dave moved on from that era, and asked the server where it ended: no further than he'd read.
+    await waitFor(() => sessionOf(dave).logState().past?.[ended.era]?.ended === true, "dave to learn where the era before ended");
+    expect(sessionOf(dave).logState().past[ended.era].frontier.size).toBe(ended.size);
+    const before = securityEvents(dave).length;
+    const said = (size: number, root: Uint8Array) => ({ e: ended.era, n: size, r: toBase64(root), s: toBase64(wasm.sign(logSeed(), headInput(ended.era, size, root))) });
+    const sends = async (head: ReturnType<typeof said>, text: string) => {
+      sessionOf(erin).headForMessage = () => head;
+      await sentAndSeen(erin, [dave], groupId, text);
+      await sleep(300);
+    };
+    const since = () => securityEvents(dave).slice(before).map((event) => event.message);
+
+    // One no longer than the era was, with the root it had, says nothing.
+    await sends(said(ended.size, ended.root), "the era as it ended");
+    expect(since()).toEqual([]);
+    // One with another root for a size dave read is a second log, as within an era.
+    await sends(said(ended.size - 1, wasm.randomBytes(32)), "another root for that era");
+    expect(since().filter((message) => message.includes("showed different key records to different people"))).toHaveLength(1);
+    // And one longer than the server said the era was: the log went back, or that era went on for erin.
+    await sends(said(ended.size + 2, wasm.randomBytes(32)), "longer than that era ended");
+    expect(since().filter((message) => message.includes("was rolled back, or the server is hiding part of it"))).toHaveLength(1);
+    expect(sessionOf(dave).logState().past[ended.era].longer).toMatchObject({ e: ended.era, n: ended.size + 2 });
+
+    // The head another device of dave's kept in the manifest is held to that era the same way.
+    const key = sessionOf(dave).logState().key;
+    sessionOf(dave).takeManifestHead({ key, era: ended.era, size: ended.size, root: toBase64(ended.root) });
+    await sleep(100);
+    expect(warned(dave, "your other devices saw")).toBe(false);
+    sessionOf(dave).takeManifestHead({ key, era: ended.era, size: ended.size + 1, root: toBase64(wasm.randomBytes(32)) });
+    await waitFor(() => warned(dave, "your other devices saw"), "dave to be told his other device saw more of that era");
   });
 
   it("refuses an old seal key, even on a device that never saw the newer one", async () => {

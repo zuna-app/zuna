@@ -219,6 +219,10 @@ const MIGRATIONS: string[] = [
   CREATE TABLE log_kept_records (idx INTEGER PRIMARY KEY, record BLOB NOT NULL, gone INTEGER NOT NULL DEFAULT 0);
   CREATE TABLE log_kept_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);
   `,
+  // Every era of the log a device read before the one it's in, as far as it read it: the records,
+  // and the frontier after every 256th, as log_records holds this era's, so that a head someone
+  // holds of an earlier era can be held to it.
+  `CREATE TABLE log_past (era INTEGER NOT NULL, idx INTEGER NOT NULL, record BLOB NOT NULL, frontier BLOB, PRIMARY KEY (era, idx));`,
 ];
 
 export function migrate(db: LocalDb): void {

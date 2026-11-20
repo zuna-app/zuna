@@ -384,6 +384,7 @@ describe("notices", () => {
     db.exec("DROP TABLE log_records; DROP TABLE log_accounts; DROP TABLE log_names");
     db.exec("DROP TABLE granted_keys");
     db.exec("DROP TABLE log_kept_records; DROP TABLE log_kept_names");
+    db.exec("DROP TABLE log_past");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     // Every migration still runs, and nothing sealed the old way is left to fail to open.

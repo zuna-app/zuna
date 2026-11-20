@@ -83,8 +83,24 @@ interface LogState {
    * in the era read after it.
    */
   kept?: { era: number; from: "link" | "manifest"; owed: string[]; checked: boolean };
+  /**
+   * The eras before this one that this device read, each as far as it holds it: its records are
+   * kept (`log_past`), with the tree's frontier and the last signed head they came to, for a head
+   * someone holds of that era to be held to (`comparePast`). `ended` is that the server has said
+   * where the era ends, as it kept it, so a head of it longer than that is the server's log gone
+   * back, or an era that went on for others after this device was shown the next. `longer` is such
+   * a head, kept with `head` as what the server signed of the two.
+   */
+  past?: Record<string, PastEra>;
   /** Two signed heads that can't both be true, once there are. */
   proof: WireHead[] | null;
+}
+
+interface PastEra {
+  frontier: { size: number; roots: string[] };
+  head: WireHead | null;
+  ended: boolean;
+  longer?: WireHead;
 }
 
 /** What the log says of one account's keys and devices, as this device applied it. */
@@ -174,6 +190,9 @@ export abstract class SessionDirectory extends SessionChains {
   /** Accounts whose entries in the era kept are being asked for, and how many times in a row asking failed. */
   protected keptAsked = new Set<string>();
   protected keptFailed = new Map<string, number>();
+  /** Eras before this one whose rest is being read, and how many times the server refused each. */
+  protected pastReading = new Map<number, Promise<void>>();
+  protected pastRefused = new Map<number, number>();
   /** How many times the server refused the era a link's or manifest's head is of, and the next try, while one waits. */
   protected floorRefused = 0;
   protected floorRetry: ReturnType<typeof setTimeout> | null = null;
@@ -324,7 +343,15 @@ export abstract class SessionDirectory extends SessionChains {
     const keep = state.heldOnly && state.held ? { era: state.era, from: state.held.from, owed: [], checked: false } : null;
     // A log written again is quiet about what it said before, but not about a device of this account it never named.
     const ownBefore = first ? undefined : [...new Set([...(state.ownBefore ?? []), ...Object.keys(this.loggedAccount(this.account.userId)?.devices ?? {})])];
+    // The era being left stays as a tree, as far as it was read, for a head of it someone holds. One
+    // read only to hold a head to was read to where the server says it ends.
+    const left = state.era > 0 && state.frontier.size > 0 ? state.era : null;
+    const past = left === null ? state.past : { ...state.past, [left]: { frontier: state.frontier, head: state.head, ended: !!state.heldOnly } };
     this.db.transaction(() => {
+      if (left !== null) {
+        this.db.run("DELETE FROM log_past WHERE era = ?", [left]);
+        this.db.run("INSERT INTO log_past(era, idx, record, frontier) SELECT ?, idx, record, frontier FROM log_records", [left]);
+      }
       if (keep) {
         this.db.run("DELETE FROM log_kept_records");
         this.db.run("DELETE FROM log_kept_names");
@@ -355,9 +382,12 @@ export abstract class SessionDirectory extends SessionChains {
       floorAfter: state.floorAfter && state.floorAfter.era > era ? state.floorAfter : undefined,
       heldOnly: undefined,
       kept: keep ?? state.kept,
+      past,
     };
     this.saveLogState();
     if (!first) this.warnOnce(`log/era/${era}`, t(WARNINGS.era));
+    // A device that moved on may not have read the era it left to its end: it learns where that was.
+    if (left !== null && !past?.[left]?.ended) void this.readRestOfEra(left).catch((error) => console.warn("[zuna] reading the rest of an era of the log of keys", error));
   }
 
   /**
@@ -507,22 +537,30 @@ export abstract class SessionDirectory extends SessionChains {
     this.saveLogState();
   }
 
-  /** The tree's root when it was `size` records long, worked out from the frontier kept at the checkpoint before. */
-  protected rootAt(size: number): Uint8Array {
+  /**
+   * The tree's root when it was `size` records long, worked out from the frontier kept at the
+   * checkpoint before: this era's, or that of an era before it this device keeps (`log_past`).
+   */
+  protected rootAt(size: number, era = this.logState().era): Uint8Array {
     const state = this.logState();
+    const own = era === state.era;
+    const held = own ? state.frontier : state.past?.[era]?.frontier;
     if (size === 0) return emptyRoot();
-    if (size === state.frontier.size) return this.logFrontier().root();
+    if (held && size === held.size) return (Frontier.from(held) ?? new Frontier()).root();
     const base = Math.floor(size / LOG_CHECKPOINT) * LOG_CHECKPOINT;
     let frontier = new Frontier();
     if (base > 0) {
-      const row = this.db.get<{ frontier: Uint8Array | null }>("SELECT frontier FROM log_records WHERE idx = ?", [base - 1]);
+      const row = own
+        ? this.db.get<{ frontier: Uint8Array | null }>("SELECT frontier FROM log_records WHERE idx = ?", [base - 1])
+        : this.db.get<{ frontier: Uint8Array | null }>("SELECT frontier FROM log_past WHERE era = ? AND idx = ?", [era, base - 1]);
       const roots: Uint8Array[] = [];
       for (let i = 0; row?.frontier && i + 32 <= row.frontier.length; i += 32) roots.push(row.frontier.slice(i, i + 32));
       frontier = new Frontier(base, roots);
     }
-    for (const row of this.db.all<{ record: Uint8Array }>("SELECT record FROM log_records WHERE idx >= ? AND idx < ? ORDER BY idx", [base, size])) {
-      frontier.append(leafHash(row.record));
-    }
+    const rows = own
+      ? this.db.all<{ record: Uint8Array }>("SELECT record FROM log_records WHERE idx >= ? AND idx < ? ORDER BY idx", [base, size])
+      : this.db.all<{ record: Uint8Array }>("SELECT record FROM log_past WHERE era = ? AND idx >= ? AND idx < ? ORDER BY idx", [era, base, size]);
+    for (const row of rows) frontier.append(leafHash(row.record));
     return frontier.size === size ? frontier.root() : new Uint8Array(32);
   }
 
@@ -1332,7 +1370,11 @@ export abstract class SessionDirectory extends SessionChains {
     } else if (state.key !== log.key) {
       return this.warnOnce("log/manifest-key", t(WARNINGS.manifest), this.account.userId);
     }
-    if (log.era < state.era) return;
+    if (log.era < state.era) {
+      // Another device of this account is in an era this one left: its head is held to what this one read of it.
+      const head = { era: log.era, size: log.size, root: fromBase64(log.root) };
+      return void this.comparePast(head, null, this.account.userId).catch((error) => console.warn("[zuna] comparing a head of the log of keys", error));
+    }
     if (log.era > state.era || log.size > state.frontier.size) {
       const floor = { era: log.era, size: log.size, root: log.root, from: "manifest" as const };
       const held = state.floor;
@@ -1376,11 +1418,11 @@ export abstract class SessionDirectory extends SessionChains {
       );
     }
     let state = this.logState();
-    if (head.era < state.era) return;
+    if (head.era < state.era) return this.comparePast(head, wire, from).catch((error) => this.headNotCompared(seen, error));
     if (head.era > state.era || head.size > state.frontier.size) {
       await this.syncLog();
       state = this.logState();
-      if (head.era < state.era) return;
+      if (head.era < state.era) return this.comparePast(head, wire, from).catch((error) => this.headNotCompared(seen, error));
       if (head.era > state.era || head.size > state.frontier.size) return this.warnOnce(`log/back/${head.era}/${head.size}`, t(WARNINGS.back));
     }
     if (equalBytes(this.rootAt(head.size), head.root)) return;
@@ -1392,6 +1434,117 @@ export abstract class SessionDirectory extends SessionChains {
       this.saveLogState();
     }
     this.warnOnce("log/proof", t(WARNINGS.proof), from);
+  }
+
+  /** A head couldn't be compared, as the server couldn't be asked: it's compared when it next comes. */
+  protected headNotCompared(seen: string, error: unknown): void {
+    this.headsCompared.delete(seen);
+    console.warn("[zuna] comparing a head of the log of keys", error);
+  }
+
+  /**
+   * Someone's head of an era before this device's own, which the server left when it began the next:
+   * from a message, signed with the log's key, or with no signature from this account's manifest. It
+   * counts for something only if this device read that era, whose records it keeps.
+   *
+   * - **No longer than this device read of it:** the root it holds at that size has to be the same.
+   *   Two roots for one size are the two logs they are within an era.
+   * - **Longer:** the device first reads the rest of that era, as the server kept it, if it moved on
+   *   before the end (`readRestOfEra`). A head past where the server says the era ended is one of two
+   *   things, and the warning says both: the server's log went back, as a backup restored from before
+   *   that head leaves it, or the era went on for the others, and the one after it was shown to this
+   *   device alone. The head is kept, beside the last this device was given of that era.
+   */
+  protected async comparePast(head: LogHead, wire: WireHead | null, from: string): Promise<void> {
+    const key = this.logState().key;
+    if (!key || !this.logState().past?.[head.era]) return;
+    const fromManifest = wire === null;
+    if (head.size > this.logState().past![head.era]!.frontier.size) await this.readRestOfEra(head.era);
+    const state = this.logState();
+    const past = state.past?.[head.era];
+    if (!past) return;
+    if (head.size > past.frontier.size) {
+      if (!past.ended) return;
+      if (wire) {
+        past.longer = wire;
+        this.saveLogState();
+      }
+      if (fromManifest) return this.warnOnce("log/floor/manifest", t(WARNINGS.manifest), from);
+      return this.warnOnce(`log/back/${head.era}`, t(WARNINGS.back));
+    }
+    if (equalBytes(this.rootAt(head.size, head.era), head.root)) return;
+    if (fromManifest) return this.warnOnce("log/floor/manifest", t(WARNINGS.manifest), from);
+    // The server's own head of that era at that size, signed, which with theirs is the proof.
+    const own = await this.api.log(head.era, head.size - 1, 1, true).catch(() => null);
+    const ours = own && own.era === head.era && own.head.size === head.size ? fromWireHead({ e: own.head.era, n: own.head.size, r: own.head.root, s: own.head.sig }) : null;
+    if (ours && headSigned(fromBase64(key), ours) && !equalBytes(ours.root, head.root)) {
+      state.proof = [toWireHead(ours), wire];
+      this.saveLogState();
+    }
+    this.warnOnce("log/proof", t(WARNINGS.proof), from);
+  }
+
+  /**
+   * Reads what's left of an era this device moved on from, as the server kept it, onto what the
+   * device read of it: its records alone, as what they say was written again in the era after. It
+   * says where the era ended, which a head someone holds of it is then held to. A server that has
+   * no more of it, or none, has said so too. One that refuses three times has as well, and one that
+   * can't be reached is asked again when a head next calls for it.
+   */
+  protected readRestOfEra(era: number): Promise<void> {
+    const reading = this.pastReading.get(era);
+    if (reading) return reading;
+    const done = this.readRestOfEraOnce(era).finally(() => this.pastReading.delete(era));
+    this.pastReading.set(era, done);
+    return done;
+  }
+
+  protected async readRestOfEraOnce(era: number): Promise<void> {
+    const key = await this.logKey();
+    if (!key || !this.logState().past?.[era] || this.logState().past![era]!.ended) return;
+    const ended = () => {
+      const past = this.logState().past?.[era];
+      if (!past) return;
+      past.ended = true;
+      this.saveLogState();
+    };
+    for (;;) {
+      const past = this.logState().past?.[era];
+      const frontier = past && Frontier.from(past.frontier);
+      if (!past || !frontier) return;
+      let page: Awaited<ReturnType<typeof this.api.log>>;
+      try {
+        page = await this.api.log(era, frontier.size, LOG_PAGE, true);
+      } catch (error) {
+        // Not being able to reach the server at all says nothing of it.
+        const refusals = (this.pastRefused.get(era) ?? 0) + (error instanceof ApiError && error.status !== 0 && error.status !== 401 ? 1 : 0);
+        this.pastRefused.set(era, refusals);
+        if (refusals < BODIES_TRIES) throw error;
+        return ended();
+      }
+      const head: LogHead = { era: page.head.era, size: page.head.size, root: decode(page.head.root), sig: decode(page.head.sig) };
+      // It kept none of that era, or no more of it than this device read.
+      if (page.era !== era || head.era !== era || !headSigned(key, head) || page.size <= frontier.size) return ended();
+      const rows: { idx: number; record: Uint8Array; checkpoint: Uint8Array | null }[] = [];
+      for (const wire of page.records) {
+        const record = decode(wire.record);
+        if (wire.idx !== frontier.size || !readRecord(record)) break;
+        frontier.append(leafHash(record));
+        rows.push({ idx: wire.idx, record, checkpoint: frontier.size % LOG_CHECKPOINT === 0 ? new Uint8Array(frontier.roots.flatMap((root) => [...root])) : null });
+      }
+      // A rest that doesn't go on from what this device read isn't taken: the era is held to what it has.
+      if (rows.length !== page.records.length || rows.length === 0 || frontier.size !== head.size || !equalBytes(frontier.root(), head.root)) {
+        this.warnOnce("log/unfit", t(WARNINGS.unfit));
+        return ended();
+      }
+      this.db.transaction(() => {
+        for (const row of rows) this.db.run("INSERT OR REPLACE INTO log_past(era, idx, record, frontier) VALUES(?, ?, ?, ?)", [era, row.idx, row.record, row.checkpoint]);
+        past.frontier = frontier.toJSON();
+        past.head = toWireHead(head);
+        this.saveLogState();
+      });
+      if (frontier.size >= page.size) return ended();
+    }
   }
 
   /** The two heads that can't both be true, if this device has found them. */

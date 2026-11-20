@@ -10,6 +10,11 @@
 // hand over. And to the names: a username the link's era gave to one account, or filed an entry
 // under that it kept back, doesn't go to another unless the log says the first is deleted.
 //
+// What the log can't say is whether a deletion is real: a later era that says someone is gone frees
+// their username. But a later era shown to a newcomer alone leaves everyone else in the earlier one,
+// which goes on, and the heads their messages carry are held to what the newcomer read of that era:
+// one longer than the server said it was gives it away.
+//
 // The server is played by answering the newcomer's requests as a malicious server could by itself:
 // with a log of its own making signed with its real log key, and a list of people that fits it.
 
@@ -19,7 +24,7 @@ import { Api, ApiError, type ApiUser } from "../src/api";
 import { parseInviteLink } from "../src/account";
 import { createCertificate, newDeviceKey, newLastingKey, randomId } from "../src/crypto";
 import { equalBytes, fromUtf8, toBase64 } from "../src/encoding";
-import { Frontier, headInput, leafHash, parseLinkHead } from "../src/transparency";
+import { Frontier, headInput, leafHash, parseLinkHead, toWireHead } from "../src/transparency";
 import { TestApp, sleep, waitFor } from "./helpers";
 import { accountKeys, entryOf, logSeed, makeEntry, serverEntries, serverHead, startNewEra } from "./log-setup";
 import { alice, apiOf, groupWith, open, person, securityEvents, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
@@ -46,12 +51,15 @@ function impostorOf(victim: TestApp, userId = victim.userId) {
 type Entry = { record: Uint8Array; body: Uint8Array | null };
 const about = (entry: { body: Uint8Array }): string => (JSON.parse(fromUtf8(entry.body)) as { user: string }).user;
 
-/** A later era as the newcomer is given it: the server's own entries, but for what it says of the victim. */
-function forgedEra(victimId: string, impostor: ReturnType<typeof impostorOf>): Entry[] {
+/**
+ * A later era as the newcomer is given it: the server's own entries, but for what it says of the
+ * victim, which is the impostor's account and device, and if it likes, that the victim's own is deleted.
+ */
+function forgedEra(victimId: string, impostor: ReturnType<typeof impostorOf>, saidGone = false): Entry[] {
   const entries: Entry[] = [];
   for (const entry of serverEntries()) {
     if (about(entry) !== victimId) entries.push(entry);
-    else if ((JSON.parse(fromUtf8(entry.body)) as { t: string }).t === "account") entries.push(impostor.account, impostor.logged);
+    else if ((JSON.parse(fromUtf8(entry.body)) as { t: string }).t === "account") entries.push(...(saidGone ? [makeEntry({ v: 1, t: "deleted", user: victimId })] : []), impostor.account, impostor.logged);
   }
   return entries;
 }
@@ -106,12 +114,14 @@ const MODES = {
   "a later era, the victim's username under another ID": { later: true, renamed: true },
   "a later era, the link's era given without the victim's entries, their username under another ID": { later: true, bare: true, renamed: true },
   "the link's era without the victim's entries, their username under another ID": { bare: true, renamed: true },
+  "a later era that says the victim is deleted, their username under another ID": { later: true, renamed: true, saidGone: true },
+  "a later era that says the victim is deleted, the link's era given without their entries, their username under another ID": { later: true, bare: true, renamed: true, saidGone: true },
   "a later era, the link's era refused": { later: true, refused: true },
 } as const;
 type Mode = keyof typeof MODES;
 
 async function newcomerGiven(mode: Mode) {
-  const how: { later?: boolean; keepsNone?: boolean; bare?: boolean; neverGiven?: boolean; saidDeleted?: boolean; renamed?: boolean; refused?: boolean } = MODES[mode];
+  const how: { later?: boolean; keepsNone?: boolean; bare?: boolean; neverGiven?: boolean; saidDeleted?: boolean; renamed?: boolean; saidGone?: boolean; refused?: boolean } = MODES[mode];
   const dave = await person("dave");
   await sessionOf(alice).syncLog();
   // Alice invites someone, after dave was there: the link carries her head of the log.
@@ -146,11 +156,11 @@ async function newcomerGiven(mode: Mode) {
     // Asked for those entries of that era, it has to give them as they were, or nothing.
     if (path.startsWith("/api/log/bodies?") && how.neverGiven) throw new ApiError(404, "not_found", "Not found.");
     if (path.startsWith("/api/log?")) {
-      return pageOf(!how.later && how.bare ? sameEraWithout(dave.userId, [impostor.account, impostor.logged], linked.size) : forgedEra(dave.userId, impostor), era, seed, path);
+      return pageOf(!how.later && how.bare ? sameEraWithout(dave.userId, [impostor.account, impostor.logged], linked.size) : forgedEra(dave.userId, impostor, how.saidGone), era, seed, path);
     }
     if (how.renamed && path === `/api/users/${shownId}`) return forgeUser(await request.call(this, method, `/api/users/${dave.userId}`, ...rest));
     const answer = await request.call(this, method, path, ...rest);
-    if (path.startsWith("/api/users?")) return { ...answer, users: answer.users.map(forgeUser), log: { era, size: forgedEra(dave.userId, impostor).length } };
+    if (path.startsWith("/api/users?")) return { ...answer, users: answer.users.map(forgeUser), log: { era, size: forgedEra(dave.userId, impostor, how.saidGone).length } };
     if (path === `/api/users/${dave.userId}`) return forgeUser(answer);
     return answer;
   };
@@ -187,9 +197,22 @@ async function newcomerGiven(mode: Mode) {
     whatTheLogNamesTheImpostorsDevice: session.logStanding(shownId, impostor.deviceId, impostor.device.publicKey, impostor.certificate) as string,
     davesTrustOnFrank: session.users.get(shownId)?.trust,
     warningsOnFrank: securityEvents(frank).map((event) => (event as { message: string }).message),
+    frank,
+    dave,
   };
   return report;
 }
+
+/** Alice, whose device reads the server's real log, writes to the newcomer: her message carries her head of it when it's new to their chat. */
+async function aliceWritesTo(frank: TestApp, text: string): Promise<void> {
+  await sessionOf(alice).syncLog();
+  alice.session.sendMessage(`user:${frank.userId}`, { text });
+  await waitFor(() => frank.texts(`user:${alice.userId}`).includes(text), `frank to read "${text}"`);
+  await sleep(300);
+}
+
+const BACK_WARNING = "was rolled back, or the server is hiding part of it from this device";
+const TWO_LOGS_WARNING = "showed different key records to different people";
 
 const LINK_WARNING = "differs from the record associated with your invite link";
 
@@ -281,6 +304,45 @@ describe("an invite link's head and the era the server answers in", () => {
     expect(report.frankCountsImpostorsDeviceAsDaves).toBe(false);
     expect(report.whatTheLogNamesTheImpostorsDevice).toBe("absent");
     expect(report.warningsOnFrank.some((message) => message.includes(LINK_WARNING))).toBe(true);
+  });
+
+  for (const mode of [
+    "a later era that says the victim is deleted, their username under another ID",
+    "a later era that says the victim is deleted, the link's era given without their entries, their username under another ID",
+  ] as const) {
+    it(`is given away by the first head of the link's era that's past where the server said it ended: ${mode}`, async () => {
+      const report = await newcomerGiven(mode);
+      const { frank, dave } = report;
+      // That a deletion is the server's own word is what the log can't say, so nothing warns yet.
+      expect(report.frankLog.era).toBe(report.linkCarried.era + 1);
+      expect(report.warningsOnFrank).toEqual([]);
+      // Nor does a head of the link's era no longer than frank was given of it, which it fits.
+      await aliceWritesTo(frank, "while the log is as it was");
+      expect(sessionOf(frank).logState().past[report.linkCarried.era]).toMatchObject({ ended: true });
+      expect(securityEvents(frank)).toEqual([]);
+      // Everyone but frank is still in the link's era, which goes on: the next change to anyone's keys
+      // is in it, as dave's replacing his is, and so in the head of the next message from anyone
+      // whose device read it.
+      const size = serverHead().size;
+      await dave.session.rotate();
+      await waitFor(() => serverHead().size > size, "the server's log to go on");
+      await aliceWritesTo(frank, "once the log has gone on");
+      expect(warned(frank, BACK_WARNING)).toBe(true);
+      // The head is kept, beside the last frank was given of that era.
+      const past = sessionOf(frank).logState().past[report.linkCarried.era];
+      expect(past.longer.e).toBe(report.linkCarried.era);
+      expect(past.longer.n).toBeGreaterThan(past.head.n);
+    });
+  }
+
+  it("is shown for two logs when the link's era was given another end than the others have", async () => {
+    const report = await newcomerGiven("a later era, the link's era given without the victim's entries, and saying they were deleted");
+    const { frank } = report;
+    expect(report.warningsOnFrank.some((message) => message.includes(TWO_LOGS_WARNING))).toBe(false);
+    // Alice's head of that era covers records frank was given others in place of.
+    await aliceWritesTo(frank, "from the era as it is");
+    expect(warned(frank, TWO_LOGS_WARNING)).toBe(true);
+    expect(sessionOf(frank).logState().proof).toHaveLength(2);
   });
 
   it("says so when the server goes on refusing the link's era, and counts nobody meanwhile", async () => {
@@ -403,6 +465,32 @@ describe("an honest server, and a newcomer whose link is of the era before", () 
       expect(securityEvents(frank)).toEqual([]);
     });
   }
+
+  it("says nothing of a head of the era before that someone who was there still sends, after a real restore", async () => {
+    const dave = await person("dave");
+    await waitFor(() => sessionOf(dave).logCurrent(), "dave to read the log");
+    await sessionOf(alice).syncLog();
+    const link = await alice.session.createInvite(0, 0);
+    const era = sessionOf(alice).logState().era;
+    // Dave's head of the era as it ended, which a device that hasn't read the new one yet would still carry.
+    const last = toWireHead(sessionOf(dave).heldHead());
+    expect(last).toMatchObject({ e: era, n: serverHead().size });
+    startNewEra(dataDir());
+    await sessionOf(dave).syncLog();
+
+    const frank = await newcomer("frank", link);
+    const session = sessionOf(frank);
+    await waitFor(() => session.logCurrent() && counts(frank, dave), "frank to read the log, and count dave");
+    expect(session.logState().past[era]).toMatchObject({ ended: true, frontier: { size: last.n } });
+    sessionOf(dave).headForMessage = () => last;
+    dave.session.sendMessage(`user:${frank.userId}`, { text: "with a head from before" });
+    await waitFor(() => frank.texts(`user:${dave.userId}`).includes("with a head from before"), "frank to read dave's message");
+    await sleep(300);
+    // It's no longer than the era was, and fits what frank read of it.
+    expect(session.headsCompared.has(`${last.e}/${last.n}/${last.r}`)).toBe(true);
+    expect(session.logState().past[era].longer).toBeUndefined();
+    expect(securityEvents(frank)).toEqual([]);
+  });
 
   /** Dave, whose manifest carries his head of the log as it is now, and erin, who he has a key for. */
   async function daveWithAManifest() {

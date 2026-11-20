@@ -197,14 +197,14 @@ A device given someone's head, signed by the key it pinned:
 
 - **No bigger than its own:** the root it holds at that size must be the same.
 - **Bigger:** it reads the log up to that size, then compares.
-- **From an earlier era:** ignored.
+- **From an earlier era:** held to what this device read of that era, whose records it keeps (5.10). One from an era it never read is ignored.
 
 ### 5.9 When heads disagree
 
 | What a device finds | What it means | What it does |
 |---|---|---|
 | Two roots for one size, both under the log key's signature | The server kept two logs. This is proof | Keeps both signed heads. A `security` event: the server showed different people different records of who holds which keys |
-| The server's log is shorter than a head someone holds, or than this device's own | The server went back, or is holding entries from this device | The same event, worded for it. Section 5.10 is the way out for a restored backup |
+| The server's log is shorter than a head someone holds, or than this device's own. Or an earlier era, as the server kept it, is shorter than a head someone holds of it (5.10) | The server went back, or is holding entries from this device. For an earlier era that includes its going on for everyone else, with the era after it shown to this device alone | The same event, worded for it. Section 5.10 is the way out for a restored backup |
 | A head signed by another key | Either the server gave someone another log key, or their app made it up | A milder warning that names whose message it was in, as `compareTokenKeys` does. This is the one a member can cause |
 
 None of these erases, blocks or asks anything. What a device holds stays, and what it does next is what it already does when someone's keys are in doubt.
@@ -223,6 +223,8 @@ A server restored from a backup has a shorter log than its members' devices have
   - **Who was there.** Once the later era has been read, everyone that era named and didn't say was deleted has to be in it, as a server's tables hold them whatever it restored. Someone left out is the link's warning (`checkKept`).
 - **A server that refuses that era** is asked again, and its third refusal, some seconds apart, is the link's warning. Until it's given, the device has read nothing, and counts nobody.
 - **A new device of an account** signs in under the server's own era, with a head of it (5.7), while its manifest's head may be of the era before. It reads that era first, held to the manifest's head, and then the server's, held to the head it signed in with and to what the earlier one said, as above. If the server has none of that era left, the device says so with the manifest's warning and reads on: it has no other way in, and it holds everyone's key from the manifest already, which the server's era is held to.
+- **An era a device leaves stays with it as a tree:** its records, as far as the device read them (`log_past`). One that read an era only to hold a link's or manifest's head to read it to its end. One that was in an era and moved on asks the server where it ended and reads the rest, as kept, onto what it has: the records alone, as what they say was written again in the era after (`readRestOfEra`). A server that has no more of it has said where it ended, and so has one that refuses three times.
+- **A head of an era a device left,** from someone's message or its account's manifest, is held to that tree as a head of its own era is (`comparePast`). Another root for a size the device read is two logs, and the two signed heads are kept as the proof. One longer than the server said the era was gets the warning for a log gone back, which says both things it can be, since an honest server adds nothing to an era once the next has begun: the log went back, as a backup from before that head leaves it, and a device that hadn't read the new era yet still carried the old head; or the era went on for everyone else, and the one after it was shown to this device alone. That head is kept, beside the last one the device was given of that era. The two aren't proof to anyone else, as nothing the server signs says where an era ended.
 
 So a malicious server gains nothing by starting again but a warning on every device. A server's log starts empty, at era 1, with its key (`ensureLog`). Writing it from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 
@@ -260,7 +262,7 @@ Every line but one is a notice through the existing `security` event, or somethi
 2. **Reach someone who's alone.** A server that gives a person a log of their own, and stands between them and every contact, can rewrite the heads that pass. It has to do that in every conversation they're in, for as long as it wants to go unnoticed. One emoji check ends it: a verified contact's messages can't be rewritten, so their head is real, and it ties that person's log to everyone that contact talks to. An invite link's head ends it sooner, for everyone who was there before the link.
 3. **Speak for someone who isn't asked.** There are no outside witnesses. A server with one member has nobody to compare with.
 4. **Stop an era being started.** Anyone with the log key can start the log again. Everyone is told, and it changes nothing they hold.
-5. **Tell a deletion the server made up from a real one.** A `deleted` entry is the server's word, signed by nobody else. It frees the account's username, so a server can say someone is gone and give their name to another account: a different one, with another ID and a key of its own, which shows as new to everyone, beside the account it says is gone, shown as deleted.
+5. **Tell a deletion the server made up from a real one.** A `deleted` entry is the server's word, signed by nobody else. It frees the account's username, so a server can say someone is gone and give their name to another account: a different one, with another ID and a key of its own. In the era everyone reads, the account's own devices and everyone who knew it are shown the same entry. In an era made for one newcomer nobody else is, and what gives it away is the era before, which everyone else is still in: the first head of it past where the server said it ended, in a message to the newcomer from anyone, is a warning on their device (5.10). Until one comes, nothing tells them.
 6. **Hide the log's shape.** Members learn the order of changes, and that hidden accounts exist (5.3).
 7. **Keep a member from raising the milder warning** (5.9), as with token keys today.
 8. **Anything about messages.** What a removed device could already read, forged old messages, and metadata are as the rotation's design leaves them.
@@ -367,7 +369,7 @@ The `log` frame says an era and a size, to everyone connected.
 
 ### On the device
 
-A local migration adds `log_records(idx, record, frontier, opened)`, `log_accounts` and `log_names` at the end of `MIGRATIONS`, and a later one `log_kept_records(idx, record)` and `log_kept_names`, for what an era read before the server's own said (5.10). The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
+A local migration adds `log_records(idx, record, frontier, opened)`, `log_accounts` and `log_names` at the end of `MIGRATIONS`, and later ones `log_kept_records(idx, record, gone)` and `log_kept_names`, for what an era read before the server's own said, and `log_past(era, idx, record, frontier)`, for each era the device left (5.10). The head, the pinned key, the frontier and any two heads kept as proof are in `kv`, sealed as the chain's state is.
 
 ## Implementation notes
 
