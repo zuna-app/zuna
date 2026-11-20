@@ -134,6 +134,13 @@ export class VoiceRoom {
   private closed = false;
   private readonly audioHolder = document.createElement("div");
   private volumes: (userId: string, shareSound: boolean) => number = () => 1;
+  /**
+   * Who has offered something unencrypted while here. Every app encrypts all it sends, so that's
+   * the media server, or whoever holds its secret, speaking as someone without the group's key.
+   * LiveKit lets such a track through without decrypting it, and one of them turns decrypting off
+   * for everything that participant sends, so nothing of theirs is played or drawn until they leave.
+   */
+  private readonly refused = new Set<string>();
 
   private constructor(
     private readonly session: RemoteSession,
@@ -195,7 +202,10 @@ export class VoiceRoom {
     await this.room.setE2EEEnabled(true);
     await this.room.connect(access.url, access.token, { autoSubscribe: true });
     // Those already here, and everything they send.
-    for (const participant of this.room.remoteParticipants.values()) await this.installFor(participant.identity);
+    for (const participant of this.room.remoteParticipants.values()) {
+      await this.installFor(participant.identity);
+      for (const publication of participant.trackPublications.values()) this.checkEncrypted(publication, participant);
+    }
     await this.publishMic();
     this.statsTimer = setInterval(() => void this.readStats(), STATS_EVERY_MS);
     if (this.settings.outputDevice !== "default") await this.room.switchActiveDevice("audiooutput", this.settings.outputDevice).catch(() => undefined);
@@ -237,8 +247,11 @@ export class VoiceRoom {
         if (user) this.on.participants(user, null);
       })
       .on(RoomEvent.ParticipantDisconnected, (participant) => {
+        // Whoever comes back as them is looked at afresh, as LiveKit takes their keys and settings afresh.
+        this.refused.delete(participant.identity);
         const user = userOf(participant.identity);
         if (user) this.on.participants(null, user);
+        this.tellSpeaking(this.room.activeSpeakers);
         this.on.media();
       })
       .on(RoomEvent.TrackSubscribed, (track, publication, participant) => this.onSubscribed(track, publication, participant))
@@ -248,18 +261,18 @@ export class VoiceRoom {
       })
       .on(RoomEvent.TrackMuted, () => this.on.media())
       .on(RoomEvent.TrackUnmuted, () => this.on.media())
-      .on(RoomEvent.TrackPublished, () => this.on.media())
+      .on(RoomEvent.TrackPublished, (publication, participant) => {
+        this.checkEncrypted(publication, participant);
+        this.on.media();
+      })
       .on(RoomEvent.TrackUnpublished, () => this.on.media())
+      // LiveKit decrypts what someone sends or doesn't from whichever of their tracks it heard of last.
+      .on(RoomEvent.ParticipantEncryptionStatusChanged, (enabled, participant) => {
+        if (!enabled && participant && participant.identity !== this.identity) this.refuse(participant as RemoteParticipant);
+      })
       .on(RoomEvent.LocalTrackPublished, () => this.on.media())
       .on(RoomEvent.LocalTrackUnpublished, () => this.on.media())
-      .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
-        const users = new Set<string>();
-        for (const speaker of speakers) {
-          const user = userOf(speaker.identity);
-          if (user && speaker.identity !== this.identity) users.add(user);
-        }
-        this.on.speaking(users);
-      })
+      .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => this.tellSpeaking(speakers))
       .on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
         if (participant.isLocal) {
           this.quality = QUALITY[quality];
@@ -295,7 +308,44 @@ export class VoiceRoom {
     }
   }
 
+  /**
+   * Who's speaking, by the media server's word, of those still here whose sound is played. LiveKit
+   * keeps someone who left among its speakers until it next hears of them, which it never does.
+   */
+  private tellSpeaking(speakers: Participant[]): void {
+    const users = new Set<string>();
+    for (const speaker of speakers) {
+      if (speaker.identity === this.identity || this.refused.has(speaker.identity) || this.room.remoteParticipants.get(speaker.identity) !== speaker) continue;
+      const user = userOf(speaker.identity);
+      if (user) users.add(user);
+    }
+    this.on.speaking(users);
+  }
+
+  /** Refuses whoever offers a track without encryption. */
+  private checkEncrypted(publication: RemoteTrackPublication, participant: RemoteParticipant): void {
+    if (!publication.isEncrypted) this.refuse(participant);
+  }
+
+  /** Stops playing and drawing all that someone sends, and taking it from the media server. */
+  private refuse(participant: RemoteParticipant): void {
+    if (this.refused.has(participant.identity)) return;
+    this.refused.add(participant.identity);
+    console.warn("[zuna] voice: refused", participant.identity, "for sending without encryption");
+    for (const publication of participant.trackPublications.values()) {
+      for (const element of publication.track?.detach() ?? []) element.remove();
+      publication.setSubscribed(false);
+    }
+    this.tellSpeaking(this.room.activeSpeakers);
+    this.on.media();
+  }
+
   private onSubscribed(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant): void {
+    this.checkEncrypted(publication, participant);
+    if (this.refused.has(participant.identity)) {
+      publication.setSubscribed(false);
+      return;
+    }
     if (track.kind === Track.Kind.Audio) {
       const audio = track as RemoteAudioTrack;
       this.audioHolder.append(audio.attach());
@@ -435,7 +485,9 @@ export class VoiceRoom {
       }
     };
     add(this.room.localParticipant, true);
-    for (const participant of this.room.remoteParticipants.values()) add(participant, false);
+    for (const participant of this.room.remoteParticipants.values()) {
+      if (!this.refused.has(participant.identity)) add(participant, false);
+    }
     return tiles;
   }
 

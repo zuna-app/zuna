@@ -14,6 +14,7 @@
 // Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder"), so moz-firefox runs
 // the Firefox installed from Mozilla instead, through WebDriver BiDi.
 import { execFileSync, spawn } from "node:child_process";
+import { createHmac, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, networkInterfaces, tmpdir } from "node:os";
@@ -115,6 +116,43 @@ const site = createServer((request, response) => {
 });
 await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
 const article = `http://127.0.0.1:${site.address().port}/guide`;
+
+// Someone in a voice channel's room who isn't in its group: whoever holds the media server's secret,
+// with LiveKit's own SDK and nothing of Zuna's, sending a tone without encryption.
+const intruderPage = `<!doctype html><meta charset="utf-8"><script src="/livekit.js"></script><script>
+  window.join = async (url, token) => {
+    const lk = window.LivekitClient;
+    const room = (window.room = new lk.Room());
+    await room.connect(url, token, { autoSubscribe: false });
+    const audio = new AudioContext();
+    await audio.resume().catch(() => undefined);
+    const tone = audio.createOscillator();
+    const out = audio.createMediaStreamDestination();
+    tone.connect(out);
+    tone.start();
+    const publication = await room.localParticipant.publishTrack(out.stream.getAudioTracks()[0], { source: lk.Track.Source.Microphone, red: false, dtx: false });
+    return { encrypted: publication.isEncrypted };
+  };
+</script>`;
+const intruderSite = createServer((request, response) => {
+  if (request.url === "/livekit.js") {
+    response.writeHead(200, { "content-type": "text/javascript" });
+    response.end(readFileSync(join(root, "node_modules", "livekit-client", "dist", "livekit-client.umd.js")));
+    return;
+  }
+  response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  response.end(intruderPage);
+});
+await new Promise((resolve) => intruderSite.listen(0, "127.0.0.1", resolve));
+
+/** A LiveKit access token for anyone, as the chat server signs them (signLiveKitToken in server/internal/api/voice.go). */
+function liveKitToken(identity, room) {
+  const now = Math.floor(Date.now() / 1000);
+  const encode = (value) => Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
+  const claims = { iss: "devkey", sub: identity, nbf: now - 60, exp: now + 300, video: { room, roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: false } };
+  const unsigned = `${encode('{"alg":"HS256","typ":"JWT"}')}.${encode(claims)}`;
+  return `${unsigned}.${createHmac("sha256", "secret").update(unsigned).digest("base64url")}`;
+}
 
 // The test browsers won't send media to this machine's loopback address, so LiveKit says to use another of its addresses.
 const lanAddress = Object.values(networkInterfaces()).flat().find((item) => item.family === "IPv4" && !item.internal)?.address ?? "127.0.0.1";
@@ -708,7 +746,9 @@ async function runIn(name) {
     await again.getByRole("button", { name: /^Voice/ }).click();
     await fill(again.getByPlaceholder("Lounge"), "Lounge");
     await again.getByRole("button", { name: "Create channel" }).click();
+    const voiceAnswer = again.waitForResponse((response) => /\/api\/channels\/[0-9a-f]+\/voice$/.test(new URL(response.url()).pathname) && response.request().method() === "POST", { timeout: 30_000 });
     await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    const lounge = await voiceAnswer;
     await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
     check("a voice channel connects, encrypted", true);
     await again.waitForFunction(() => document.querySelector(".voice-control.is-live, .voice-control.is-off"), null, { timeout: 15_000 });
@@ -719,6 +759,21 @@ async function runIn(name) {
     await connection.waitFor({ timeout: 5000 });
     check("stream stats read the call", (await connection.innerText()).includes("End-to-end"));
     await again.getByRole("button", { name: "Close stream stats" }).click();
+
+    // Someone the media server lets into the room as Alex's other device, sending without encryption,
+    // is refused: nothing of theirs is played, as it would be heard as Alex.
+    const refusals = [];
+    again.on("console", (message) => message.text().includes("voice: refused") && refusals.push(message.text()));
+    const intruder = await fresh.newPage();
+    await intruder.goto(`http://127.0.0.1:${intruderSite.address().port}/`);
+    const [alexId] = (await lounge.json()).identity.split(".");
+    const offered = await intruder.evaluate(([url, token]) => window.join(url, token), [`ws://127.0.0.1:${liveKitPort}`, liveKitToken(`${alexId}.${randomBytes(16).toString("hex")}`, new URL(lounge.url()).pathname.split("/")[3])]);
+    for (let i = 0; i < 40 && refusals.length === 0; i++) await sleep(250);
+    await sleep(1500);
+    const intruding = await again.evaluate(() => [...document.querySelectorAll("audio")].filter((each) => each.srcObject?.getAudioTracks().some((track) => track.readyState === "live")).length);
+    check("someone in the room sending without encryption is refused, and nothing of theirs is played", !offered.encrypted && refusals.length > 0 && intruding === 0, `${refusals.length} refused, ${intruding} playing`);
+    await intruder.evaluate(() => window.room.disconnect());
+    await intruder.close();
 
     // A camera on the call keeps the screen on, and only while it's there.
     const awake = () =>
@@ -1137,6 +1192,7 @@ try {
   for (const name of chosen.length ? chosen : ["chromium", "firefox", "webkit"]) await runIn(name);
 } finally {
   site.close();
+  intruderSite.close();
   rmSync(bin, { recursive: true, force: true });
 }
 if (notes.length) console.log(`\n${notes.join("\n")}`);

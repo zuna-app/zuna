@@ -247,6 +247,10 @@ struct Shared {
     sending: Mutex<i32>,
     /// Bumped with each new key, so a delayed switch that's been overtaken does nothing.
     key_serial: AtomicU64,
+    /// Who has offered a track without encryption while here. Every app encrypts all it sends, so
+    /// that's the media server, or whoever holds its secret, speaking as someone without the group's
+    /// key, which LiveKit would play undecrypted. Nothing of theirs is played or drawn until they leave.
+    refused: Mutex<HashSet<String>>,
 }
 
 pub struct VoiceRoom {
@@ -304,11 +308,15 @@ impl VoiceRoom {
             provider,
             sending: Mutex::new(index),
             key_serial: AtomicU64::new(0),
+            refused: Mutex::new(HashSet::new()),
         });
         let room = Arc::new(room);
         // Those already here, and everything they send.
         for participant in room.remote_participants().values() {
             shared.install_for(&participant.identity().0);
+            for publication in participant.track_publications().values() {
+                shared.check_offered(publication, participant);
+            }
             for publication in participant.track_publications().values() {
                 if let Some(track) = publication.track() {
                     shared.subscribed(&room, track, publication.clone(), participant.clone());

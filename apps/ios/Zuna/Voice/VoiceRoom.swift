@@ -114,6 +114,10 @@ final class VoiceRoom {
     /// LiveKit says what this participant may send while it's still joining, which isn't news to act on yet.
     private var joined = false
     private let logger = Logger(subsystem: "chat.zuna", category: "voice")
+    /// Who has offered a track without encryption while here. Every app encrypts all it sends, so that's the
+    /// media server, or whoever holds its secret, speaking as someone without the group's key, which LiveKit
+    /// would play undecrypted. Nothing of theirs is played or drawn until they leave.
+    private var refused = Set<String>()
 
     /// Who this device is in the room.
     private(set) var identity = ""
@@ -200,6 +204,9 @@ final class VoiceRoom {
         // Those already here, and everything they send.
         for participant in room.remoteParticipants.values {
             installFor(participant)
+            for case let publication as RemoteTrackPublication in participant.trackPublications.values {
+                checkOffered(publication, of: participant)
+            }
         }
         await permissionsChanged()
     }
@@ -322,14 +329,49 @@ final class VoiceRoom {
 
     func applyVolumes() {
         for participant in room.remoteParticipants.values {
-            guard let user = participant.identity.flatMap({ VoiceIdentity($0.stringValue) })?.userId else { continue }
+            guard let identity = participant.identity?.stringValue, !refused.contains(identity), let user = VoiceIdentity(identity)?.userId else { continue }
             for publication in participant.audioTracks {
                 (publication.track as? RemoteAudioTrack)?.volume = volumes(user, publication.source)
             }
         }
     }
 
+    /// Refuses whoever offers a track without encryption.
+    fileprivate func checkOffered(_ publication: RemoteTrackPublication, of participant: RemoteParticipant) {
+        if publication.encryptionType == .none {
+            refuse(participant)
+        }
+    }
+
+    /// Stops playing and drawing all that someone sends, and taking it from the media server.
+    private func refuse(_ participant: RemoteParticipant) {
+        guard let identity = participant.identity?.stringValue, refused.insert(identity).inserted else { return }
+        logger.warning("Refused \(identity, privacy: .public) for sending without encryption")
+        for case let publication as RemoteTrackPublication in participant.trackPublications.values {
+            (publication.track as? RemoteAudioTrack)?.volume = 0
+            Task { try? await publication.set(subscribed: false) }
+        }
+        events.media()
+    }
+
+    fileprivate func isRefused(_ participant: Participant) -> Bool {
+        participant.identity.map { refused.contains($0.stringValue) } ?? false
+    }
+
+    /// Whoever comes back as someone who left is looked at afresh.
+    fileprivate func left(_ participant: RemoteParticipant) {
+        if let identity = participant.identity?.stringValue {
+            refused.remove(identity)
+        }
+    }
+
     fileprivate func subscribed(_ publication: RemoteTrackPublication, of participant: RemoteParticipant) {
+        checkOffered(publication, of: participant)
+        if isRefused(participant) {
+            (publication.track as? RemoteAudioTrack)?.volume = 0
+            Task { try? await publication.set(subscribed: false) }
+            return
+        }
         if let track = publication.track as? RemoteAudioTrack, let user = participant.identity.flatMap({ VoiceIdentity($0.stringValue) })?.userId {
             track.volume = volumes(user, publication.source)
         }
@@ -351,7 +393,7 @@ final class VoiceRoom {
         })
         let participants: [(Participant, Bool)] = [(room.localParticipant, true)] + room.remoteParticipants.values.map { ($0, false) }
         for (participant, local) in participants {
-            guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity) else { continue }
+            guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity), local || !refused.contains(identity) else { continue }
             for publication in participant.videoTracks {
                 guard let track = publication.track as? VideoTrack, !publication.isMuted else { continue }
                 let source: CallVideo.Source = publication.source == .screenShareVideo ? .screen : .camera
@@ -650,6 +692,7 @@ final class VoiceRoom {
 
         func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
             onMain { owner in
+                owner.left(participant)
                 if let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) {
                     owner.events.participants(nil, parsed.userId)
                 }
@@ -658,6 +701,10 @@ final class VoiceRoom {
         }
 
         func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+            // Silent at once, on LiveKit's thread, rather than once the main actor hears of it.
+            if publication.encryptionType == .none {
+                (publication.track as? RemoteAudioTrack)?.volume = 0
+            }
             onMain { $0.subscribed(publication, of: participant) }
         }
 
@@ -670,7 +717,10 @@ final class VoiceRoom {
         }
 
         func room(_ room: Room, participant: RemoteParticipant, didPublishTrack publication: RemoteTrackPublication) {
-            onMain { $0.events.media() }
+            onMain { owner in
+                owner.checkOffered(publication, of: participant)
+                owner.events.media()
+            }
         }
 
         func room(_ room: Room, participant: RemoteParticipant, didUnpublishTrack publication: RemoteTrackPublication) {
@@ -686,11 +736,13 @@ final class VoiceRoom {
         }
 
         func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
-            let users = Set(participants.compactMap { participant -> String? in
-                guard let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) else { return nil }
-                return parsed.userId
-            })
-            onMain { $0.events.speaking(users) }
+            onMain { owner in
+                let users = Set(participants.compactMap { participant -> String? in
+                    guard !owner.isRefused(participant), let parsed = participant.identity.flatMap({ VoiceIdentity($0.stringValue) }) else { return nil }
+                    return parsed.userId
+                })
+                owner.events.speaking(users)
+            }
         }
 
         func room(_ room: Room, participant: Participant, didUpdateConnectionQuality quality: ConnectionQuality) {

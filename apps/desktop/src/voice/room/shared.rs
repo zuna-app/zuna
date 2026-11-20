@@ -31,9 +31,42 @@ impl Shared {
         }
     }
 
+    /// Refuses whoever offers a track without encryption.
+    pub(super) fn check_offered(&self, publication: &RemoteTrackPublication, participant: &RemoteParticipant) {
+        if publication.encryption_type() == EncryptionType::None {
+            self.refuse(participant);
+        }
+    }
+
+    /// Stops playing and drawing all that someone sends, and taking it from the media server.
+    fn refuse(&self, participant: &RemoteParticipant) {
+        let identity = participant.identity().0;
+        if !self.refused.lock().insert(identity.clone()) {
+            return;
+        }
+        log::warn!("voice: refused {identity} for sending without encryption");
+        for (sid, publication) in participant.track_publications() {
+            publication.set_subscribed(false);
+            self.unsubscribed(&sid);
+        }
+    }
+
+    pub(super) fn is_refused(&self, identity: &str) -> bool {
+        self.refused.lock().contains(identity)
+    }
+
     pub(super) fn subscribed(&self, room: &Room, track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
         let identity = participant.identity().0;
-        let _ = room;
+        // LiveKit decrypts a track only if it was marked encrypted when it was subscribed to, which
+        // the media server says: one without a frame cryptor would be played as it comes.
+        let decrypted = room.e2ee_manager().frame_cryptors().contains_key(&(participant.identity(), publication.sid()));
+        if !decrypted || publication.encryption_type() == EncryptionType::None {
+            self.refuse(&participant);
+        }
+        if self.is_refused(&identity) {
+            publication.set_subscribed(false);
+            return;
+        }
         let Some(user) = user_of(&identity) else { return };
         let sid = publication.sid();
         match track {
@@ -156,6 +189,8 @@ pub(super) async fn watch(room: Arc<Room>, shared: Arc<Shared>, mut events: toki
                 for sid in participant.track_publications().keys() {
                     shared.unsubscribed(sid);
                 }
+                // Whoever comes back as them is looked at afresh.
+                shared.refused.lock().remove(&identity);
                 if let Some((user, _)) = parse_identity(&identity) {
                     send(Event::Participants(None, Some(user)));
                 }
@@ -169,14 +204,18 @@ pub(super) async fn watch(room: Arc<Room>, shared: Arc<Shared>, mut events: toki
                 shared.unsubscribed(&publication.sid());
                 send(Event::Media);
             }
-            RoomEvent::TrackMuted { .. } | RoomEvent::TrackUnmuted { .. } | RoomEvent::TrackPublished { .. } | RoomEvent::TrackUnpublished { .. } | RoomEvent::LocalTrackPublished { .. } | RoomEvent::LocalTrackUnpublished { .. } => send(Event::Media),
+            RoomEvent::TrackPublished { publication, participant } => {
+                shared.check_offered(&publication, &participant);
+                send(Event::Media);
+            }
+            RoomEvent::TrackMuted { .. } | RoomEvent::TrackUnmuted { .. } | RoomEvent::TrackUnpublished { .. } | RoomEvent::LocalTrackPublished { .. } | RoomEvent::LocalTrackUnpublished { .. } => send(Event::Media),
             RoomEvent::ActiveSpeakersChanged { speakers } => {
                 let users = speakers
                     .iter()
                     .filter_map(|speaker| {
                         let identity = speaker.identity().0;
                         match parse_identity(&identity) {
-                            Some((user, _)) if identity != shared.identity => Some(user),
+                            Some((user, _)) if identity != shared.identity && !shared.is_refused(&identity) => Some(user),
                             _ => None,
                         }
                     })
