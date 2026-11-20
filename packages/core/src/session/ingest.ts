@@ -71,8 +71,10 @@ export abstract class SessionIngest extends SessionChanges {
         unknown.push(checked.signer);
         continue;
       }
-      // A copy of someone's real one under an ID of its own opens too, and is nobody's.
-      const parsed = checked?.state === "signed" && checked.value?.id === reaction.id ? parseReaction(checked.value) : null;
+      // A copy of someone's real one under an ID of its own opens too, and is nobody's. So is one from a
+      // device under an epoch it had left by, as only a server keeping someone removed in could deliver.
+      const left = checked?.state === "signed" ? this.departedAt(groupId, checked.signer.userId, checked.signer.deviceId) : null;
+      const parsed = checked?.state === "signed" && checked.value?.id === reaction.id && (left === null || reaction.epoch < left) ? parseReaction(checked.value) : null;
       if (checked?.state === "signed" && parsed) {
         const own = checked.signer.userId === this.account.userId && reaction.item_key;
         seen.push({ id: reaction.id, user: checked.signer.userId, key: parsed.key, ...(parsed.emote ? { emote: parsed.emote } : {}), ...(own ? { item: reaction.item_key } : {}) });
@@ -686,6 +688,9 @@ export abstract class SessionIngest extends SessionChanges {
     if (checked.state !== "signed" || checked.value?.by !== checked.signer.userId) return null;
     const left = this.departedAt(message.group_id, checked.signer.userId, checked.signer.deviceId);
     if (left !== null && signed.epoch >= left) return null;
+    // Nor under one from before it came, whose key it could only have been handed.
+    const arrived = this.arrivedAt(message.group_id, checked.signer.userId, checked.signer.deviceId);
+    if (arrived !== null && signed.epoch < arrived) return null;
     return { by: checked.signer.userId, value: checked.value };
   }
 

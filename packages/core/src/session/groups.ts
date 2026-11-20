@@ -598,7 +598,9 @@ export abstract class SessionGroups extends SessionRotation {
       return;
     }
     const details = parseGroupDetails(signed.details);
-    if (!details || !this.isGroupAdmin(group, signed.signer.userId) || !signed.signedBy(device.signatureKey)) {
+    // From an admin's device that's still theirs: a removed one, which whoever has it holds the
+    // group's old keys on, signs nothing new, and an admin's app writes them again.
+    if (!details || device.revoked || !this.isGroupAdmin(group, signed.signer.userId) || !signed.signedBy(device.signatureKey)) {
       this.resealIfAdmin(group);
       return;
     }
