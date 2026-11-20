@@ -294,7 +294,7 @@ sudo -u zuna env $(sudo grep -v '^#' /etc/zuna/zuna.env | xargs) /usr/local/bin/
 sudo systemctl start zuna
 ```
 
-With the binary, run it once with `--new-log-era` and the `--data` or `--database-url` it runs with. It writes the log again under its next era, with the same key, and stops. Every member's app says once that the server started its record of keys again, and nothing they hold changes: a key that changed meanwhile still gives its warning. Don't use it for anything but a restored backup, as everyone is told.
+With the binary, run it once with `--new-log-era` and the `--data` or `--database-url` it runs with. It writes the log again under its next era, with the same key, keeping the one before for anyone who joins by an invite made in it, and stops. Every member's app says once that the server started its record of keys again, and nothing they hold changes: a key that changed meanwhile still gives its warning. Don't use it for anything but a restored backup, as everyone is told.
 
 ## Moving to a new address
 

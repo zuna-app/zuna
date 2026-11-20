@@ -142,6 +142,8 @@ export abstract class SessionDirectory extends SessionChains {
   protected bodiesFailed = new Map<string, number>();
   /** Unopened records were tested against the accounts known, this session. */
   protected withheldLooked = false;
+  /** The era a link's or manifest's head was of was just read, before the server's own (`readEraOfFloor`). */
+  protected floorEraRead = false;
 
   protected logState(): LogState {
     if (!this.logLoaded) {
@@ -232,6 +234,13 @@ export abstract class SessionDirectory extends SessionChains {
         this.logRead = false;
         return this.warnOnce(`log/back/${page.era}/${page.size}`, t(WARNINGS.back));
       }
+      // A device that has read nothing yet holds the log to the head its link or manifest carried.
+      // One of an era before that head's is refused, and one of a later era is taken only once the
+      // head's own era, as the server kept it, has been read to it and held to it.
+      if (state.era === 0 && state.floor && state.floor.era !== page.era) {
+        if (state.floor.era > page.era || !(await this.readEraOfFloor(key))) return void this.refuseLog(state.floor.from);
+        continue;
+      }
       if (page.era > state.era) this.startLogEra(page.era, page.size);
       // A page with nothing in it that says there's more would be asked for again and again.
       if (page.records.length === 0 && this.logState().frontier.size < page.size) return void this.refuseLog();
@@ -257,7 +266,9 @@ export abstract class SessionDirectory extends SessionChains {
    */
   protected startLogEra(era: number, size: number): void {
     const state = this.logState();
-    const first = state.era === 0;
+    // A device that only read an earlier era to hold its link's head to is still taking its first.
+    const first = state.era === 0 || this.floorEraRead;
+    this.floorEraRead = false;
     // A log written again is quiet about what it said before, but not about a device of this account it never named.
     const ownBefore = first ? undefined : [...new Set([...(state.ownBefore ?? []), ...Object.keys(this.loggedAccount(this.account.userId)?.devices ?? {})])];
     this.db.transaction(() => {
@@ -284,6 +295,55 @@ export abstract class SessionDirectory extends SessionChains {
     };
     this.saveLogState();
     if (!first) this.warnOnce(`log/era/${era}`, t(WARNINGS.era));
+  }
+
+  /**
+   * Reads the era the head a device's link or manifest carried is of, as the server kept it, before
+   * the server's own later one: to that head and held to it, taking each account's first key from it
+   * as any device that read it then did. The later era is then held to those keys, so a key the
+   * server changed across the two is `changed`, and a backup restored, which changes none, says
+   * nothing. False, with this device back where it was, if the server didn't keep that era, or it
+   * doesn't reach the head or hold it.
+   */
+  protected async readEraOfFloor(key: Uint8Array): Promise<boolean> {
+    const before = this.logState();
+    const floor = before.floor!;
+    let read = false;
+    try {
+      this.startLogEra(floor.era, 0);
+      for (;;) {
+        const state = this.logState();
+        const page = await this.api.log(floor.era, state.frontier.size, LOG_PAGE, true);
+        const head: LogHead = { era: page.head.era, size: page.head.size, root: decode(page.head.root), sig: decode(page.head.sig) };
+        if (page.era !== floor.era || head.era !== page.era || !headSigned(key, head) || page.size < state.frontier.size) return false;
+        if (page.records.length === 0 && state.frontier.size < page.size) return false;
+        if (!this.takeLogPage(page.records, head, page.size)) return false;
+        if (this.logState().frontier.size >= page.size) break;
+      }
+      // A head the log went past is let go once it's held (`takeLogPage`): one still there wasn't reached.
+      read = this.logState().floor === null;
+      this.floorEraRead = read;
+      return read;
+    } finally {
+      if (!read) this.backToNothingRead(before);
+    }
+  }
+
+  /** Puts this device back to having read none of the log, as it was before `readEraOfFloor`. */
+  protected backToNothingRead(state: LogState): void {
+    this.db.transaction(() => {
+      this.db.run("DELETE FROM log_records");
+      this.db.run("DELETE FROM log_accounts");
+      this.db.run("DELETE FROM log_names");
+    });
+    this.loggedAccounts.clear();
+    this.logBumps.clear();
+    this.standingCache.clear();
+    this.withheldUsers.clear();
+    this.cleanEpochs.clear();
+    this.floorEraRead = false;
+    this.logLoaded = { ...state };
+    this.saveLogState();
   }
 
   /**

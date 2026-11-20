@@ -189,7 +189,7 @@ A head only means something once it's compared. Three places carry one where the
 | **The vault manifest** | `log: { key, era, size, root }`, written with any other change to the manifest, and by itself at most daily | A new device of an account starts from what its other devices verified, not from what the server shows it |
 | **Invite links** | `&log=` in the fragment, with the hash of the log's key and the inviter's head when the link was made: about a hundred characters | Whoever joins checks the log they're given against a head the server never saw. Everyone who was on the server when the link was made then has the key the inviter had for them, before a word is exchanged |
 
-A link's head is only as good as the way the link came, as its community key is: a server's invite page could change the fragment of a link opened in a browser, which is why links are pasted into the app.
+A link's head is only as good as the way the link came, as its community key is: a server's invite page could change the fragment of a link opened in a browser, which is why links are pasted into the app. A server in a later era than the link's holds the newcomer to it all the same (5.10).
 
 A device given someone's head, signed by the key it pinned:
 
@@ -214,6 +214,7 @@ A server restored from a backup has a shorter log than its members' devices have
 - **The server's owner starts a new one** with a flag of `zuna-server`, run once. The server writes the log again from its tables, under the next era and the same key.
 - **Devices take a newer era** signed by the key they pinned, say so once, and read it from the start.
 - **Nothing they hold is given up.** Pins, chains and known devices are kept in tables of their own, and the new era's entries are held to them by the rules in 5.5. A key that changed across the reset is `changed`, as it would be today.
+- **The eras before are kept** as they were, and given whole, with heads signed for them, to whoever asks for one (`GET /api/log?era=…&past=1`). A device that has read nothing yet, whose invite link's or manifest's head is of an earlier era than the server's, reads that era first, held to the head, taking each account's first key from it as a device that read it then did, and then the server's era, held to those as any device's is. So whoever was there when the link was made keeps the key they had, one the new era changes is `changed`, and a restored backup, which changes nobody's, says nothing to them. A server that keeps no such era, or answers in one before the head's, gets the link's warning, as a log that doesn't fit the head does (`readEraOfFloor`).
 
 So a malicious server gains nothing by starting again but a warning on every device. A server's log starts empty, at era 1, with its key (`ensureLog`). Writing it from the tables is only `--new-log-era`'s (`rewriteLog`), which exits once it's done, so that it's run once.
 

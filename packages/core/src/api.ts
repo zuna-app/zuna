@@ -767,7 +767,9 @@ export class Api {
 
   // The log of who holds which keys
   /** The records after a place in an era, and the signed head where they end. Asked about another era, the server starts from the beginning of its own. */
-  log = (era: number, after: number, limit: number) => this.request<ApiLogPage>("GET", at`/api/log?era=${era}&after=${after}&limit=${limit}`);
+  /** The log after a place in its era. With `past`, an earlier era as the server kept it, which a server that kept none answers with its own. */
+  log = (era: number, after: number, limit: number, past = false) =>
+    this.request<ApiLogPage>("GET", past ? at`/api/log?era=${era}&after=${after}&limit=${limit}&past=1` : at`/api/log?era=${era}&after=${after}&limit=${limit}`);
   /** Every body of one account's entries, for someone it has only now become there for. */
   logBodies = (userId: string) => this.request<{ era: number; bodies: { idx: number; body: string }[] }>("GET", at`/api/log/bodies?user=${userId}`);
 

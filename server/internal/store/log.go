@@ -329,20 +329,34 @@ func (d *DB) hiddenFrom(ctx context.Context, viewer string) (map[string]bool, er
 // Log is the records after a place in the current era, each with its body if its
 // account is there for `viewer`, and the signed head where they end. A viewer with no
 // device gets only their own account's bodies. Asked about another era, it starts
-// from the beginning of this one.
-func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after int64, limit int) (*LogPage, error) {
+// from the beginning of this one, unless `past` asks for an earlier era as it was kept.
+func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after int64, limit int, past bool) (*LogPage, error) {
 	state, err := readLogState(ctx, d.sql)
 	if err != nil {
 		return nil, err
 	}
 	size := int64(state.frontier.Size)
-	if era != state.era || after < 0 {
+	root := state.frontier.Root()
+	served := state.era
+	if past && era >= 1 && era < state.era {
+		// An earlier era as far as this server kept it, which a device that has read nothing yet
+		// holds to the head its invite link carried before reading this one (rewriteLog).
+		var last int64
+		var lastRoot []byte
+		err := d.sql.QueryRowContext(ctx, `SELECT idx, root FROM log_entries WHERE era = ? ORDER BY idx DESC LIMIT 1`, era).Scan(&last, &lastRoot)
+		if err == nil && len(lastRoot) == merkle.HashSize {
+			served, size, root = era, last+1, merkle.Hash(lastRoot)
+		} else if !errors.Is(err, sql.ErrNoRows) && err != nil {
+			return nil, err
+		}
+	}
+	if era != served || after < 0 {
 		after = 0
 	}
-	page := &LogPage{Era: state.era, Size: size, Entries: []LogEntry{}}
+	page := &LogPage{Era: served, Size: size, Entries: []LogEntry{}}
 	if after >= size {
 		// Nothing after it, or it's past the end, which the device takes for the server going back.
-		page.Head, err = d.signHead(ctx, state.era, size, state.frontier.Root())
+		page.Head, err = d.signHead(ctx, served, size, root)
 		return page, err
 	}
 	hidden := map[string]bool{}
@@ -352,15 +366,15 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 		}
 	}
 	rows, err := d.sql.QueryContext(ctx, `SELECT idx, record, body, user_id, root FROM log_entries WHERE era = ? AND idx >= ? AND idx < ? ORDER BY idx LIMIT ?`,
-		state.era, after, size, limit)
+		served, after, size, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var root []byte
+	var endRoot []byte
 	for rows.Next() {
 		var entry LogEntry
-		if err := rows.Scan(&entry.Idx, &entry.Record, &entry.Body, &entry.UserID, &root); err != nil {
+		if err := rows.Scan(&entry.Idx, &entry.Record, &entry.Body, &entry.UserID, &endRoot); err != nil {
 			return nil, err
 		}
 		if (withDevice && hidden[entry.UserID]) || (!withDevice && entry.UserID != viewer) {
@@ -372,10 +386,10 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 		return nil, err
 	}
 	end := after + int64(len(page.Entries))
-	if len(page.Entries) == 0 || page.Entries[len(page.Entries)-1].Idx != end-1 || len(root) != merkle.HashSize {
+	if len(page.Entries) == 0 || page.Entries[len(page.Entries)-1].Idx != end-1 || len(endRoot) != merkle.HashSize {
 		return nil, errors.New("the log of keys has a gap")
 	}
-	page.Head, err = d.signHead(ctx, state.era, end, merkle.Hash(root))
+	page.Head, err = d.signHead(ctx, served, end, merkle.Hash(endRoot))
 	return page, err
 }
 
@@ -404,7 +418,8 @@ func (d *DB) LogBodies(ctx context.Context, userID string) (int64, []LogEntry, e
 
 // StartLogEra starts the log again, under its next era and the same key, written
 // from what the tables hold now. It's for a server restored from a backup, whose log
-// is shorter than what its members' devices have seen.
+// is shorter than what its members' devices have seen. The eras before are kept as
+// they were, for a device that joins with a link made in one of them to read first.
 func (d *DB) StartLogEra(ctx context.Context) (int64, error) {
 	var era int64
 	err := d.tx(ctx, func(tx handle) error {
@@ -413,9 +428,6 @@ func (d *DB) StartLogEra(ctx context.Context) (int64, error) {
 			return err
 		}
 		era = state.era + 1
-		if _, err := tx.ExecContext(ctx, `DELETE FROM log_entries`); err != nil {
-			return err
-		}
 		if err := writeLogState(ctx, tx, logState{era: era}); err != nil {
 			return err
 		}

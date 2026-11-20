@@ -680,6 +680,22 @@ describe("eras and seal keys", () => {
     expect(securityEvents(dave).some((event) => event.message.includes("'s security key"))).toBe(false);
   });
 
+  it("lets someone in by a link from the era before, held to it, with nothing to say", async () => {
+    const dave = await person("dave");
+    await caughtUp(dave);
+    const link = await alice.session.createInvite(0, 0);
+    const era = sessionOf(alice).logState().era;
+    startNewEra(dataDir());
+    const frank = await new TestApp("frank").open();
+    open.push(frank);
+    await frank.register(link, `frank${Date.now() % 100000}`);
+    await waitFor(() => sessionOf(frank).logCurrent() && sessionOf(frank).users.has(dave.userId), "frank to read the log, and hear of dave");
+    expect(sessionOf(frank).logState().era).toBe(era + 1);
+    expect(equalBytes(sessionOf(frank).pinnedIdentity(dave.userId), sessionOf(dave).account.core.rootPublic)).toBe(true);
+    expect(frank.session.safetyCheck(dave.userId)!.trust).toBe("unverified");
+    expect(securityEvents(frank)).toEqual([]);
+  });
+
   it("shows a key changed across a new era as changed", async () => {
     const dave = await person("dave");
     const erin = await person("erin");

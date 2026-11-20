@@ -384,6 +384,36 @@ func TestANewEraIsWhatTheTablesHold(t *testing.T) {
 	if page.Era != next || len(page.Records) == 0 || page.Records[0].Idx != 0 {
 		t.Fatalf("asking about an old era gave %+v", page)
 	}
+	// Asked for as it was, the era before is kept whole, with a head signed for it, for a device
+	// whose invite link was made in it to read first.
+	var frontier merkle.Frontier
+	for after := 0; ; {
+		var old logPage
+		h.mustDo("GET", "/api/log?era="+itoa(era)+"&after="+itoa(int64(after))+"&limit=2&past=1", owner.token, nil, &old)
+		if old.Era != era || old.Size != int64(len(before)) || old.Head.Era != era {
+			t.Fatalf("the era before, asked for as it was, gave era %d of %d records", old.Era, old.Size)
+		}
+		for _, record := range old.Records {
+			if record.Idx != int64(after) || !bytes.Equal(record.Record, before[after].record) {
+				t.Fatalf("the era before's record %d isn't what it was", record.Idx)
+			}
+			frontier.Append(merkle.Leaf(record.Record))
+			after++
+		}
+		root := frontier.Root()
+		if old.Head.Size != int64(frontier.Size) || !bytes.Equal(old.Head.Root, root[:]) {
+			t.Fatalf("the era before's head at %d doesn't fit its records", old.Head.Size)
+		}
+		if after == len(before) {
+			break
+		}
+	}
+	// One never kept, or this one, is this era from its start, as always.
+	var never logPage
+	h.mustDo("GET", "/api/log?era="+itoa(next+5)+"&after=0&past=1", owner.token, nil, &never)
+	if never.Era != next {
+		t.Fatalf("asking for an era there never was gave era %d", never.Era)
+	}
 }
 
 func b64(data []byte) string {
