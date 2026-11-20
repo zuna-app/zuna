@@ -1,0 +1,11 @@
+[Unit]
+Description=Zuna's update, every night
+
+[Timer]
+# Between 4 and 5 in this machine's time, and on the next start after a night it was off.
+OnCalendar=*-*-* 04:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

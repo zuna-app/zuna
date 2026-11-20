@@ -33,6 +33,8 @@
 #                        every change first and is tested less (default stable).
 #                        Until the first stable release, stable starts on main's
 #                        newest commit and waits there for it
+#   --auto-update on|off  update by itself every night (default on for stable
+#                        releases, off for nightly)
 #   --no-firewall        leave the firewall as it is
 #   --yes                ask nothing, and take the default for anything not given
 #   --dry-run            ask, then show what it would do, without doing it
@@ -64,6 +66,7 @@ CLOUDFLARE_FOUND=0
 PUBLIC_IP=""
 DATABASE_URL=""
 CHANNEL=""
+AUTO_UPDATE=""
 FIREWALL=1
 # What was given as an option is asked again only if it doesn't check out.
 CERT_GIVEN=0
@@ -82,6 +85,7 @@ while [ $# -gt 0 ]; do
     --public-ip) PUBLIC_IP="${2:?--public-ip needs an address}"; PUBLIC_IP_GIVEN=1; shift 2 ;;
     --database-url) DATABASE_URL="${2:?--database-url needs an address}"; shift 2 ;;
     --channel) CHANNEL="${2:?--channel needs stable or nightly}"; shift 2 ;;
+    --auto-update) AUTO_UPDATE="${2:?--auto-update needs on or off}"; shift 2 ;;
     --no-firewall) FIREWALL=0; shift ;;
     --yes) YES=1; shift ;;
     --dry-run) DRY=1; shift ;;
@@ -92,6 +96,7 @@ done
 case "$PROXY" in "" | auto | manual) ;; *) echo "--proxy is auto or manual" >&2; exit 1 ;; esac
 case "$CLOUDFLARE_MODE" in "" | strict | full | flexible) ;; *) echo "--cloudflare is strict, full or flexible" >&2; exit 1 ;; esac
 case "$CHANNEL" in "" | stable | nightly) ;; *) echo "--channel is stable or nightly" >&2; exit 1 ;; esac
+case "$AUTO_UPDATE" in "" | on | off) ;; *) echo "--auto-update is on or off" >&2; exit 1 ;; esac
 if [ -n "$DOMAIN" ] && [ -n "$IP" ]; then echo "Give --domain or --ip, not both" >&2; exit 1; fi
 if { [ -n "$CERT" ] && [ -z "$KEY" ]; } || { [ -z "$CERT" ] && [ -n "$KEY" ]; }; then echo "--cert and --key go together" >&2; exit 1; fi
 
@@ -431,23 +436,160 @@ setup_value() {
   ) || true
 }
 
-# A server set up here already: update it, or go through the questions again.
+# A server set up here already: what it runs, and what to do with it.
 check_existing() {
-  local existing
+  local existing channel auto version options actions link
   existing="$(setup_value SERVER_DOMAIN)"
   [ -n "$existing" ] || return 0
   if [ -z "$DOMAIN$IP" ]; then
     if is_ip "$existing"; then IP="$existing"; else DOMAIN="$existing"; fi
   fi
+  channel="$(setup_value CHANNEL)"
+  auto="$(setup_value AUTO_UPDATE)"
+  version="$(git -c safe.directory='*' -C "$SRC" describe --tags --always 2>/dev/null || echo "an unknown version")"
   heading "Zuna is set up here already, at $existing"
-  choose 0 "Update it|to the newest version, keeping its settings" "Set it up again|answering the questions again" "Quit|"
-  case "$CHOICE" in
-    0)
+  if systemctl is-active --quiet zuna; then good "Running $version"; else warn "Not running: journalctl -u zuna says why"; fi
+  if [ "${channel:-stable}" = nightly ]; then say "  On nightly, main's newest commit"; else say "  On stable releases"; fi
+  if [ "$auto" = on ]; then say "  Updates by itself every night"; else say "  Updates with sudo zuna-update"; fi
+  echo
+  options=("Update it now|to the newest $([ "${channel:-stable}" = nightly ] && echo "commit on main" || echo "stable release"), keeping its settings")
+  actions=(update)
+  link="$(current_setup_link)"
+  if [ -n "$link" ]; then options+=("Show the setup link|the one-time link that makes the owner account"); actions+=(link); fi
+  options+=("Change how it updates|stable or nightly, by itself or not") actions+=(updates)
+  options+=("Set it up again|answering the questions again") actions+=(again)
+  options+=("Uninstall|takes Zuna off this machine, asking about its data") actions+=(uninstall)
+  options+=("Quit|") actions+=(quit)
+  choose 0 "${options[@]}"
+  case "${actions[CHOICE]}" in
+    update)
       [ "$DRY" = 1 ] && { say "Would run: $SRC/deploy/update.sh"; exit 0; }
       exec "$SRC/deploy/update.sh"
       ;;
-    2) exit 0 ;;
+    link)
+      show_link "$link"
+      dim "It works until the owner account is made."
+      echo
+      exit 0
+      ;;
+    updates)
+      CHANNEL="${channel:-stable}"
+      AUTO_UPDATE="${auto:-off}"
+      ask_channel
+      [ "$DRY" = 1 ] && { say "Would run: $SRC/deploy/update.sh --channel $CHANNEL --auto-update $AUTO_UPDATE"; exit 0; }
+      echo
+      exec "$SRC/deploy/update.sh" --channel "$CHANNEL" --auto-update "$AUTO_UPDATE"
+      ;;
+    uninstall)
+      uninstall
+      exit 0
+      ;;
+    quit) exit 0 ;;
   esac
+}
+
+# The setup link the server printed as it last started, which it prints until the owner account is made.
+current_setup_link() {
+  local invocation
+  invocation="$(systemctl show -p InvocationID --value zuna 2>/dev/null || true)"
+  [ -n "$invocation" ] || return 0
+  journalctl _SYSTEMD_INVOCATION_ID="$invocation" --no-pager -o cat 2>/dev/null | grep -o 'https://[^ ]*/invite/[^ ]*' | tail -n1 || true
+}
+
+# A setup link to open in the app, with a QR code for a phone where there's qrencode.
+show_link() {
+  say "Finish setup: open this one-time link in the Zuna app."
+  say "It creates your owner account."
+  echo
+  say "  $B$1$R"
+  if command -v qrencode >/dev/null; then
+    echo
+    qrencode -t ANSIUTF8 -m 2 "$1" | sed 's/^/  /'
+  fi
+  echo
+}
+
+# Takes Zuna off this machine, after saying what goes and what stays: its services,
+# programs, settings, nightly update and the sites added to proxies, and its data only
+# when asked to, which nobody can undo.
+uninstall() {
+  local database delete=0
+  database="$(sed -n 's/^ZUNA_DATABASE_URL=//p' /etc/zuna/zuna.env 2>/dev/null | tail -n1 || true)"
+  heading "Uninstall Zuna"
+  say "This removes Zuna's services, its programs and settings, its nightly update, and"
+  say "the site the installer added to a proxy. The proxy itself, its certificates, the"
+  say "firewall's rules, a swap file, and Go and Node in /usr/local stay."
+  echo
+  heading "What about its data?"
+  say "In /var/lib/zuna: the accounts, messages as ciphertext no server can read, and files."
+  [ -n "$database" ] && say "Most of it is in PostgreSQL, which stays whatever this does."
+  echo
+  choose 0 "Keep it|so setting Zuna up again here carries on with it" "Delete it|everyone's account and messages here, for good"
+  if [ "$CHOICE" = 1 ]; then
+    echo
+    if yes_no "Delete everything in /var/lib/zuna? Nobody can get it back." n; then delete=1; else say "It stays, then."; fi
+  fi
+  [ -n "$database" ] && [ "$delete" = 0 ] && warn "The database's address goes with the settings, so copy it from /etc/zuna/zuna.env first if you'll want it."
+  echo
+  if [ "$DRY" = 1 ]; then say "Would uninstall Zuna$([ "$delete" = 1 ] && echo ", and delete its data")."; exit 0; fi
+  if ! yes_no "Uninstall Zuna now?" n; then say "Nothing has changed."; return 0; fi
+  CHANGING=1
+  install -m 0600 /dev/null "$LOG.new" && mv -f "$LOG.new" "$LOG"
+  echo
+  step "Stopping Zuna" stop_zuna
+  step "Removing its programs and settings" remove_zuna
+  if [ "$delete" = 1 ]; then step "Deleting its data" delete_data; fi
+  CHANGING=0
+  echo
+  good "Zuna is off this machine."
+  if [ "$delete" = 0 ]; then
+    say "Its data is still in /var/lib/zuna. Setting Zuna up again here carries on with it:"
+    say "  sudo $SRC/deploy/install.sh"
+  else
+    say "Zuna's code is still in $SRC, for setting it up again. sudo rm -rf $SRC removes it too."
+  fi
+  echo
+}
+stop_zuna() {
+  systemctl disable --now zuna-update.timer zuna.service zuna-livekit.service zuna-push.service zuna-web.service 2>/dev/null || true
+}
+remove_zuna() {
+  local unit changed=""
+  for unit in zuna.service zuna-livekit.service zuna-push.service zuna-web.service zuna-update.service zuna-update.timer; do
+    rm -f "/etc/systemd/system/$unit"
+  done
+  systemctl daemon-reload
+  for unit in zuna-server zuna-push zuna-web livekit-server; do
+    rm -f "/usr/local/bin/$unit" "/usr/local/bin/$unit.previous"
+  done
+  rm -f /usr/local/sbin/zuna-update /var/log/zuna-update.log /run/zuna-update.lock
+  rm -rf /etc/zuna /var/cache/zuna-build
+  # The site added to Caddy, nginx or Apache, whichever has one.
+  if [ -f /etc/caddy/Caddyfile.d/zuna.caddyfile ]; then
+    rm -f /etc/caddy/Caddyfile.d/zuna.caddyfile
+    sed -i '/^# Zuna, added by deploy\/install.sh.$/d; /^import \/etc\/caddy\/Caddyfile.d\/zuna.caddyfile$/d' /etc/caddy/Caddyfile
+    changed+=" caddy"
+  fi
+  if [ -e /etc/nginx/sites-available/zuna.conf ] || [ -e /etc/nginx/conf.d/zuna.conf ]; then
+    rm -f /etc/nginx/sites-enabled/zuna.conf /etc/nginx/sites-available/zuna.conf /etc/nginx/conf.d/zuna.conf
+    changed+=" nginx"
+  fi
+  if [ -e /etc/apache2/sites-available/zuna.conf ]; then
+    rm -f /etc/apache2/sites-enabled/zuna.conf /etc/apache2/sites-available/zuna.conf
+    changed+=" apache2"
+  fi
+  if [ -e /etc/httpd/conf.d/zuna.conf ]; then
+    rm -f /etc/httpd/conf.d/zuna.conf
+    changed+=" httpd"
+  fi
+  for unit in $changed; do systemctl reload "$unit" 2>/dev/null || true; done
+}
+delete_data() {
+  rm -rf /var/lib/zuna /var/lib/zuna-push
+  local user
+  for user in zuna zuna-livekit zuna-push zuna-build; do
+    if id "$user" >/dev/null 2>&1; then userdel "$user" 2>/dev/null || true; fi
+  done
 }
 
 # --- Questions ---
@@ -877,6 +1019,17 @@ ask_channel() {
   [ "$CHANNEL" = nightly ] && selected=1
   choose "$selected" "Stable releases|recommended, each tested before it's out" "Nightly|main's newest commit, with every change first, tested less"
   if [ "$CHOICE" = 1 ]; then CHANNEL=nightly; else CHANNEL=stable; fi
+  ask_auto_update
+}
+
+# Whether it updates by itself every night, which a stable release does by default.
+ask_auto_update() {
+  heading "Should it update by itself?"
+  local selected=0 what="each new stable release"
+  [ "$CHANNEL" = nightly ] && what="main's newest commit" && selected=1
+  case "$AUTO_UPDATE" in on) selected=0 ;; off) selected=1 ;; esac
+  choose "$selected" "Yes, every night|installs $what between 4 and 5, and goes back if it doesn't start" "No|you update it with sudo zuna-update"
+  if [ "$CHOICE" = 0 ]; then AUTO_UPDATE=on; else AUTO_UPDATE=off; fi
 }
 
 # Whether a stable release is out, as v1.2.3, which a nightly's v1.2.3-nightly.1108 isn't.
@@ -930,12 +1083,14 @@ summary() {
   rows+=("Voice channels|on $DOT media on $VOICE_TCP_PORT/tcp and $VOICE_UDP_PORT/udp, at $PUBLIC_IP")
   if [ -n "$DATABASE_URL" ]; then rows+=("Data|PostgreSQL, files in /var/lib/zuna"); else rows+=("Data|in /var/lib/zuna"); fi
   rows+=("Notifications|through the project's push relay, which only sees sealed pushes")
+  local how="with sudo zuna-update"
+  [ "$AUTO_UPDATE" = on ] && how="by itself every night"
   if [ "$CHANNEL" = nightly ]; then
-    rows+=("Updates|nightly, main's newest commit, with sudo zuna-update")
+    rows+=("Updates|nightly, main's newest commit, $how")
   elif has_stable_release; then
-    rows+=("Updates|stable releases, with sudo zuna-update")
+    rows+=("Updates|stable releases, $how")
   else
-    rows+=("Updates|stable releases, with sudo zuna-update, from main's newest commit until the first")
+    rows+=("Updates|stable releases, $how, from main's newest commit until the first")
   fi
   if [ -n "$FIREWALL_KIND" ]; then
     rows+=("Firewall|opens $(open_list) in $FIREWALL_KIND")
@@ -948,6 +1103,8 @@ summary() {
   [ "$FIX_CHECKOUT" = 1 ] && rows+=("Checkout|$SRC becomes root's, as updates run from it as root")
   local row
   for row in "${rows[@]}"; do printf '  %-15s %s\n' "${row%%|*}" "${row#*|}"; done
+  echo
+  dim "Setting it up builds Zuna and LiveKit from their source, which takes a while on a small machine."
   echo
 }
 url_host() {
@@ -1002,7 +1159,7 @@ run_update() {
     if [ "$CLOUDFLARE_FOUND" = 1 ]; then args+=(--behind-cloudflare on); else args+=(--behind-cloudflare off); fi
   fi
   [ -n "$DATABASE_URL" ] && args+=(--database-url "$DATABASE_URL")
-  args+=(--channel "$CHANNEL")
+  args+=(--channel "$CHANNEL" --auto-update "$AUTO_UPDATE")
   if [ "$DRY" = 1 ]; then
     say "$SRC/deploy/update.sh ${args[*]}"
     return
@@ -1047,7 +1204,8 @@ update_step() {
   case "$1" in
     "Checking the tools") echo "Installing tools" ;;
     "Pulling updates") echo "Getting the newest code" ;;
-    Building*) echo "Building the server and LiveKit" ;;
+    Building*", with LiveKit") echo "Building the server and LiveKit, the longest step" ;;
+    Building*) echo "Building the server" ;;
     Installing) echo "Installing" ;;
     Restarting) echo "Starting Zuna and LiveKit" ;;
     "") echo "Installing Zuna" ;;
@@ -1539,7 +1697,9 @@ done_screen() {
     echo
   fi
   what_is_left
-  printf '  %-10s %s\n' "Get apps" "https://zuna.chat" "Update" "sudo zuna-update" "Logs" "journalctl -u zuna" "Back up" "/var/lib/zuna"
+  local update="sudo zuna-update"
+  [ "$AUTO_UPDATE" = on ] && update="by itself every night, or now with sudo zuna-update"
+  printf '  %-10s %s\n' "Get apps" "https://zuna.chat" "Update" "$update" "Logs" "journalctl -u zuna" "Back up" "/var/lib/zuna"
   echo
 }
 

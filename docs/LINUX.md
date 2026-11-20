@@ -234,6 +234,10 @@ sudo zuna-update
 
 That's `/usr/local/sbin/zuna-update`, which runs `deploy/update.sh` from the checkout, with any options given to it. It remembers what runs on the machine, in `/etc/zuna/update.conf`. Add `--test` to run the server's tests before installing anything. If a new build doesn't start, the script prints the service's log, puts the previous build back and exits with an error.
 
+On a terminal it shows its steps, each with how long it took and what it has to say, and keeps the rest in `/var/log/zuna-update.log`, which a failure shows the end of. `--verbose` prints everything as it goes instead. When nothing is new, no option changes anything and every service is running, it builds and restarts nothing, since a restart would end every call and connection for nothing: `/etc/zuna/built` holds the commit whose build is running, written once everything it changed has started. `--rebuild` builds, installs and restarts anyway. Only one update runs at a time.
+
+**By itself.** `--auto-update on`, which the installer asks about, has a systemd timer, `zuna-update.timer`, run `zuna-update` every night between 4 and 5 in the machine's time, or at the next start after a night it was off, and `--auto-update off` takes it away. With nothing new, that's over in seconds. `journalctl -u zuna-update` says what each night did.
+
 The script runs as root, but building doesn't: that's done by a `zuna-build` user, since it runs code from the repository. So that the script itself can't be changed by anyone else, it refuses to run from a checkout that someone other than root can write to, and says how to fix that. `--allow-user-checkout` runs it anyway, and has the checkout's owner build, at the cost of them being root at the next update.
 
 **What gets installed.** Stable releases, by default: each update builds the newest stable release's tag, such as `v0.2.0`, the code its apps were released from, and never a nightly's. `--channel nightly` builds `main`'s newest commit instead, which has every change first and is tested less, and `--channel stable` goes back. As in the apps, going back waits: a server that ran nightly stays as it is until a stable release has a higher build, the number of commits behind it, so that its data never meets code older than what wrote it. Both installers ask which, stable by default. While no stable release is out, a new server on stable starts on `main`'s newest commit and waits there for the first one, which its next update after it's out then builds.
@@ -265,6 +269,8 @@ Run the script again with the option you're changing. The others stay as they we
 | Say the domains are behind Cloudflare's proxy | `--behind-cloudflare on` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Run nightly, `main`'s newest commit, or stable releases again | `--channel nightly`, `--channel stable` |
+| Update by itself every night, or stop | `--auto-update on`, `--auto-update off` |
+| Build, install and restart even with nothing new | `--rebuild` |
 | Build what's checked out, without pulling | `--no-pull` |
 
 The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. A `livekit.yaml` from before it had a `room:` section gets one added, with the codecs that let a Mac encode a shared screen on its GPU, and one from before it had `packet_buffer_size_video` gets that under `rtc:`, which keeps a shared screen going on a network that loses packets. Each restarts LiveKit once. Anything you add to them by hand stays until the script writes that file again, which it does whenever you give an option for it, `--server` included, even with the same value, as running `deploy/install.sh` again does. `zuna.env` keeps only `ZUNA_DATABASE_URL` then, so add anything else, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration), again afterwards. Restart the service after editing them:
@@ -288,12 +294,23 @@ An update restarts LiveKit only when it brings a new LiveKit or new settings for
 | What the web app is built with | Node in `/usr/local/node`, Rust and `wasm-bindgen` in the builder's `~/.cargo`, and a copy of the code in its `~/.cache/zuna-web-build` |
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |
-| The update command | `/usr/local/sbin/zuna-update` |
+| The update command | `/usr/local/sbin/zuna-update`, with its log in `/var/log/zuna-update.log` and the commit whose build runs in `/etc/zuna/built` |
+| The nightly update | `/etc/systemd/system/zuna-update.timer` and `zuna-update.service`, from `deploy/` |
 | What the installer did | `/var/log/zuna-install.log`, with the setup link in it, so only root reads it |
 | The proxy's site, from the installer | `/etc/caddy/Caddyfile.d/zuna.caddyfile`, with an `import` line added to the Caddyfile where it had none, `/etc/nginx/sites-available/zuna.conf` or `conf.d/zuna.conf`, `/etc/apache2/sites-available/zuna.conf` or `/etc/httpd/conf.d/zuna.conf`, and for a proxy you set up, what to add in `/etc/zuna/proxy` |
 | The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous`, `zuna-web.previous` and `livekit-server.previous` |
 
 **Back up** `/var/lib/zuna`, as described in [Backups](SELF_HOSTING.md#backups), and `/var/lib/zuna-push/handle.key`. If the handle key is lost, every phone's registration breaks until its app registers again, which it does when it next opens.
+
+## Uninstalling
+
+Run the installer again and pick Uninstall:
+
+```bash
+sudo /opt/zuna/deploy/install.sh
+```
+
+It takes away Zuna's services, its programs and settings in `/etc/zuna`, the nightly update, its build cache and the site it added to Caddy, nginx or Apache, and asks whether to delete the data in `/var/lib/zuna` too, which it asks twice, as nobody can get it back. Kept, setting Zuna up again here carries on with it. Deleted, its system users go with it. The proxy itself, its certificates, the firewall's rules, a swap file, Go and Node in `/usr/local`, data in PostgreSQL and the checkout stay.
 
 ## Logs and troubleshooting
 

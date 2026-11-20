@@ -57,7 +57,7 @@ sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
 sudo /opt/zuna/deploy/install.sh
 ```
 
-It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy, the firewall, and whether to run stable releases or nightly, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 9660, behind a proxy.
+It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy, the firewall, whether to run stable releases or nightly, and whether to update by itself every night, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 9660, behind a proxy.
 
 - **With nothing on ports 80 and 443,** it can install Caddy, which gets and renews the certificate.
 - **With Caddy, nginx or Apache already there,** it can add a site for Zuna, checking the proxy's settings before reloading it and taking the site out again if they don't check out. nginx and Apache use a certificate already there that covers the domain, one from Let's Encrypt through certbot, or your own files.
@@ -70,7 +70,7 @@ At the end it checks that the server answers at its address, WebSockets and voic
 sudo zuna-update
 ```
 
-It builds the newest stable release, or on nightly `main`'s newest commit, and goes back to the previous build if a new one doesn't start. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
+It builds the newest stable release, or on nightly `main`'s newest commit, does nothing when there's nothing new, and goes back to the previous build if a new one doesn't start. Running the installer again shows what runs and offers to update it, show the setup link while there's no owner account yet, change how it updates, or uninstall it, keeping its data or not. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
 
 ## Option 3: Run the binary yourself
 

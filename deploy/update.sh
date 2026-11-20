@@ -69,12 +69,18 @@
 #                        stable waits for a stable release past what's here, and
 #                        until the first, a new server starts on main's newest
 #                        commit and waits there
+#   --auto-update on|off  update by itself every night, between 4 and 5, with a
+#                        timer that runs zuna-update (default off; the installer
+#                        asks)
 #   --signed-tags        only ever build a stable release whose tag's signature
 #                        checks out. This happens by itself, once there's one
 #                        signed by a key this machine trusts
 #   --allow-user-checkout  run even though someone other than root can change this
 #                        checkout, and so what this script does as root
 #   --no-pull            build what's checked out, without pulling
+#   --rebuild            build, install and restart even when nothing is new
+#   --verbose            on a terminal, print everything the steps do, rather
+#                        than the steps alone with the rest in /var/log/zuna-update.log
 #   --test               run the server's tests, and the test of LiveKit's patch
 #                        when it's built, before installing
 set -euo pipefail
@@ -93,6 +99,54 @@ step() {
   echo "==> $*"
 }
 
+# What the person running this should see. On a terminal only the steps and these are
+# shown, and the rest goes to the log, so these are marked for the steps to find.
+note() {
+  if [ "${ZUNA_STEPS:-}" = 1 ]; then echo "::${*:+ $*}"; else echo "$*"; fi
+}
+
+# What this machine runs, written whole as shell, each value quoted, which the next run
+# reads back as root.
+save_conf() {
+  install -d -m 0755 /etc/zuna
+  {
+    echo "# What deploy/update.sh set up on this machine. Change it with the script's options."
+    for name in SERVER_DOMAIN RELAY_DOMAIN WEB_DOMAIN WEB_SERVER WEB_SERVERS WEB_PREVIEWS \
+      PUSH_RELAYS APNS_KEY_ID LISTEN TRUSTED_PROXIES BEHIND_CLOUDFLARE CHANNEL AUTO_UPDATE SIGNED_TAGS \
+      ALLOW_USER_CHECKOUT SERVER_PORT RELAY_PORT WEB_PORT VOICE VOICE_IP VOICE_PORT \
+      VOICE_TCP_PORT VOICE_UDP_PORT; do
+      printf '%s=%q\n' "$name" "${!name}"
+    done
+  } >"$CONF.new"
+  mv -f "$CONF.new" "$CONF"
+}
+
+# The commit whose build is running, written once every service it changed has started.
+BUILT=/etc/zuna/built
+
+# Updating by itself every night, or not: a timer that runs zuna-update, as root, as a
+# person would. Says so when that changes.
+set_auto_update() {
+  local unit changed=0
+  if [ "$AUTO_UPDATE" = on ]; then
+    for unit in zuna-update.service zuna-update.timer; do
+      cmp -s "$SRC/deploy/$unit" "/etc/systemd/system/$unit" && continue
+      install -m 0644 "$SRC/deploy/$unit" "/etc/systemd/system/$unit"
+      changed=1
+    done
+    if [ "$changed" = 1 ]; then systemctl daemon-reload; fi
+    if ! systemctl is-enabled --quiet zuna-update.timer 2>/dev/null; then
+      systemctl enable --now --quiet zuna-update.timer
+      note "It updates by itself every night now, between 4 and 5 in this machine's time."
+    fi
+  elif [ -f /etc/systemd/system/zuna-update.timer ]; then
+    systemctl disable --now --quiet zuna-update.timer
+    rm -f /etc/systemd/system/zuna-update.timer /etc/systemd/system/zuna-update.service
+    systemctl daemon-reload
+    note "It doesn't update by itself any more: sudo zuna-update does."
+  fi
+}
+
 # --- Options, and what an earlier run set up ---
 
 SERVER_DOMAIN=""
@@ -107,6 +161,7 @@ LISTEN=127.0.0.1
 TRUSTED_PROXIES=""
 BEHIND_CLOUDFLARE=off
 CHANNEL=stable
+AUTO_UPDATE=off
 SIGNED_TAGS=0
 ALLOW_USER_CHECKOUT=0
 SERVER_PORT=9660
@@ -125,6 +180,8 @@ if [ -r "$CONF" ]; then FRESH=0; . "$CONF"; fi
 APNS_KEY_FILE=""
 PULL=1
 TEST=0
+REBUILD=0
+VERBOSE=0
 SERVER_CHANGED=0
 RELAY_CHANGED=0
 WEB_CHANGED=0
@@ -157,9 +214,12 @@ while [ $# -gt 0 ]; do
     --voice-tcp-port) VOICE_TCP_PORT="${2:?--voice-tcp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
     --voice-udp-port) VOICE_UDP_PORT="${2:?--voice-udp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
     --channel) CHANNEL="${2:?--channel needs stable or nightly}"; shift 2 ;;
+    --auto-update) AUTO_UPDATE="${2:?--auto-update needs on or off}"; shift 2 ;;
     --signed-tags) SIGNED_TAGS=1; shift ;;
     --allow-user-checkout) ALLOW_USER_CHECKOUT=1; shift ;;
     --no-pull) PULL=0; shift ;;
+    --rebuild) REBUILD=1; shift ;;
+    --verbose) VERBOSE=1; shift ;;
     --test) TEST=1; shift ;;
     -h | --help) awk 'NR > 1 && /^set -euo/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fail "unknown option $1 (see --help)" ;;
@@ -167,6 +227,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$CHANNEL" in stable | nightly) ;; *) fail "--channel is stable or nightly." ;; esac
+case "$AUTO_UPDATE" in on | off) ;; *) fail "--auto-update is on or off." ;; esac
 [ "$(id -u)" = 0 ] || fail "run this with sudo."
 command -v systemctl >/dev/null || fail "this needs systemd."
 [ -d "$SRC/.git" ] || fail "$SRC isn't a git checkout of Zuna."
@@ -287,6 +348,95 @@ install_packages() {
   fi
 }
 
+# --- On a terminal, the steps alone ---
+
+# The step a label stands for, as people read it.
+step_label() {
+  case "$1" in
+    "Checking the tools") echo "Checking the tools" ;;
+    "Pulling updates") echo "Getting the newest code" ;;
+    "Testing") echo "Running the server's tests" ;;
+    Building*", with LiveKit") echo "Building ${1#Building }, which takes a while" ;;
+    Building*) echo "Building ${1#Building }" ;;
+    Installing) echo "Installing" ;;
+    Restarting) echo "Starting Zuna" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# This script again, as a process of its own whose output goes to the log, while this
+# shows each step it begins, with a spinner and how long it took, and its notes.
+if [ -t 1 ] && [ "${ZUNA_STEPS:-}" != 1 ] && [ "$VERBOSE" = 0 ]; then
+  LOG=/var/log/zuna-update.log
+  install -m 0600 /dev/null "$LOG"
+  if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    C_OK=$'\e[32m' C_BAD=$'\e[31m' C_DIM=$'\e[2m' C_OFF=$'\e[0m' C_CLEAR=$'\r\e[2K' LIVE=1
+  else
+    C_OK="" C_BAD="" C_DIM="" C_OFF="" C_CLEAR="" LIVE=0
+  fi
+  SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  # From where this was started, where any files its options name are, in a session of
+  # its own, so that stopping this stops all of it.
+  cd "$START_DIR"
+  setsid env ZUNA_STEPS=1 "$SRC/deploy/update.sh" "${ARGS[@]}" >>"$LOG" 2>&1 </dev/null &
+  child=$!
+  cd /
+  trap 'kill -TERM -- "-$child" 2>/dev/null; [ "$LIVE" = 1 ] && printf "\e[?25h"; printf "%s\n  Stopped. What it did so far is in %s.\n" "$C_CLEAR" "$LOG"; exit 130' INT TERM
+  [ "$LIVE" = 1 ] && printf '\e[?25l'
+  seen=0 current="" began=$SECONDS frame=0 status=0 notes=()
+  took() { local s=$((SECONDS - $1)); if [ "$s" -ge 60 ]; then echo "$((s / 60)) min $((s % 60)) s"; elif [ "$s" -ge 3 ]; then echo "$s s"; fi; }
+  # A step that's over, with a mark, how long it took and the notes it left, under it.
+  finished() {
+    printf '%s  %s %s %s%s%s\n' "$C_CLEAR" "$1" "$(step_label "${current:-Updating}")" "$C_DIM" "$(took $began)" "$C_OFF"
+    local each
+    for each in "${notes[@]}"; do printf '    %s\n' "$each"; done
+    notes=()
+  }
+  while :; do
+    running=0
+    kill -0 "$child" 2>/dev/null && running=1
+    # Each whole line written since the last look.
+    mapfile -t lines < <(tail -n +$((seen + 1)) "$LOG")
+    if [ "${#lines[@]}" -gt 0 ] && [ -n "$(tail -c 1 "$LOG")" ]; then unset 'lines[-1]'; fi
+    seen=$((seen + ${#lines[@]}))
+    for line in "${lines[@]}"; do
+      case "$line" in
+        "==> "*)
+          [ -n "$current" ] && finished "${C_OK}✓${C_OFF}"
+          current="${line#==> }"
+          began=$SECONDS
+          ;;
+        "::") notes+=("") ;;
+        ":: "*) notes+=("${line#:: }") ;;
+      esac
+    done
+    [ "$running" = 1 ] || break
+    if [ "$LIVE" = 1 ] && [ -n "$current" ]; then
+      printf '%s  %s %s %s%s%s' "$C_CLEAR" "${SPIN[frame % ${#SPIN[@]}]}" "$(step_label "$current")" "$C_DIM" "$(took $began)" "$C_OFF"
+      frame=$((frame + 1))
+    fi
+    sleep 0.2
+  done
+  wait "$child" || status=$?
+  [ "$LIVE" = 1 ] && printf '\e[?25h'
+  if [ "$status" = 0 ]; then
+    if [ -n "$current" ]; then finished "${C_OK}✓${C_OFF}"; else for line in "${notes[@]}"; do printf '  %s\n' "$line"; done; fi
+  else
+    finished "${C_BAD}✗${C_OFF}"
+    error="$(grep '^Error: ' "$LOG" | tail -n 1 || true)"
+    if [ -n "$error" ]; then printf '\n  %s%s%s\n' "$C_BAD" "${error#Error: }" "$C_OFF"; fi
+    echo
+    grep -v '^==> \|^Error: \|^::' "$LOG" | grep -v '^$' | tail -n 15 | sed "s/^/  ${C_DIM}│ /; s/$/${C_OFF}/"
+    echo
+    echo "  The whole log is in $LOG, and sudo zuna-update --verbose shows it as it goes."
+  fi
+  exit "$status"
+fi
+
+# One update at a time, whether a person or the nightly timer started it.
+exec 9>/run/zuna-update.lock
+flock -n 9 || fail "another update is running. Wait for it to finish, or see: journalctl -u zuna-update"
+
 step "Checking the tools"
 missing=()
 for tool in git curl tar; do command -v "$tool" >/dev/null || missing+=("$tool"); done
@@ -382,25 +532,25 @@ if [ "$PULL" = 1 ]; then
   if [ "$CHANNEL" = stable ] && [ -z "$tag" ]; then
     # Before the first stable release, a new server starts where nightly is and waits there for it.
     if [ "$FRESH" = 1 ]; then
-      echo "No stable release is out yet, so this starts on main's newest commit, and moves to the first stable release once it's out."
+      note "No stable release is out yet, so this starts on main's newest commit, and moves to the first stable release once it's out."
       follow_main
     else
-      echo "No stable release is out yet, so this stays as it is until the first. --channel nightly follows main's newest commit instead."
+      note "No stable release is out yet, so this stays as it is until the first. --channel nightly follows main's newest commit instead."
     fi
   elif [ "$CHANNEL" = stable ]; then
     # The first signature that checks out here is what every update after it has to
     # have, so taking over the repository can't simply go back to not signing.
     if [ "$SIGNED_TAGS" != 1 ] && as_owner git -C "$SRC" verify-tag "$tag" >/dev/null 2>&1; then
-      echo "Release tags here are signed by a key this machine trusts, so from now on only those are installed."
+      note "Release tags here are signed by a key this machine trusts, so from now on only those are installed."
       SIGNED_TAGS=1
       ARGS+=(--signed-tags)
     fi
     if [ "$SIGNED_TAGS" = 1 ]; then
       # Nothing is built or run until its signature checks out. See docs/LINUX.md.
       as_owner git -C "$SRC" verify-tag "$tag" || fail "the signature of $tag doesn't check out, so nothing was changed."
-      echo "Verified $tag"
+      note "Verified $tag's signature."
     else
-      echo "Warning: nothing this machine trusts signed $tag, so nothing says who wrote it. See docs/LINUX.md."
+      note "Warning: nothing this machine trusts signed $tag, so nothing says who wrote it. See docs/LINUX.md."
     fi
     # As in the apps, an update only goes to a higher build, which is how many commits a
     # release has behind it: a server that ran nightly stays as it is until a stable
@@ -408,15 +558,15 @@ if [ "$PULL" = 1 ]; then
     have="$(as_owner git -C "$SRC" rev-list --count HEAD)"
     want="$(as_owner git -C "$SRC" rev-list --count "$tag")"
     if [ "$(as_owner git -C "$SRC" rev-parse HEAD)" = "$(as_owner git -C "$SRC" rev-parse "$tag^{commit}")" ]; then
-      echo "$tag, the newest stable release, is what's here."
+      note "$tag, the newest stable release, is what's here."
     elif [ "$FRESH" = 1 ] || [ "$want" -gt "$have" ]; then
       as_owner git -C "$SRC" checkout --quiet --detach "$tag"
-      echo "Building $tag, the newest stable release."
+      note "Building $tag, the newest stable release."
     else
-      echo "This is $(as_owner git -C "$SRC" describe --tags --always), past $tag, the newest stable release, so it stays as it is until a stable release passes it."
+      note "This is $(as_owner git -C "$SRC" describe --tags --always), past $tag, the newest stable release, so it stays as it is until a stable release passes it."
     fi
   else
-    echo "Nightly: building main's newest commit, which nothing signs. See docs/LINUX.md."
+    note "Nightly: building main's newest commit, which nothing signs. See docs/LINUX.md."
     follow_main
   fi
   # A newer version of this script finishes the job.
@@ -447,12 +597,32 @@ if [ "$VOICE" = on ] && [ "$(/usr/local/bin/livekit-server --version 2>/dev/null
   if [ "$free_mb" -lt 3000 ]; then LIVEKIT_GOFLAGS="-p=1"; fi
 fi
 
+# Nothing new and nothing to change: what's running is what this would build, so it isn't
+# built and restarted again, which would end every call and connection for nothing.
+HEAD_COMMIT="$(as_owner git -C "$SRC" rev-parse HEAD)"
+nothing_new() {
+  [ "$REBUILD" = 0 ] && [ "$TEST" = 0 ] && [ "$FRESH" = 0 ] && [ "$LIVEKIT_NEW" = 0 ] || return 1
+  [ "$SERVER_CHANGED$RELAY_CHANGED$WEB_CHANGED$VOICE_CHANGED" = 0000 ] && [ -z "$APNS_KEY_FILE" ] || return 1
+  [ "$VERSION" = "${VERSION%-dirty}" ] && [ "$(cat "$BUILT" 2>/dev/null)" = "$HEAD_COMMIT" ] || return 1
+  local unit
+  for unit in ${SERVER_DOMAIN:+zuna} ${RELAY_DOMAIN:+zuna-push} ${WEB_DOMAIN:+zuna-web}; do
+    systemctl is-active --quiet "$unit" || return 1
+  done
+  if [ "$VOICE" = on ]; then systemctl is-active --quiet zuna-livekit || return 1; fi
+}
+if nothing_new; then
+  save_conf
+  set_auto_update
+  note "Nothing new: $VERSION is running, so nothing was built or restarted."
+  exit 0
+fi
+
 if [ "$TEST" = 1 ]; then
   step "Testing"
   (cd "$SRC/server" && as_builder go test ./...)
 fi
 
-step "Building $VERSION"
+if [ "$LIVEKIT_NEW" = 1 ]; then step "Building $VERSION, with LiveKit"; else step "Building $VERSION"; fi
 BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
 chown "$BUILDER" "$BUILD"
@@ -470,7 +640,7 @@ build_web() {
   local bindgen
   bindgen="$(grep -A1 'name = "wasm-bindgen"' "$SRC/crypto/Cargo.lock" | grep version | cut -d'"' -f2)"
   if [ "$(as_web_builder wasm-bindgen --version 2>/dev/null | awk '{print $2}')" != "$bindgen" ]; then
-    echo "Installing wasm-bindgen $bindgen for $BUILDER, which takes a few minutes"
+    note "Installing wasm-bindgen $bindgen for $BUILDER, which takes a few minutes"
     as_web_builder cargo install -q --locked --force wasm-bindgen-cli --version "$bindgen"
   fi
   as_web_builder mkdir -p "$web/crypto"
@@ -500,19 +670,7 @@ if [ "$LIVEKIT_NEW" = 1 ]; then build_livekit; fi
 # --- Install and configure ---
 
 step "Installing"
-install -d -m 0755 /etc/zuna
-# Each value is quoted for the shell, which reads this file back as root, and the file
-# is moved into place whole.
-{
-  echo "# What deploy/update.sh set up on this machine. Change it with the script's options."
-  for name in SERVER_DOMAIN RELAY_DOMAIN WEB_DOMAIN WEB_SERVER WEB_SERVERS WEB_PREVIEWS \
-    PUSH_RELAYS APNS_KEY_ID LISTEN TRUSTED_PROXIES BEHIND_CLOUDFLARE CHANNEL SIGNED_TAGS \
-    ALLOW_USER_CHECKOUT SERVER_PORT RELAY_PORT WEB_PORT VOICE VOICE_IP VOICE_PORT \
-    VOICE_TCP_PORT VOICE_UDP_PORT; do
-    printf '%s=%q\n' "$name" "${!name}"
-  done
-} >"$CONF.new"
-mv -f "$CONF.new" "$CONF"
+save_conf
 
 # sudo zuna-update runs this script, wherever this checkout is.
 cat >/usr/local/sbin/zuna-update.new <<EOF
@@ -522,6 +680,7 @@ exec "$SRC/deploy/update.sh" "\$@"
 EOF
 chmod 0755 /usr/local/sbin/zuna-update.new
 mv -f /usr/local/sbin/zuna-update.new /usr/local/sbin/zuna-update
+set_auto_update
 
 # Keeps the running binary as .previous, so a build that doesn't start can be undone.
 install_binary() {
@@ -691,7 +850,7 @@ if [ -n "$RELAY_DOMAIN" ]; then
     mv -f /etc/zuna/push.env.new /etc/zuna/push.env
   fi
   if [ ! -f /etc/zuna/apns.p8 ]; then
-    echo "No APNs key yet: phones can't register, and pushes fail. Add one with --apns-key and --apns-key-id."
+    note "No APNs key yet: phones can't register, and pushes fail. Add one with --apns-key and --apns-key-id."
   fi
 fi
 
@@ -737,7 +896,7 @@ restart() {
   systemctl enable --quiet "$unit"
   systemctl "$action" "$unit"
   if healthy "$url"; then
-    echo "$unit is running $running"
+    note "$unit is running $running"
     return
   fi
   journalctl -u "$unit" --no-pager -n 20 >&2 || true
@@ -759,10 +918,10 @@ apns_answer() {
     sleep 0.5
   done
   if [ -z "$lines" ]; then return; fi
-  printf '%s\n' "$lines" | sed 's/^/  /'
+  while IFS= read -r line; do note "  $line"; done <<<"$lines"
   if [[ "$lines" == *"Apple refuses"* ]]; then
-    echo "Phones can't register until Apple takes the key. Give the relay the right one, with its Key ID:"
-    echo "  sudo zuna-update --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG"
+    note "Phones can't register until Apple takes the key. Give the relay the right one, with its Key ID:"
+    note "  sudo zuna-update --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG"
   fi
 }
 
@@ -772,7 +931,7 @@ if [ "$VOICE" = on ]; then
   restart zuna-livekit "$binary" "http://$(address 127.0.0.1 "$VOICE_PORT")/" "LiveKit $LIVEKIT_VERSION" "$action"
 elif [ -f /etc/systemd/system/zuna-livekit.service ]; then
   systemctl disable --now --quiet zuna-livekit
-  if [ "$VOICE_CHANGED" = 1 ]; then echo "zuna-livekit is stopped, so voice channels can't be joined"; fi
+  if [ "$VOICE_CHANGED" = 1 ]; then note "zuna-livekit is stopped, so voice channels can't be joined"; fi
 fi
 if [ -n "$SERVER_IP" ]; then
   restart zuna zuna-server "https://$(address 127.0.0.1 "$SERVER_PORT")/healthz"
@@ -785,37 +944,44 @@ if [ -n "$RELAY_DOMAIN" ]; then
 fi
 if [ -n "$WEB_DOMAIN" ]; then restart zuna-web zuna-web "http://$(local_address "$WEB_PORT")/healthz"; fi
 
-echo
+# Everything that changed has started, so the next update with nothing new can stop early.
+# A build of changes nobody committed is built again next time.
+if [ "$VERSION" = "${VERSION%-dirty}" ]; then echo "$HEAD_COMMIT" >"$BUILT"; else rm -f "$BUILT"; fi
+
+# Where to point a proxy and which ports to open, after a first run or a change to what
+# runs here. An update that only brought new code says nothing more.
+if [ "$FRESH$SERVER_CHANGED$RELAY_CHANGED$WEB_CHANGED$VOICE_CHANGED" = 00000 ]; then exit 0; fi
+note
 # Where a proxy on another machine finds them: this machine's address, when they listen on all of them.
 HOST="$LISTEN"
 case "$LISTEN" in
   0.0.0.0 | ::) HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"; HOST="${HOST:-this-machine}" ;;
 esac
 if [ -n "$SERVER_IP" ]; then
-  echo "People reach the server at https://$(address "$SERVER_IP" "$SERVER_PORT"), with a certificate of its"
-  echo "own, so open ${SERVER_PORT}/tcp to them. Back up /var/lib/zuna/certificate.key: a new one would"
-  echo "need new links for everyone (docs/SELF_HOSTING.md#without-a-domain)."
+  note "People reach the server at https://$(address "$SERVER_IP" "$SERVER_PORT"), with a certificate of its"
+  note "own, so open ${SERVER_PORT}/tcp to them. Back up /var/lib/zuna/certificate.key: a new one would"
+  note "need new links for everyone (docs/SELF_HOSTING.md#without-a-domain)."
 fi
 if [ -n "$RELAY_DOMAIN$WEB_DOMAIN" ] || { [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; }; then
-  echo "Point your reverse proxy at them, with HTTPS and WebSockets (see docs/LINUX.md):"
-  if [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; then echo "  https://$SERVER_DOMAIN -> http://$(address "$HOST" "$SERVER_PORT")"; fi
-  if [ -n "$RELAY_DOMAIN" ]; then echo "  https://$RELAY_DOMAIN -> http://$(address "$HOST" "$RELAY_PORT")"; fi
-  if [ -n "$WEB_DOMAIN" ]; then echo "  https://$WEB_DOMAIN -> http://$(address "$HOST" "$WEB_PORT")"; fi
+  note "Point your reverse proxy at them, with HTTPS and WebSockets (see docs/LINUX.md):"
+  if [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; then note "  https://$SERVER_DOMAIN -> http://$(address "$HOST" "$SERVER_PORT")"; fi
+  if [ -n "$RELAY_DOMAIN" ]; then note "  https://$RELAY_DOMAIN -> http://$(address "$HOST" "$RELAY_PORT")"; fi
+  if [ -n "$WEB_DOMAIN" ]; then note "  https://$WEB_DOMAIN -> http://$(address "$HOST" "$WEB_PORT")"; fi
 fi
 if [ "$VOICE" = on ]; then
-  echo
-  echo "Voice channels' signaling goes through the server's address, at /livekit/. Their media"
-  echo "doesn't: open ${VOICE_TCP_PORT}/tcp and ${VOICE_UDP_PORT}/udp to everyone, straight to this machine."
+  note
+  note "Voice channels' signaling goes through the server's address, at /livekit/. Their media"
+  note "doesn't: open ${VOICE_TCP_PORT}/tcp and ${VOICE_UDP_PORT}/udp to everyone, straight to this machine."
 fi
 if [ "$FIRST_SERVER" = 1 ]; then
   link="$(journalctl -u zuna --no-pager -n 50 | grep -o "https://[^ ]*/invite/[^ ]*" | tail -n1 || true)"
-  echo
+  note
   if [ -n "$link" ]; then
-    echo "Finish setup: paste this one-time link into the Zuna app. It creates your owner account."
-    echo "  $link"
+    note "Finish setup: paste this one-time link into the Zuna app. It creates your owner account."
+    note "  $link"
   else
-    echo "Find your setup link with: journalctl -u zuna | grep invite"
+    note "Find your setup link with: journalctl -u zuna | grep invite"
   fi
 fi
-echo
-echo "Update later with: sudo zuna-update"
+note
+if [ "$AUTO_UPDATE" = on ]; then note "It updates by itself every night, and sudo zuna-update updates it now."; else note "Update later with: sudo zuna-update"; fi

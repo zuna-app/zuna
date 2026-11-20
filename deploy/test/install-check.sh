@@ -14,8 +14,10 @@
 #   caddy     Debian, nothing on 80 and 443: installs Caddy, which gets the certificate
 #   manual    Debian, with Caddy: driven by keys, setting the proxy up by hand, and
 #             the check failing until the site is there
-#   update    Debian: run again where Zuna is, which updates it
+#   update    Debian: run again where Zuna is, which updates it, then again with
+#             nothing new, which builds and restarts nothing
 #   prompts   Debian: Ctrl+C at a question, and no terminal
+#   uninstall Debian: run again where Zuna is, uninstalling it with its data
 #   certbot   Ubuntu, with nginx: adds a site, with a certificate from certbot
 #   apache    Fedora, with Apache, firewalld and SELinux: adds a site, with certbot
 #   ip        Fedora, by IP address: the server's own certificate, by its pin
@@ -30,14 +32,14 @@ OUT="$(mktemp -d)"
 DOMAIN=chat.zuna.test
 PEBBLE=v2.10.1
 ACME=(ZUNA_INSTALL_ACME_CA=https://localhost:14000/dir ZUNA_INSTALL_ACME_ROOT=/opt/pebble/certs/pebble.minica.pem)
-ALL=(caddy manual update prompts certbot apache ip nat relay)
+ALL=(caddy manual update prompts uninstall certbot apache ip nat relay)
 
 command -v limactl >/dev/null || { echo "This needs Lima: brew install lima" >&2; exit 1; }
 command -v expect >/dev/null || { echo "This needs expect." >&2; exit 1; }
 
 machine() {
   case "$1" in
-    caddy | manual | update | prompts) echo debian ;;
+    caddy | manual | update | prompts | uninstall) echo debian ;;
     certbot) echo ubuntu ;;
     apache | ip | nat | relay) echo fedora ;;
   esac
@@ -134,9 +136,10 @@ EOF
 fresh() {
   local name="$1"
   in_vm "$name" sh -s <<'EOF'
-systemctl disable --now --quiet zuna zuna-livekit 2>/dev/null
+systemctl disable --now --quiet zuna zuna-livekit zuna-update.timer 2>/dev/null
 rm -f /etc/systemd/system/zuna.service /etc/systemd/system/zuna-livekit.service /usr/local/sbin/zuna-update
-rm -rf /etc/zuna /var/lib/zuna /var/log/zuna-install.log
+rm -f /etc/systemd/system/zuna-update.service /etc/systemd/system/zuna-update.timer
+rm -rf /etc/zuna /var/lib/zuna /var/log/zuna-install.log /var/log/zuna-update.log
 rm -f /usr/local/bin/zuna-server /usr/local/bin/zuna-server.previous /usr/local/bin/livekit-server /usr/local/bin/livekit-server.previous
 if [ -f /etc/caddy/Caddyfile ]; then
   rm -f /etc/caddy/Caddyfile.d/zuna.caddyfile
@@ -178,6 +181,8 @@ scenario_caddy() {
   in_vm debian grep -q '^import /etc/caddy/Caddyfile.d/zuna.caddyfile' /etc/caddy/Caddyfile || echo "the Caddyfile doesn't import Zuna's site"
   in_vm debian grep -q '^  node_ip: ' /etc/zuna/livekit.yaml || echo "LiveKit wasn't given this machine's address"
   in_vm debian test -x /usr/local/sbin/zuna-update || echo "there's no zuna-update"
+  # A stable release updates by itself by default.
+  in_vm debian systemctl is-enabled --quiet zuna-update.timer || echo "it doesn't update by itself every night"
 }
 
 scenario_manual() {
@@ -197,6 +202,8 @@ sleep 0.3; send "\r"
 expect "On another machine"
 sleep 0.3; send "\r"
 expect "Nightly"
+sleep 0.3; send "\r"
+expect "you update it with sudo zuna-update"
 sleep 0.3; send "\r"
 expect "Change something"
 sleep 0.3; send "\r"
@@ -228,8 +235,45 @@ scenario_update() {
   checkout debian
   in_vm debian /opt/zuna/deploy/install.sh --yes >"$log" 2>&1 || { echo "updating failed"; return; }
   grep -q "set up here already, at $DOMAIN" "$log" || echo "running it again didn't find the server update.sh set up"
-  grep -q "zuna is running" "$log" || echo "the server wasn't restarted"
-  in_vm debian zuna-update --no-pull >>"$log" 2>&1 || echo "zuna-update failed"
+  grep -q "zuna is running\|Nothing new" "$log" || echo "the update said neither that it restarted the server nor that nothing was new"
+  in_vm debian zuna-update --no-pull >"$OUT/update-again.log" 2>&1 || echo "zuna-update failed"
+  # What was just built and started isn't built and started again, unless deploy/ has changes nobody committed.
+  if in_vm debian git -C /opt/zuna diff --quiet; then
+    grep -q "Nothing new" "$OUT/update-again.log" || echo "an update with nothing new built and restarted it again"
+  fi
+}
+
+scenario_uninstall() {
+  local log="$OUT/uninstall.log" script="$OUT/uninstall.exp"
+  in_vm debian test -f /etc/zuna/update.conf || scenario_caddy >/dev/null
+  cat >"$script" <<EOF
+set timeout 60
+log_file -noappend $log
+spawn limactl shell --workdir / zuna-install-debian -- sudo env TERM=dumb /opt/zuna/deploy/install.sh
+expect -re {([0-9])\) Uninstall}
+set choice \$expect_out(1,string)
+expect "Choose 1-"
+send "\$choice\r"
+expect "Delete it"
+expect "Choose 1-"
+send "2\r"
+expect "Nobody can get it back"
+send "y\r"
+expect "Uninstall Zuna now?"
+send "y\r"
+expect "is off this machine"
+expect eof
+EOF
+  expect "$script" >/dev/null 2>&1 || true
+  grep -q "Zuna is off this machine" "$log" || { echo "it didn't say Zuna is off this machine"; return; }
+  in_vm debian test ! -e /etc/systemd/system/zuna.service || echo "zuna.service is still there"
+  in_vm debian test ! -e /etc/systemd/system/zuna-update.timer || echo "the nightly update is still there"
+  in_vm debian test ! -e /usr/local/bin/zuna-server || echo "zuna-server is still there"
+  in_vm debian test ! -e /usr/local/sbin/zuna-update || echo "zuna-update is still there"
+  in_vm debian test ! -e /etc/zuna || echo "/etc/zuna is still there"
+  in_vm debian test ! -e /var/lib/zuna || echo "its data is still there"
+  in_vm debian grep -q zuna.caddyfile /etc/caddy/Caddyfile && echo "the Caddyfile still imports Zuna's site"
+  in_vm debian systemctl is-active --quiet caddy || echo "Caddy isn't running any more"
 }
 
 scenario_prompts() {

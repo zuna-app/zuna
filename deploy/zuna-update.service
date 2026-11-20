@@ -1,0 +1,12 @@
+[Unit]
+Description=Zuna's update, to the newest release on its channel (deploy/update.sh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/zuna-update
+# Building takes a while, and LiveKit's longest, so out of the running server's way.
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=idle
