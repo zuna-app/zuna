@@ -95,6 +95,14 @@ fn cache_in(dir: &Path) -> PathBuf {
     dir.join("cache")
 }
 
+/// Makes the data folder, for this person alone where the system has modes, as the files in it,
+/// the decrypted cache among them, are only kept from others by the folder they're in.
+pub fn own_data_dir(dir: &Path) {
+    std::fs::create_dir_all(dir).ok();
+    #[cfg(unix)]
+    std::fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).ok();
+}
+
 /// Empties the cache in a data folder, as far as it can: a file still open stays until next time.
 pub fn clear_cache(dir: &Path) {
     std::fs::remove_dir_all(cache_in(dir)).ok();

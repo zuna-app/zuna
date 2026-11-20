@@ -118,9 +118,25 @@ impl Settings {
     pub fn load() -> Settings {
         let Ok(bytes) = std::fs::read(path()) else { return Settings::default() };
         serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-            log::warn!("settings.json couldn't be read, so every setting is back to its default: {error}");
-            Settings::default()
+            log::warn!("settings.json couldn't be read whole, so what can't be read of it is back to its default: {error}");
+            Settings::salvage(&bytes)
         })
+    }
+
+    /// What can be read of settings that don't read whole, one setting at a time, so that one that
+    /// doesn't takes nothing else back to its default: the proxy least of all, without which the
+    /// app would connect to everything directly.
+    fn salvage(bytes: &[u8]) -> Settings {
+        let Ok(serde_json::Value::Object(fields)) = serde_json::from_slice::<serde_json::Value>(bytes) else { return Settings::default() };
+        let Ok(serde_json::Value::Object(mut kept)) = serde_json::to_value(Settings::default()) else { return Settings::default() };
+        for (key, value) in fields {
+            let mut tried = kept.clone();
+            tried.insert(key.clone(), value.clone());
+            if serde_json::from_value::<Settings>(serde_json::Value::Object(tried)).is_ok() {
+                kept.insert(key, value);
+            }
+        }
+        serde_json::from_value(serde_json::Value::Object(kept)).unwrap_or_default()
     }
 
     pub fn save(&self) {
@@ -134,5 +150,20 @@ impl Settings {
                 log::warn!("couldn't save the settings: {error}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn a_setting_that_doesnt_read_takes_no_other_back_to_its_default() {
+        let bytes = br#"{"proxy":{"on":true,"host":"127.0.0.1","port":9050,"username":""},"voiceSpeed":"fast","notifications":false}"#;
+        assert!(serde_json::from_slice::<Settings>(bytes).is_err());
+        let settings = Settings::salvage(bytes);
+        assert!(settings.proxy.on && settings.proxy.host == "127.0.0.1" && settings.proxy.port == 9050, "the proxy is kept");
+        assert!(!settings.notifications);
+        assert_eq!(settings.voice_speed, Settings::default().voice_speed);
     }
 }

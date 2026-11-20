@@ -97,6 +97,7 @@ fn main() {
     // The core starts and boots before GPUI does, as GPUI spends most of its start loading the
     // graphics driver, and the core is ready by the time the window is.
     let dir = host::data_dir();
+    host::own_data_dir(&dir);
     let settings = settings::Settings::load();
     // Before anything is shown, in the language chosen, or the system's: why the device key
     // couldn't be read, too.

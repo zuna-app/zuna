@@ -92,11 +92,16 @@ pub fn forget(dir: &Path, name: &str, kind: Kind) {
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     let partial = path.with_extension("partial");
-    std::fs::write(&partial, bytes)?;
-    // For this person alone, as Electron wrote its own.
+    std::fs::remove_file(&partial).ok();
+    // For this person alone from the moment it's made, as Electron wrote its own, and a file of its
+    // own, never one, or a link, someone left there.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
-    std::fs::set_permissions(&partial, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(&partial)?.write_all(bytes)?;
     std::fs::rename(partial, path)
 }
 

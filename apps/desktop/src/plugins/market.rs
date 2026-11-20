@@ -275,7 +275,7 @@ impl Plugins {
                     if bytes.len() as u64 != version.size || sha256_hex(&bytes) != version.sha256 {
                         return Err(t("plugins.market.mismatch").to_string());
                     }
-                    plugins.install(&bytes, Some(&version), cx)
+                    plugins.install_package(&bytes, Some(&version), !asked, cx)
                 });
                 match result {
                     Ok(uid) => {

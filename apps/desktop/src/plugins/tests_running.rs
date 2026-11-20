@@ -854,6 +854,13 @@ fn files_are_installed_checked_again_and_removed_with_all_they_kept(cx: &mut Tes
     assert_eq!(cx.read(|cx| plugins.read(cx).loaded[&uid].record.version.clone()), "1.0.0", "a cancelled proposal installs nothing");
     plugins.update(cx, |plugins, cx| plugins.install(&second, None, cx)).unwrap();
     assert!(!file.exists() && super::store::packages(&data).join("file-installed-1.1.0.zunaplugin").is_file());
+    // An update the app makes by itself leaves a plugin its person turned off as it was.
+    plugins.update(cx, |plugins, cx| {
+        plugins.set_enabled(&uid, false, cx);
+        plugins.install_package(&second, None, true, cx).unwrap();
+        assert!(!plugins.loaded[&uid].record.enabled, "an automatic update turned it back on");
+        plugins.set_enabled(&uid, true, cx);
+    });
 
     // Read again as the app starts, each package is checked against what was installed.
     drop(plugins);

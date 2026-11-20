@@ -586,6 +586,12 @@ impl Plugins {
     /// it came from if it carries a good signature, unverified otherwise, and then only with the
     /// switch on. Returns its uid.
     pub fn install(&mut self, bytes: &[u8], expected: Option<&market::Version>, cx: &mut Context<Self>) -> Result<String, String> {
+        self.install_package(bytes, expected, false, cx)
+    }
+
+    /// Installs a package, as `install` does. An update the app made by itself (`automatic`) leaves
+    /// a plugin its person turned off as it was.
+    pub(crate) fn install_package(&mut self, bytes: &[u8], expected: Option<&market::Version>, automatic: bool, cx: &mut Context<Self>) -> Result<String, String> {
         if !self.usable() {
             return Err(t("plugins.noDeviceKey").into());
         }
@@ -619,6 +625,7 @@ impl Plugins {
                 std::fs::remove_file(store::packages(&self.data_dir).join(&previous.path)).ok();
             }
         }
+        let turned_off = automatic && previous.as_ref().is_some_and(|previous| !previous.enabled && previous.off_reason.is_none());
         let record = Installed {
             id: manifest.id.clone(),
             origin,
@@ -628,7 +635,7 @@ impl Plugins {
             path: file,
             granted: manifest.permissions.clone(),
             hosts: manifest.hosts.clone(),
-            enabled: true,
+            enabled: !turned_off,
             off_reason: None,
             installed_at: crate::format::now_ms(),
         };
@@ -638,7 +645,7 @@ impl Plugins {
         self.save();
         self.problems.remove(&uid);
         self.loaded.insert(uid.clone(), Loaded { record, package: Arc::new(package) });
-        if self.started {
+        if self.started && !turned_off {
             self.start(&uid, cx);
         }
         self.refresh_theme(cx);
