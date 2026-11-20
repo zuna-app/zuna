@@ -44,7 +44,10 @@ runs:
             exit 1
             ;;
         esac
-        echo "key=tdlib-$SYSTEM-$stamp" >> "$GITHUB_OUTPUT"
+        # "pinned": only builds tdlib.yml made since it prints each one's digest for BUILT in
+        # scripts/tdlib.mjs, which a release holds what it restores to. Those saved before are
+        # never taken, as nothing says what they are.
+        echo "key=tdlib-pinned-$SYSTEM-$stamp" >> "$GITHUB_OUTPUT"
         echo "path=$path" >> "$GITHUB_OUTPUT"
     - id: restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
