@@ -18,11 +18,11 @@ Pushes are limited for each caller's address, at 200 a second with room for 2,00
 
 - **An APNs key** from the Apple Developer account that publishes the app: Certificates, IDs & Profiles → Keys → **+** → Apple Push Notifications service (APNs). Set its environment to **Sandbox & Production** and its restriction to **Team Scoped (All Topics)**, as the relay uses one key for both environments: debug builds use the sandbox, and TestFlight and App Store builds production. Download the `.p8` file (Apple offers it only once) and note its Key ID. As it starts, the relay asks Apple whether it takes the key in each environment and logs the answer, which `deploy/update.sh` shows. Apple answers `403 InvalidProviderToken` alike to a Key ID that isn't the key's, a key from another team and one that was revoked, so check them all.
 - **A domain** for the relay, such as `push.example.com`, with HTTPS.
-- **A machine** with Docker, or Linux with systemd. The relay needs very little memory and CPU.
+- **A machine** with Linux and systemd. The relay needs very little memory and CPU.
 
 ## Running it
 
-**Without Docker,** on Linux with systemd, `deploy/install-relay.sh` sets up the relay alone, for your own reverse proxy to put HTTPS in front. It asks for the relay's domain, the `.p8` file, whose Key ID it takes from its name when Apple's is kept, the address to listen on, where the proxy reaches it, and the proxy's address, the only one it takes callers' addresses from, and installs nothing else:
+On Linux with systemd, `deploy/install-relay.sh` sets up the relay alone, for your own reverse proxy to put HTTPS in front. It asks for the relay's domain, the `.p8` file, whose Key ID it takes from its name when Apple's is kept, the address to listen on, where the proxy reaches it, and the proxy's address, the only one it takes callers' addresses from, and installs nothing else:
 
 ```bash
 sudo /opt/zuna/deploy/install-relay.sh
@@ -34,36 +34,7 @@ Update it later with `sudo zuna-update`. `deploy/update.sh` does the same with o
 sudo /opt/zuna/deploy/update.sh --relay push.example.com --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
 ```
 
-**With Docker,** put the `.p8` file next to a `docker-compose.yml` like this one, in a checkout of the repository:
-
-```yaml
-services:
-  push:
-    build:
-      context: ./server
-      dockerfile: Dockerfile.push
-    restart: unless-stopped
-    environment:
-      ZUNA_PUSH_APNS_KEY: /secrets/apns.p8
-      ZUNA_PUSH_APNS_KEY_ID: ABC123DEFG # the key's ID
-      ZUNA_PUSH_TRUST_PROXY: "true"
-    volumes:
-      - ./apns.p8:/secrets/apns.p8:ro
-      - push-data:/data
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    command: caddy reverse-proxy --from push.example.com --to push:8090
-    ports: ["80:80", "443:443"]
-    volumes:
-      - caddy-data:/data
-
-volumes:
-  push-data:
-  caddy-data:
-```
-
-Then run `docker compose up -d`.
+Docker is coming soon.
 
 | Environment | Default | Purpose |
 |---|---|---|
@@ -71,8 +42,8 @@ Then run `docker compose up -d`.
 | `ZUNA_PUSH_APNS_KEY_ID` | | The key's ID |
 | `ZUNA_PUSH_APNS_TEAM` | `SGKB9R23YT` | The team that publishes the app |
 | `ZUNA_PUSH_APNS_TOPIC` | `chat.zuna.mobile` | The app's bundle ID |
-| `ZUNA_PUSH_LISTEN` | `127.0.0.1:8090` (`:8090` in Docker) | Where to listen, behind the proxy that adds HTTPS |
-| `ZUNA_PUSH_DATA` | `./zuna-push-data` (`/data` in Docker) | Holds `handle.key` |
+| `ZUNA_PUSH_LISTEN` | `127.0.0.1:8090` | Where to listen, behind the proxy that adds HTTPS |
+| `ZUNA_PUSH_DATA` | `./zuna-push-data` | Holds `handle.key` |
 | `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits, when it's on this machine or a private network |
 | `ZUNA_PUSH_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks. Cloudflare's never count |
 | `ZUNA_PUSH_BEHIND_CLOUDFLARE` | `false` | Behind Cloudflare's proxy, take a request from it to be from whoever it names in `CF-Connecting-IP`, as the server does ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)). `deploy/install-relay.sh` sets it when the domain is behind Cloudflare |

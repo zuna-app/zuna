@@ -55,12 +55,6 @@ zuna-web --domain web.chat.example.com --server https://chat.example.com
 
 Certificates are obtained and renewed automatically and kept in `--data` (default `./zuna-web-data`).
 
-With Docker, from `deploy/`, after `npm run build:web`:
-
-```bash
-ZUNA_WEB_DOMAIN=web.chat.example.com ZUNA_WEB_SERVER=https://chat.example.com docker compose -f docker-compose.web.yml up -d
-```
-
 ### Behind your reverse proxy
 
 If a chat server or another site already uses ports 80 and 443, run `zuna-web` on plain HTTP on this machine, and let your proxy add HTTPS:
@@ -69,7 +63,7 @@ If a chat server or another site already uses ports 80 and 443, run `zuna-web` o
 zuna-web --listen 127.0.0.1:8081 --trust-proxy --server https://chat.example.com
 ```
 
-`deploy/docker-compose.web-proxy.yml` and `deploy/zuna-web.service` (systemd) do the same. Keep no access log for it, nor one of errors: the link someone previews is in the address their tab asks for. For Caddy:
+`deploy/zuna-web.service` (systemd) does the same. Keep no access log for it, nor one of errors: the link someone previews is in the address their tab asks for. For Caddy:
 
 ```
 web.chat.example.com {

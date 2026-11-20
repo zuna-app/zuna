@@ -1,4 +1,4 @@
-# Running Zuna on Linux without Docker
+# Running Zuna on Linux
 
 `deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, with [LiveKit](https://livekit.io) beside it for voice channels, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), the web app ([WEB.md](WEB.md)), or any of them on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
 

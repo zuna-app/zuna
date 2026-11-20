@@ -9,43 +9,16 @@ A Zuna server is one program and one data folder. There's no separate database, 
 
 Each install is one community with its own members. To host two separate communities, run two installs.
 
-There are three ways to run it:
+There are two ways to run it:
 
 | | What it does | HTTPS |
 |---|---|---|
-| [Docker](#option-1-docker) | Builds and runs the server in a container | Automatic, or your own proxy |
-| [The installer, on Linux](#option-2-the-installer-on-linux-with-systemd) | Asks a few questions, builds the server from git and runs it as a systemd service, without Docker, then checks that it answers. One command updates it | Caddy, set up for you, a site added to your Caddy, nginx or Apache, or your own proxy |
-| [The binary](#option-3-run-the-binary-yourself) | A single file you run yourself | Automatic, or your own proxy |
+| [The installer, on Linux](#the-installer-on-linux-with-systemd) | Asks a few questions, builds the server from git and runs it as a systemd service, then checks that it answers. One command updates it | Caddy, set up for you, a site added to your Caddy, nginx or Apache, or your own proxy |
+| [The binary](#run-the-binary-yourself) | A single file you run yourself | Automatic, or your own proxy |
 
-## Option 1: Docker
+**Docker is coming soon,** with images each release publishes and the same choices the installer gives.
 
-```bash
-git clone https://github.com/zuna-app/zuna.git
-```
-
-```bash
-cd zuna/deploy
-```
-
-```bash
-echo ZUNA_DOMAIN=chat.example.com > .env
-```
-
-```bash
-docker compose up -d
-```
-
-Compose reads `ZUNA_DOMAIN` from `.env` for every command after this one too, upgrading included. Then get your setup link:
-
-```bash
-docker compose logs zuna
-```
-
-LiveKit, for [voice channels](#voice-channels) and calls, runs in a container next to it. Calls' media goes straight to it, so open 7881/tcp and 7882/udp as well as 80 and 443.
-
-Compose builds whatever's checked out, which after cloning is `main`'s newest commit, what nightlies are made from. For a stable release, check its tag out first, such as `git checkout v0.2.0`, from the [releases](https://github.com/zuna-app/zuna/releases) marked Latest.
-
-## Option 2: The installer, on Linux with systemd
+## The installer, on Linux with systemd
 
 On Debian, Ubuntu, Fedora or another Linux with systemd and apt or dnf, on amd64 or arm64:
 
@@ -78,7 +51,7 @@ sudo zuna-update
 
 It builds the newest stable release, or on nightly `main`'s newest commit, does nothing when there's nothing new, and goes back to the previous build if a new one doesn't start. Running the installer again shows what runs and offers to update it, show the setup link while there's no owner account yet, change how it updates, or uninstall it, keeping its data or not. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
 
-## Option 3: Run the binary yourself
+## Run the binary yourself
 
 Releases don't carry the server yet, only the desktop app, so build it first: `npm run build:server` writes one file for each platform into `dist/server`, such as `zuna-server-linux-amd64`, and [CONTRIBUTING.md](../CONTRIBUTING.md) says what building needs. Then, with the one for your system:
 
@@ -107,18 +80,12 @@ If Caddy, nginx or Traefik already handles HTTPS, run Zuna on plain HTTP behind 
 
 The server keeps no address with what's sent without a name, which is everything people add to a conversation, but a proxy's access log keeps the address of every request, at `/api/sealed/` too, which goes a long way to saying who sent each message, and the addresses asked for at `/livekit/` hold voice tokens. Keep no access log for the site, and no log of requests' errors either, where nginx writes the caller's address and the whole request when the server behind it fails, and Caddy too unless an error route answers, as in the examples below. The sites `deploy/install.sh` writes keep neither from November 12, 2026. One it wrote before keeps both until it runs again.
 
-- **From source on Linux,** that's how it always runs: on port 9660. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
-- **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:9660`, for a proxy on the same machine:
+- **With the installer,** that's how it always runs: on port 9660. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
+- **With the binary,** give it the address people use, where to listen, and that a proxy calls it:
 
 ```bash
-echo ZUNA_PUBLIC_URL=https://chat.example.com > .env
+./zuna-server-linux-amd64 --public-url https://chat.example.com --listen 127.0.0.1:9660 --trust-proxy --data /path/to/data
 ```
-
-```bash
-docker compose -f docker-compose.proxy.yml up -d
-```
-
-Give `-f docker-compose.proxy.yml` to every command after it too, to read its logs or upgrade.
 
 The proxy must forward WebSockets and allow large uploads.
 
@@ -167,23 +134,13 @@ Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' 
 Zuna works behind Cloudflare's proxy, WebSockets and uploads included. The installer notices Cloudflare in front of the domain and asks which SSL/TLS mode it's set to.
 
 - **Use Full (strict).** Flexible sends everything between Cloudflare and your server unencrypted, sign-ins and session tokens included, for anyone on the way to read or change, though messages stay encrypted end to end. Full doesn't check your server's certificate. A Cloudflare origin certificate, made under SSL/TLS → Origin Server in Cloudflare's dashboard, is the simplest one for your proxy to use, as Let's Encrypt can't always get through Cloudflare.
-- **Set `ZUNA_BEHIND_CLOUDFLARE=true`,** so that rate limits see members' real addresses: a request from one of [Cloudflare's addresses](https://www.cloudflare.com/ips/) then counts as from whoever Cloudflare names in `CF-Connecting-IP`. Otherwise everyone counts as one of a few Cloudflare addresses. Cloudflare's addresses never count as trusted proxies, even listed in `ZUNA_TRUSTED_PROXIES`, as anyone can call from one through a Worker and make up the rest of `X-Forwarded-For`. The installer does this. With Docker, only the proxy's compose file passes it on. Someone who knows your machine's own address can still reach it from Cloudflare, through a Worker, and name any address. Only [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/), or Authenticated Origin Pulls with a certificate of your own, rules that out.
+- **Set `ZUNA_BEHIND_CLOUDFLARE=true`,** so that rate limits see members' real addresses: a request from one of [Cloudflare's addresses](https://www.cloudflare.com/ips/) then counts as from whoever Cloudflare names in `CF-Connecting-IP`. Otherwise everyone counts as one of a few Cloudflare addresses. Cloudflare's addresses never count as trusted proxies, even listed in `ZUNA_TRUSTED_PROXIES`, as anyone can call from one through a Worker and make up the rest of `X-Forwarded-For`. The installer does this. Someone who knows your machine's own address can still reach it from Cloudflare, through a Worker, and name any address. Only [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/), or Authenticated Origin Pulls with a certificate of your own, rules that out.
 - **Calls don't go through Cloudflare.** Their media goes straight to your server on 7881/tcp and 7882/udp, so members in a call can see its real address.
 - **Turn off Bot Fight Mode and Under Attack Mode** for the server's domain. The apps can't solve a challenge.
 
 ## Without a domain
 
-A server can go by the machine's IP address instead, such as a box on your home network. Give the address where the domain would go:
-
-```bash
-echo ZUNA_DOMAIN=192.168.1.10 > .env
-```
-
-```bash
-docker compose up -d
-```
-
-Or, with the binary:
+A server can go by the machine's IP address instead, such as a box on your home network. The installer asks: pick "By its IP address". Or give the address where the domain would go, to `deploy/update.sh` as `--server 192.168.1.10`, or to the binary:
 
 ```bash
 ./zuna-server-linux-amd64 --domain 192.168.1.10 --data /path/to/data
@@ -194,7 +151,7 @@ No certificate authority vouches for an address, so the server makes its own cer
 - **Share links whole,** with everything after the `#`. To sign in on another device, enter the address the server prints at the start, which ends in `#pin=`, or paste any of its links. Members find that address in **Settings → Security**, under their devices.
 - **Keep `certificate.key`** from the data folder with your backups. A new key means new links, and everyone signing out of the server and in again.
 - **Keep the address the same.** It's how the apps find the server.
-- **Calls go through the same ports as with a domain,** 7881/tcp and 7882/udp. The Docker setup has LiveKit give apps this address for their media, rather than the public one it would find through STUN, which apps on the same network may not reach. Running LiveKit yourself, start it with `--node-ip` set to the address, and `use_external_ip` off.
+- **Calls go through the same ports as with a domain,** 7881/tcp and 7882/udp. The installer has LiveKit give apps this address for their media, rather than the public one it would find through STUN, which apps on the same network may not reach. Running LiveKit yourself, start it with `--node-ip` set to the address, and `use_external_ip` off.
 - **The web app can't reach it,** as a browser can't check a certificate by its key. The desktop app and the iPhone and iPad app can.
 
 ## Configuration
@@ -223,7 +180,7 @@ Everything else is in the app under **Server settings**: name and picture, invit
 
 ## PostgreSQL
 
-Accounts, conversations and their encrypted messages are in `zuna.db`, a SQLite database in the data folder, which is enough for a few hundred active people. For a larger server, or to keep them with your other databases, Zuna can use PostgreSQL 15 or later instead, though not in the Docker setup, which keeps to `zuna.db`. Uploaded files stay in the data folder either way.
+Accounts, conversations and their encrypted messages are in `zuna.db`, a SQLite database in the data folder, which is enough for a few hundred active people. For a larger server, or to keep them with your other databases, Zuna can use PostgreSQL 15 or later instead. Uploaded files stay in the data folder either way.
 
 Give it a database of its own, owned by the account it signs in as:
 
@@ -257,11 +214,9 @@ Voice channels and calls need [LiveKit](https://livekit.io), a media server that
 
 It doesn't need much, since it only passes media along. A small VPS is fine for a friend group, though it uses bandwidth: each person in a call receives everyone else's audio, at about 64 kbit/s each, and a shared screen can be 20 Mbit/s for each person watching. Server settings, Screen sharing, is where to say who can share, how many at once, and how large and how fast, and each voice channel can say otherwise. [SCREEN_SHARE.md](SCREEN_SHARE.md#what-a-server-says-and-what-a-device-chooses) has what each of those can really hold.
 
-**With Docker,** it's part of the setup, with either compose file. Its image is built from LiveKit's source with Zuna's patch, which keeps what LiveKit learns about the people who join out of its log (`deploy/livekit`), so the first start takes a few minutes longer and about 900 MB of memory. Zuna makes the key the two share the first time it starts, in the `zuna-livekit` volume. Open 7881/tcp and 7882/udp in your firewall for calls' media.
-
 **With the installer,** it's part of the setup. Running `deploy/update.sh` yourself, add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
 
-**Otherwise,** run LiveKit's server on the same machine, built with `deploy/livekit/build.sh <output>`, which needs git and Go. [LiveKit's own release](https://docs.livekit.io/home/self-hosting/deployment/) works too, but writes to its log who was in which call with whom, from which addresses, and on what system and device, whatever its log level. Run it with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` as well, which lets screens shared from a Mac be encoded on its GPU, and its `packet_buffer_size_video` under `rtc:`, without which a shared screen stops on a network that loses packets ([SCREEN_SHARE.md](SCREEN_SHARE.md#lost-packets)):
+**Otherwise,** run LiveKit's server on the same machine, built with `deploy/livekit/build.sh <output>`, which needs git and Go. [LiveKit's own release](https://docs.livekit.io/home/self-hosting/deployment/) works too, but writes to its log who was in which call with whom, from which addresses, and on what system and device, whatever its log level. Run it with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `scripts/lib.mjs` as well, which lets screens shared from a Mac be encoded on its GPU, and its `packet_buffer_size_video` under `rtc:`, without which a shared screen stops on a network that loses packets ([SCREEN_SHARE.md](SCREEN_SHARE.md#lost-packets)):
 
 | Setting | Environment | |
 |---|---|---|
@@ -282,7 +237,7 @@ If you use the web app with `--servers`, and apps reach LiveKit at an address of
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.
 
 - **They're on by default.** Servers send notifications through the project's relay, `https://relay.zuna.chat`, which the Zuna app registers with. There's nothing to set.
-- **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, put it in `.env` beside `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
+- **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With the installer, use `deploy/update.sh`'s `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
 - **To turn them off,** set `ZUNA_PUSH_RELAYS=off`. Everything else works, and phones see new messages when they open the app.
 - **Several devices:** notifications go where you are, as in Telegram. The device you're using notifies straight away. While you're on another one, or were in the last few minutes, the rest wait 30 seconds and skip anything you read in the meantime, so at the desktop your phone only buzzes for what you left unread. What you read on one device disappears from the others.
 
@@ -325,7 +280,7 @@ With [PostgreSQL](#postgresql), back up the database with `pg_dump`, and the dat
 pg_dump --format=custom --file=/backups/zuna.dump postgres://zuna:password@localhost/zuna
 ```
 
-With Docker, the data is in the `zuna-data` volume. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
+With the installer, the data is in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
 
 A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
 
@@ -339,7 +294,7 @@ sudo -u zuna env $(sudo grep -v '^#' /etc/zuna/zuna.env | xargs) /usr/local/bin/
 sudo systemctl start zuna
 ```
 
-With Docker, `docker compose run --rm zuna --new-log-era` does the same, and with `--data` or `--database-url` of your own, give the same ones. It writes the log again under its next era, with the same key, and stops. Every member's app says once that the server started its record of keys again, and nothing they hold changes: a key that changed meanwhile still gives its warning. Don't use it for anything but a restored backup, as everyone is told.
+With the binary, run it once with `--new-log-era` and the `--data` or `--database-url` it runs with. It writes the log again under its next era, with the same key, and stops. Every member's app says once that the server started its record of keys again, and nothing they hold changes: a key that changed meanwhile still gives its warning. Don't use it for anything but a restored backup, as everyone is told.
 
 ## Moving to a new address
 
@@ -347,27 +302,15 @@ Sign-in keys are bound to your server's address, so a key one server collects is
 
 ## Upgrading
 
-**Docker:** on `main`,
-
-```bash
-git pull
-```
-
-or on a stable release, `git fetch --tags` and `git checkout` the newest one's tag, then
-
-```bash
-docker compose up -d --build
-```
-
-With the proxy's compose file, give it `-f docker-compose.proxy.yml` too.
-
-**With the installer, or `deploy/update.sh`:**
+**With the installer,** it updates by itself every night if you said so, and otherwise:
 
 ```bash
 sudo zuna-update
 ```
 
-It pulls, builds, installs and restarts, and goes back to the previous build if the new one doesn't start. Your data and settings stay in place.
+It builds the newest stable release, or on nightly `main`'s newest commit, installs and restarts it, does nothing when there's nothing new, and goes back to the previous build if the new one doesn't start. Your data and settings stay in place.
+
+**With the binary,** build the new one and start it in place of the old, with the same options.
 
 Database migrations run automatically on start. Back up first. Zuna doesn't keep compatibility with older versions yet, so update the server and the apps together.
 
@@ -391,5 +334,4 @@ Database migrations run automatically on start. Back up first. Zuna doesn't keep
 - If you run the relay yourself, see [PUSH_RELAY.md](PUSH_RELAY.md).
 
 **Logs.**
-- With Docker: `docker compose logs -f zuna`.
-- From source on Linux: `journalctl -u zuna -f`.
+- With the installer: `journalctl -u zuna -f`.

@@ -6,7 +6,7 @@ The project's landing page, at `https://zuna.chat`, in English. It lives in `app
 
 Two people arrive, and every call to action serves both:
 
-- **Whoever hosts:** usually the one technical person in a group of friends. "Host a server" leads to the terminal, Docker and the self-hosting guide.
+- **Whoever hosts:** usually the one technical person in a group of friends. "Host a server" leads to the one command and the self-hosting guide.
 - **Whoever was invited:** everyone else. "Download" leads to the installer, then pasting the invite link.
 
 Zuna needs a server, and the page says so plainly without making it sound like a chore.
@@ -32,7 +32,7 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 7 | Compared | Zuna next to Matrix and Fluxer. | A table, feature by feature, with a check, a dash or a cross and a few words in each cell, Zuna's column lit: privacy (encrypted messages, the group encryption, encrypted calls, link previews, search), files (encrypted, the largest, metadata taken out), every day (channels, screen sharing, history on a new device, signing up), performance (native desktop and phone apps, the browser) and hosting (running a server, every feature free, open source); on a phone, each feature's three answers under it |
 | 8 | Platforms | Got an invite? You're three steps away. | Windows, macOS (Apple silicon), Linux, the web (if a server hosts it), iPhone and iPad (the App Store), Android (planned) |
 | 9 | FAQ | Fair questions. | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, a forgotten password, how many people, skipping the relay, Android |
-| 10 | Self-hosting | One command. One folder to back up. | A terminal with tabs for Docker, which runs LiveKit too, and for systemd, which is `deploy/install.sh`, with LiveKit and a proxy it sets up or checks, each with its commands, a copy button, its own three steps and a link to its whole guide on GitHub; LiveKit for voice, the web app and backups |
+| 10 | Self-hosting | One command. One folder to back up. | A terminal with the one command, `public/install.sh`, which starts `deploy/install.sh`, with LiveKit and a proxy it sets up or checks, a copy button, its three steps, a link to its whole guide on GitHub, and Docker coming soon; LiveKit for voice, the web app and backups |
 | 11 | Final call | Stop renting your group chat. | Download and Host a server |
 | 12 | Footer | | Links, the license, and that the page has no cookies, analytics or third-party requests |
 

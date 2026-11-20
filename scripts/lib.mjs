@@ -76,8 +76,7 @@ export function ensureBuilt() {
 
 /**
  * What LiveKit is configured with beyond its defaults, as its --config-body. Change it with the
- * same in `deploy/docker-compose.yml`, `deploy/docker-compose.proxy.yml` and `deploy/update.sh`,
- * which can't read this.
+ * same in `deploy/update.sh`, which can't read this.
  *
  * LiveKit's codecs, with H.264's Baseline profile as well as Constrained Baseline. Chromium on
  * macOS only encodes Baseline on the GPU, through VideoToolbox, and offers it first, so a share

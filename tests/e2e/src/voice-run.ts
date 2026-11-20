@@ -15,7 +15,7 @@
 // drawn on a canvas, since macOS's own picker can't be driven.
 //
 // With ZUNA_VOICE_SETUP_LINK, everyone uses a server already running with a
-// LiveKit of its own, such as the Docker setup on another machine, by the setup
+// LiveKit of its own, such as one the installer set up on another machine, by the setup
 // link it printed, rather than ones started here.
 //
 // With ZUNA_TEST_SOCKS=1, the phone goes through the core tests' SOCKS5 proxy, as with

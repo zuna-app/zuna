@@ -70,19 +70,7 @@ Every app runs the same client core (`packages/core`) and the same Rust crypto, 
 
 ## Host a server
 
-You need a Linux machine (amd64 or arm64) and a domain pointing at it. With Docker:
-
-```bash
-git clone https://github.com/zuna-app/zuna.git
-cd zuna/deploy
-echo ZUNA_DOMAIN=chat.example.com > .env
-docker compose up -d
-docker compose logs zuna
-```
-
-The log prints a one-time setup link. Open it in Zuna to make the owner account, then invite people from the app. HTTPS certificates are handled for you, and [LiveKit](https://livekit.io) runs beside the server for voice, seeing only encrypted media. Open 80, 443, 7881/tcp and 7882/udp.
-
-**Without Docker,** one command starts a wizard in your terminal that sets the whole server up, and lets you decide how much it does for you:
+You need a Linux machine with systemd (amd64 or arm64), such as Debian, Ubuntu or Fedora, and a domain pointing at it, or just its IP address. One command starts a wizard in your terminal that sets the whole server up, and lets you decide how much it does for you:
 
 ```bash
 curl -fsSL https://zuna.chat/install.sh | sudo sh
@@ -91,9 +79,11 @@ curl -fsSL https://zuna.chat/install.sh | sudo sh
 - **How people reach it:** by a domain, or by the machine's IP address alone, with no domain or proxy at all.
 - **The reverse proxy, your way:** it can install Caddy and get the certificate itself, add a site to the nginx or Apache you already run, with a certificate from Let's Encrypt or your own, or show you what to add to a proxy you set up yourself, on this machine or another. It notices Cloudflare in front, and opens ufw or firewalld if they're on and you say so.
 - **Updates:** stable releases or nightly, and whether it updates by itself every night.
-- **Nothing changes until you've seen a summary and said yes.** Then it builds the server and LiveKit, for voice, runs them under systemd, checks that the server answers, WebSockets and voice included, and shows the link that makes your owner account, with a QR code.
+- **Nothing changes until you've seen a summary and said yes.** Then it builds the server and [LiveKit](https://livekit.io), for voice, which only ever sees encrypted media, runs them under systemd, checks that the server answers, WebSockets and voice included, and shows the link that makes your owner account, with a QR code.
 
-Its answers can be given as options too, for a script or cloud-init (`--help` lists them). A build that won't start is undone, and running it again updates, changes or uninstalls Zuna. Everything lives in one data folder, in SQLite, or PostgreSQL for a large server. The [self-hosting guide](docs/SELF_HOSTING.md) covers proxies, backups and phone notifications, and [LINUX.md](docs/LINUX.md) the scripts.
+Then invite people from the app. Its answers can be given as options too, for a script or cloud-init (`--help` lists them). A build that won't start is undone, and running it again updates, changes or uninstalls Zuna. Everything lives in one data folder, in SQLite, or PostgreSQL for a large server. The [self-hosting guide](docs/SELF_HOSTING.md) covers proxies, backups and phone notifications, and [LINUX.md](docs/LINUX.md) the scripts.
+
+**Docker is coming soon.**
 
 ## Join a server
 
@@ -140,13 +130,13 @@ npm test               # every suite: crypto, server, core, bot and more
 | `apps/web`, `packages/ui` | The web app, in React |
 | `apps/ios` | The iPhone and iPad app, in SwiftUI |
 | `apps/bot` | `zuna-bot`, which runs a bot's account |
-| `deploy` | Docker Compose, the installer and update scripts |
+| `deploy` | The installer and update scripts |
 
 [ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams, sync model and key hierarchy.
 
 ## Documentation
 
-- [Self-hosting](docs/SELF_HOSTING.md), [without Docker](docs/LINUX.md), [the web app](docs/WEB.md) and [the push relay](docs/PUSH_RELAY.md)
+- [Self-hosting](docs/SELF_HOSTING.md), [on Linux](docs/LINUX.md), [the web app](docs/WEB.md) and [the push relay](docs/PUSH_RELAY.md)
 - [Security model](SECURITY.md) and [how each protection works](docs/SECURITY_DETAILS.md)
 - [Post-quantum cryptography](docs/POST_QUANTUM.md), [sealed sender](docs/SEALED_SENDER.md) and [the log of keys](docs/KEY_TRANSPARENCY.md)
 - [Architecture and protocol](docs/ARCHITECTURE.md)

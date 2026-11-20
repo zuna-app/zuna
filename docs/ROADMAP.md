@@ -47,6 +47,7 @@ The iPhone app's approach carries over:
 
 - **Automatic updates** for the native app on macOS, as it has on Windows, checked against the same manifest.
 - **Code signing** for Windows, so the installer doesn't show a warning the first time it's downloaded. This needs a certificate held by whoever publishes releases, which `npm run dist:windows` takes in `CSC_LINK` and `CSC_KEY_PASSWORD`.
+- **Docker, coming soon.** Its compose files went on 2026-11-20, until it gives the choices the installer does, a domain or an address, certificates, a reverse proxy and Cloudflare, from images each release publishes. They're in git history.
 - **The server and `zuna-web` on releases.** The release workflow's jobs for the server's binaries, `zuna-web` and both images went on 2026-11-10, when it was rewritten around the native app, as none of them was ready to be released. They're in git history, to bring back when they are.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealing commits that change nobody,** so that renewing a group's keys names nobody either ([SEALED_SENDER.md](SEALED_SENDER.md), "Later").
