@@ -170,6 +170,19 @@ func (h *harness) push(handle, kind string) int {
 	return status
 }
 
+func (h *harness) pushFrom(address, handle, kind string) int {
+	h.t.Helper()
+	data, _ := json.Marshal(map[string]any{"handle": handle, "type": kind, "data": map[string]string{"r": "x"}})
+	request, _ := http.NewRequest(http.MethodPost, h.url+"/v1/push", bytes.NewReader(data))
+	request.Header.Set("X-Forwarded-For", address)
+	response, err := h.client.Do(request)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	response.Body.Close()
+	return response.StatusCode
+}
+
 // sent counts what reached Apple.
 func (f *fakeAPNs) sent() int {
 	f.mu.Lock()
@@ -675,4 +688,51 @@ func TestAGonePhoneStaysGoneForADay(t *testing.T) {
 	// A day later it may come back.
 	now = now.Add(25 * time.Hour)
 	h.register(phone, "production")
+}
+
+// One server flooding a phone through its handle, with silent pushes nobody sees, spends its own
+// share of the phone's pushes, not another server's, nor what the phone registers with.
+func TestOneServerCantStarveAnothersPushes(t *testing.T) {
+	h := newHarness(t)
+	h.relay.Callers, _ = clientip.New(true, nil, false)
+	status, reply := h.registerWith(map[string]any{"token": token, "environment": "production", "count": 2})
+	if status != http.StatusOK || len(reply.Handles) != 2 {
+		t.Fatalf("register: %d %v", status, reply)
+	}
+	hostile, honest := reply.Handles[0], reply.Handles[1]
+	alerts := func() int {
+		h.apns.mu.Lock()
+		defer h.apns.mu.Unlock()
+		count := 0
+		for _, request := range h.apns.requests {
+			if request.Headers.Get("apns-push-type") == "alert" {
+				count++
+			}
+		}
+		return count
+	}
+	for range 100 {
+		h.pushFrom("203.0.113.7", hostile, "background")
+	}
+	const rounds = 30
+	refused := 0
+	for range rounds {
+		for range 10 {
+			if status := h.pushFrom("203.0.113.7", hostile, "background"); status != http.StatusNoContent {
+				t.Fatalf("hostile push: %d", status)
+			}
+		}
+		if status := h.pushFrom("198.51.100.9", honest, "alert"); status != http.StatusNoContent {
+			t.Fatalf("honest push: %d", status)
+		}
+		if status, _ := h.registerWith(map[string]any{"token": token, "environment": "production", "count": 1}); status == http.StatusTooManyRequests {
+			refused++
+		}
+	}
+	if reached := alerts(); reached != rounds {
+		t.Fatalf("%d of %d honest alerts reached Apple", reached, rounds)
+	}
+	if refused > rounds-15 {
+		t.Fatalf("the phone's registrations were refused %d times of %d", refused, rounds)
+	}
 }

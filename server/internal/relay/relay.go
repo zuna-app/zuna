@@ -70,8 +70,12 @@ type Relay struct {
 	perAddress *ratelimit.Keyed
 	// Registrations, by the caller's network.
 	registers *ratelimit.Keyed
-	// Pushes to one phone, counted by the phone itself: anyone who knows a token could make handles for it.
+	// Pushes to one phone from one caller, counted by the phone itself, as anyone who knows a token
+	// could make handles for it, and by the caller's network, so that no server holding a handle
+	// spends what other servers' pushes to the phone have.
 	perToken *ratelimit.Keyed
+	// A phone's own registrations, which nothing a server does with its handle spends.
+	tokenRegisters *ratelimit.Keyed
 	// Calls ringing one phone, which are rare and hard to ignore.
 	rings *ratelimit.Keyed
 	// VoIP tokens registered with one phone's push token: Apple can't check one without ringing it.
@@ -109,8 +113,10 @@ func New(handleKey []byte, apns *APNs) (*Relay, error) {
 		perAddress: ratelimit.NewKeyed(rate.Limit(200), 2000),
 		registers:  ratelimit.NewKeyed(rate.Every(5*time.Second), 30),
 		perToken:   ratelimit.NewKeyed(rate.Limit(2), 60),
-		rings:      ratelimit.NewKeyed(rate.Every(20*time.Second), 5),
-		voipTokens: ratelimit.NewKeyed(rate.Every(time.Hour), 20),
+		// Phones register about weekly, and again as the app starts.
+		tokenRegisters: ratelimit.NewKeyed(rate.Every(10*time.Second), 20),
+		rings:          ratelimit.NewKeyed(rate.Every(20*time.Second), 5),
+		voipTokens:     ratelimit.NewKeyed(rate.Every(time.Hour), 20),
 		// A real phone's token is one Apple knows, so only a mistake is ever refused.
 		badTokens:   ratelimit.NewKeyed(rate.Every(time.Hour), 5),
 		sending:     make(chan struct{}, maxSending),
@@ -287,7 +293,7 @@ func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 	}
 	// Apple can't check a VoIP token without ringing it, so it comes with a phone's
 	// push token, which it can, and only so many come with one.
-	if (body.VoIPToken != "" && !r.voipTokens.Allow(hex.EncodeToString(token))) || !r.perToken.Allow(hex.EncodeToString(token)) {
+	if (body.VoIPToken != "" && !r.voipTokens.Allow(hex.EncodeToString(token))) || !r.tokenRegisters.Allow(hex.EncodeToString(token)) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
@@ -374,15 +380,16 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	}
 	// Past a phone's limit a push is dropped, but answered as if it were sent: a
 	// refusal would tell a server that another's handle names the same phone.
-	limit := r.perToken
+	caller := clientip.Key(r.Callers.Address(req))
+	limit, key := r.perToken, hex.EncodeToString(target.token)+"|"+caller
 	if kind == KindCall {
-		limit = r.rings
+		limit, key = r.rings, hex.EncodeToString(target.token)
 	}
-	if !limit.Allow(hex.EncodeToString(target.token)) {
+	if !limit.Allow(key) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if !r.perAddress.Allow(clientip.Key(r.Callers.Address(req))) {
+	if !r.perAddress.Allow(caller) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
