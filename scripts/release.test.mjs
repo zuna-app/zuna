@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { appKeys, branchOf, bump, changedApps, classify, compareVersions, headingsIn, labelOf, lineOf, lineOfBranch, manifestOf, newKey, newPqKey, nextVersion, olderLines, parseNotes, parseTag, patchVersion, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
+import { appKeys, branchOf, bump, changedApps, classify, compareVersions, headingsIn, labelOf, lineOf, manifestOf, newKey, newPqKey, nextVersion, parseNotes, parseTag, pqSignedBy, pqSignWith, prunable, reachesApp, reachesIos, renderNotes, setVersion, signedBy, signWith, tagOf, versionFiles, windowsInstaller } from "./release.mjs";
 
 const commit = (hash, subject, ...files) => ({ hash: hash.padEnd(40, "0"), subject, files });
 const app = "apps/desktop/src/main.rs";
@@ -59,34 +59,9 @@ test("each line of stable releases has a branch", () => {
   assert.equal(lineOf("0.11.0"), "0.11");
   assert.equal(lineOf("0.11.4"), "0.11");
   assert.equal(branchOf("1.2.3"), "release/1.2");
-  assert.equal(lineOfBranch("release/0.11"), "0.11");
-  for (const other of ["main", "release/0.11.0", "release/0", "release/x.1", "releases/0.11", "release/0.11/fix"]) assert.equal(lineOfBranch(other), null);
-});
-
-test("every line's branch but the newest one's is locked", () => {
-  assert.deepEqual(olderLines("0.11"), { include: ["refs/heads/release/*"], exclude: ["refs/heads/release/0.11"] });
-  assert.equal(`refs/heads/${branchOf("0.11.2")}`, olderLines(lineOf("0.11.2")).exclude[0]);
-  // Before the first stable release, every one.
-  assert.deepEqual(olderLines(null), { include: ["refs/heads/release/*"], exclude: [] });
-});
-
-test("a patch on a line's branch is the next after the newest stable release", () => {
-  assert.deepEqual(patchVersion({ line: "0.11", newestStable: "0.11.0", level: "patch" }), { version: "0.11.1" });
-  assert.deepEqual(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "build" }), { version: "0.11.2" });
-  // Nothing new goes out from a line's branch.
-  assert.ok(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "minor" }).problem);
-  assert.ok(patchVersion({ line: "0.11", newestStable: "0.11.1", level: "major" }).problem);
-  // Only the newest line takes patches.
-  assert.ok(patchVersion({ line: "0.11", newestStable: "0.12.0", level: "patch" }).problem);
-  assert.ok(patchVersion({ line: "0.11", newestStable: null, level: "patch" }).problem);
-});
-
-test("main never releases in a line whose branch had a patch of its own", () => {
-  // 0.11.1 was cut on release/0.11, and main has fixes alone since 0.11.0.
+  // A patch is released from main, in its line, which its branch stays at the line's first release for.
   assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch" }), "0.11.2");
-  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch", closed: ["0.11"] }), "0.12.0");
-  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.12.0", level: "minor", closed: ["0.11"] }), "0.12.0");
-  assert.equal(nextVersion({ lastStable: "0.11.1", current: "0.11.1", level: "patch", closed: ["0.11", "0.12"] }), "0.13.0");
+  assert.equal(branchOf("0.11.2"), branchOf("0.11.0"));
 });
 
 test("tags are read and written the same way", () => {

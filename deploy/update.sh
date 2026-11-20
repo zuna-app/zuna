@@ -525,8 +525,7 @@ if [ "$PULL" = 1 ]; then
   step "Pulling updates"
   before="$(sha256sum "$SRC/deploy/update.sh")"
   as_owner git -C "$SRC" fetch --tags --force
-  # The newest stable release, v1.2.3, cut from main or from its line's branch, and
-  # never a nightly's v1.2.3-nightly.1108.
+  # The newest stable release, v1.2.3, and never a nightly's v1.2.3-nightly.1108.
   tag=""
   if [ "$CHANNEL" = stable ]; then
     tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
