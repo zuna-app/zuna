@@ -5,7 +5,7 @@ import * as wasm from "@zuna/crypto";
 import { decode, type ApiBot, type ApiMessage, type ApiSound, type FileShare } from "../api";
 import { botProofInput, botSetupLink, inviteLink, ownerKeyHash } from "../account";
 import { checkEnvelope, frameSigned, lastingKeyFromSeed, randomId, readSigned, sealEnvelope } from "../crypto";
-import { fromBase64, toBase64, toBase64Url } from "../encoding";
+import { equalBytes, fromBase64, toBase64, toBase64Url } from "../encoding";
 import { decodeFrameData } from "../socket";
 import { openSoundDetails, sealSoundDetails } from "../soundboard";
 import { prepareSound, readWav } from "../sounds";
@@ -423,6 +423,9 @@ export abstract class SessionServer extends SessionChannels {
     const rules = this.account.bot;
     const group = this.groups.get(message.group_id);
     if (!rules || from !== rules.ownerId || group?.kind !== "dm" || group.peerId !== rules.ownerId) return;
+    // Only an owner whose key the setup link gave, so a server can't name one.
+    const pinned = this.pinnedIdentity(rules.ownerId);
+    if (!rules.ownerKey || !pinned || !equalBytes(pinned, fromBase64(rules.ownerKey))) return;
     if (signal.listed !== undefined || signal.add !== undefined) {
       if (at > (this.getKv<number>("bot_rules_at") ?? 0)) {
         this.setKv("bot_rules_at", at);

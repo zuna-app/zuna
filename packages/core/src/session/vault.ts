@@ -3,7 +3,7 @@
 import { ApiError, decode } from "../api";
 import { openHistoryGrant, openVaultItem, sealVaultItem } from "../crypto";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
-import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestPart, type ManifestRoster, type TrustManifest } from "../manifest";
+import { isManifestPart, joinManifestParts, manifestParts, parseManifest, readManifestPart, type ManifestBot, type ManifestPart, type ManifestRoster, type TrustManifest } from "../manifest";
 import { rosterHash } from "../roster";
 import { parsePreferences } from "../validate";
 import { VAULT_PAGE, VAULT_BATCH, UNSAVED_TRUST, MANIFEST_ATTEMPTS, MANIFEST_PARTS, KEY_NOT_UPLOADED, KEY_UPLOADED, KIND_WARNING, type CachedGroup, type CachedUser } from "./shared";
@@ -282,6 +282,7 @@ export abstract class SessionVault extends SessionLocal {
     for (const [userId, generation] of Object.entries(manifest.trust)) this.noteVerifiedPosition(userId, generation);
     // The log's key and a head another device of this account checked, which this one goes by.
     if (manifest.log) this.takeManifestHead(manifest.log);
+    if (manifest.bot) this.takeManifestBot(manifest.bot);
     this.manifest = manifest;
     this.setKv("manifest", manifest);
     // A group that waited for this account's word on who's in it can be joined now.
@@ -307,6 +308,8 @@ export abstract class SessionVault extends SessionLocal {
     if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
     if (this.allVerified().some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
     if (this.manifestHeadBehind(manifest.log)) return true;
+    const bot = this.botForManifest();
+    if (bot && JSON.stringify(bot) !== JSON.stringify(manifest.bot)) return true;
     if (this.rostersUnsaid().length > 0) return true;
     return !!this.db.get("SELECT 1 FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT 1");
   }
@@ -360,6 +363,7 @@ export abstract class SessionVault extends SessionLocal {
     }
     const log = this.headForManifest() ?? this.manifest?.log;
     const rosters = this.rostersForManifest();
+    const bot = this.botForManifest() ?? this.manifest?.bot;
     return {
       v: (this.manifest?.v ?? 0) + 1,
       pins: entries(this.allPins()),
@@ -369,7 +373,25 @@ export abstract class SessionVault extends SessionLocal {
       prefs: this.prefs,
       ...(log ? { log } : {}),
       ...(Object.keys(rosters).length > 0 ? { rosters } : {}),
+      ...(bot ? { bot } : {}),
     };
+  }
+
+  /** A bot's own rules, as its setup link and its owner since gave them, for the manifest. */
+  protected botForManifest(): ManifestBot | null {
+    const bot = this.account.bot;
+    return bot?.ownerKey ? { owner: bot.ownerId, key: bot.ownerKey, listed: bot.listed, add: bot.add } : null;
+  }
+
+  /**
+   * A bot brought back with its recovery key takes its owner's rules from the manifest its
+   * device wrote, and its owner's key with them, as its setup link gave them.
+   */
+  protected takeManifestBot(bot: ManifestBot): void {
+    if (this.account.bot) return;
+    this.account = { ...this.account, bot: { ownerId: bot.owner, ownerKey: bot.key, listed: bot.listed, add: bot.add } };
+    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [bot.owner, this.sealPin(bot.owner, fromBase64(bot.key))]);
+    this.onAccountChanged?.(this.account);
   }
 
   /** Writes what this device holds as the next manifest, one at a time. */

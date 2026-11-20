@@ -32,6 +32,19 @@ export interface TrustManifest {
    * given to this, so who's in a group is never the server's to say the first time either.
    */
   rosters?: Record<string, ManifestRoster>;
+  /**
+   * A bot's account: whose it is, its owner's identity key as its setup link gave it, and who may
+   * see and add it, so that a device it's brought back on with its recovery key keeps its owner's
+   * rules. Never from the server, which could otherwise name an owner for anyone's account.
+   */
+  bot?: ManifestBot;
+}
+
+export interface ManifestBot {
+  owner: string;
+  key: string;
+  listed: boolean;
+  add: "owner" | "admins" | "anyone";
 }
 
 export interface ManifestRoster {
@@ -83,6 +96,10 @@ export function parseManifest(value: unknown): TrustManifest | null {
   };
   if (record(manifest.rosters, roster)) {
     parsed.rosters = Object.fromEntries(Object.entries(manifest.rosters).map(([id, held]) => [id, { v: held.v, h: held.h, a: held.a, m: held.m }]));
+  }
+  const bot = manifest.bot as Partial<ManifestBot> | undefined;
+  if (bot && typeof bot === "object" && key(bot.owner) && key(bot.key) && typeof bot.listed === "boolean") {
+    parsed.bot = { owner: bot.owner, key: bot.key, listed: bot.listed, add: bot.listed && (bot.add === "admins" || bot.add === "anyone") ? bot.add : "owner" };
   }
   return parsed;
 }

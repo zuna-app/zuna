@@ -377,11 +377,6 @@ export abstract class SessionLocal extends SessionBase {
     if (previous && standing(previous.devices) !== standing(devices)) this.cleanEpochs.clear();
     this.users.set(api.id, user);
     this.persistUser(user);
-    // An account the server says is a bot's keeps a bot's rules, as after its data was brought back with its recovery key.
-    if (isSelf && user.bot && !this.account.bot) {
-      this.account = { ...this.account, bot: user.bot };
-      this.onAccountChanged?.(this.account);
-    }
     if (isSelf && user.role !== this.account.role) {
       this.account = { ...this.account, role: user.role };
     }

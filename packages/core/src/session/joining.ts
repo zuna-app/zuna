@@ -3,8 +3,8 @@
 import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
-import { equalBytes, u64Bytes, utf8 } from "../encoding";
-import { sealCharter, sealRoster, type Roster } from "../roster";
+import { equalBytes, fromBase64, u64Bytes, utf8 } from "../encoding";
+import { readRoster, sealCharter, sealRoster, type Roster } from "../roster";
 import { reasonText, ROSTER_BEHIND, ROSTER_UNSAID } from "./groups";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
 import { SessionGroups } from "./groups";
@@ -101,7 +101,8 @@ export abstract class SessionJoining extends SessionGroups {
     const group = this.groups.get(groupId);
     if (!rules || rules.listed || group?.kind !== "dm" || !group.peerId || group.peerId === rules.ownerId) return true;
     const peer = group.peerId;
-    return [...this.groups.values()].some((other) => other.kind === "group" && !other.removedAt && other.members.some((member) => member.userId === peer));
+    // In a group with it by its roster, which the server can't write.
+    return [...this.groups.values()].some((other) => other.kind === "group" && !other.removedAt && !!this.rosterOf(other)?.roster.members.includes(peer) && other.members.some((member) => member.userId === peer));
   }
 
   /**
@@ -296,6 +297,9 @@ export abstract class SessionJoining extends SessionGroups {
   protected async joinExternal(groupId: string): Promise<boolean> {
     const groupBytes = utf8(groupId);
     let learned = false;
+    // A bot that wasn't on this group's roster before comes in on one, as by a Welcome, and asks who added it.
+    const held = this.groups.get(groupId)?.roster;
+    const wasOn = !!held && !!readRoster(groupId, fromBase64(held))?.roster.members.includes(this.account.userId);
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       const latest = await this.api.groupInfo(groupId);
       if (!latest.group_info) return false;
@@ -347,6 +351,7 @@ export abstract class SessionJoining extends SessionGroups {
       this.rememberCurrentEpochKey(groupId);
       await this.checkTree(groupId);
       this.noteArrivalsAtJoin(groupId);
+      if (!wasOn) this.noteIfUnwanted(groupId);
       this.uploadEpochKeysSoon();
       return true;
     }
