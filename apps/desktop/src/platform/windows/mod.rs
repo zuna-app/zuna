@@ -14,13 +14,13 @@ pub mod icons;
 mod quiet;
 pub mod tray;
 
-use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
-use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
@@ -159,19 +159,65 @@ pub fn hide_window(hwnd: HWND) {
     }
 }
 
-/// A short, soft sound, as the web synthesizes it (`notification_tones`), made once into
-/// a WAV that Windows plays.
+/// How close together two notification sounds may start. Each plays out on its own, so a quick
+/// run of messages is heard as a run of sounds rather than a few cut short.
+const SOUND_GAP: Duration = Duration::from_millis(150);
+/// Sounds playing at once, past which a burst, as on catching up, plays no more.
+const MAX_SOUNDS: usize = 3;
+
+/// A short, soft sound, as the web synthesizes it (`notification_tones`). Each goes out on a
+/// waveOut of its own, which Windows mixes, so one doesn't cut off the one before it as
+/// PlaySound's one sound at a time did.
 pub fn play_notification_sound() {
-    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
-    static LAST: AtomicIsize = AtomicIsize::new(0);
-    let now = unsafe { GetTickCount() } as isize;
-    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < 900 {
-        return;
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    static PLAYING: AtomicUsize = AtomicUsize::new(0);
+    {
+        let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last.is_some_and(|at| at.elapsed() < SOUND_GAP) || PLAYING.load(Ordering::Relaxed) >= MAX_SOUNDS {
+            return;
+        }
+        *last = Some(Instant::now());
     }
-    LAST.store(now, Ordering::Relaxed);
-    let wav = WAV.get_or_init(super::notification_wav);
+    PLAYING.fetch_add(1, Ordering::Relaxed);
+    let started = std::thread::Builder::new().name("zuna-notification-sound".into()).spawn(|| {
+        play_tones(crate::platform::notification_tones());
+        PLAYING.fetch_sub(1, Ordering::Relaxed);
+    });
+    if started.is_err() {
+        PLAYING.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Plays 16-bit samples, one channel at 48 kHz, through the default output, and returns once
+/// they've played.
+fn play_tones(samples: &'static [i16]) {
+    use windows::Win32::Media::Audio::*;
+    let format = WAVEFORMATEX { wFormatTag: WAVE_FORMAT_PCM as u16, nChannels: 1, nSamplesPerSec: 48_000, nAvgBytesPerSec: 96_000, nBlockAlign: 2, wBitsPerSample: 16, cbSize: 0 };
+    let mut out = HWAVEOUT::default();
+    // SAFETY: the samples are static, and the header outlives every call that's given it: it's
+    // unprepared, after a reset if it hadn't finished, before the device is closed.
     unsafe {
-        let _ = PlaySoundW(windows::core::PCWSTR(wav.as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+        if waveOutOpen(Some(&mut out), WAVE_MAPPER, &format, None, None, CALLBACK_NULL) != 0 {
+            log::warn!("the notification sound didn't play: no output opened");
+            return;
+        }
+        let mut header = WAVEHDR { lpData: windows::core::PSTR(samples.as_ptr() as *mut u8), dwBufferLength: (samples.len() * 2) as u32, ..Default::default() };
+        let size = std::mem::size_of::<WAVEHDR>() as u32;
+        if waveOutPrepareHeader(out, &mut header, size) == 0 {
+            if waveOutWrite(out, &mut header, size) == 0 {
+                let length = Duration::from_secs_f64(samples.len() as f64 / 48_000.);
+                let until = Instant::now() + length + Duration::from_secs(2);
+                std::thread::sleep(length);
+                // The device marks it done from its own thread. The header is packed, and the
+                // sleep between reads keeps the compiler from holding on to an old value.
+                while std::ptr::addr_of!(header.dwFlags).read_unaligned() & WHDR_DONE == 0 && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            waveOutReset(out);
+            waveOutUnprepareHeader(out, &mut header, size);
+        }
+        waveOutClose(out);
     }
 }
 

@@ -5,7 +5,8 @@ let lastPlayed = 0;
 
 export function playNotificationSound(): void {
   const now = Date.now();
-  if (now - lastPlayed < 900) return;
+  // Each plays out over the last, so a quick run of messages is heard as a run of sounds.
+  if (now - lastPlayed < 150) return;
   lastPlayed = now;
   try {
     context ??= new AudioContext();

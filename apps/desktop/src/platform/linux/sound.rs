@@ -4,12 +4,13 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
-/// Plays `notification_tones`, at most once in 900 ms, as Windows does.
+/// Plays `notification_tones`, at most once in 150 ms, as Windows does, each on a stream of its
+/// own, so a quick run of messages is heard as a run of sounds.
 pub fn play_notification_sound() {
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
     {
         let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if last.is_some_and(|at| at.elapsed() < Duration::from_millis(900)) {
+        if last.is_some_and(|at| at.elapsed() < Duration::from_millis(150)) {
             return;
         }
         *last = Some(Instant::now());
