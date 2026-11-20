@@ -559,6 +559,11 @@ impl Plugins {
                 return refused(self, "This device isn't on that server.".into());
             }
         }
+        // A call to the client names its servers among its arguments, which are held to the same:
+        // never the linked Telegram account, which no plugin reaches.
+        if method == "forwardMessages" && ![0, 3].into_iter().all(|at| call_args.get(at).and_then(Value::as_str).is_some_and(|id| self.server_known(id, cx))) {
+            return refused(self, "This device isn't on that server.".into());
+        }
         if call_args.len() > 16 || serde_json::to_vec(&call_args).map_or(true, |bytes| bytes.len() > MAX_ARGS) {
             return refused(self, "Those arguments are too large.".into());
         }

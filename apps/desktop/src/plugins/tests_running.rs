@@ -402,6 +402,13 @@ fn a_plugin_reaches_the_core_only_as_the_table_allows(cx: &mut TestAppContext) {
     assert!(harness.ask(cx, "core.call", call("loadMessages", Some(SERVER), json!([DM]))).unwrap_err().contains("messages.read permission"));
     assert!(harness.ask(cx, "core.call", call("getUsers", Some("server-9"), json!([]))).unwrap_err().contains("This device isn't on that server"));
     assert!(harness.ask(cx, "core.call", call("getUsers", Some(crate::telegram::SERVER_ID), json!([]))).unwrap_err().contains("isn't on that server"), "never the linked Telegram account");
+    // The client's own calls name their servers among their arguments, held to the same.
+    let telegram = crate::telegram::SERVER_ID;
+    for (from, to) in [(telegram, telegram), (SERVER, telegram), (telegram, SERVER), ("server-9", SERVER)] {
+        let refused = harness.ask(cx, "core.call", call("forwardMessages", None, json!([from, DM, ["m01"], to, "user:u-bob"]))).unwrap_err();
+        assert!(refused.contains("isn't on that server"), "forwarding from {from} to {to}: {refused}");
+    }
+    assert!(harness.ask(cx, "core.call", call("forwardMessages", None, json!([SERVER, DM, ["m01"]]))).unwrap_err().contains("isn't on that server"));
     assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!((0..17).collect::<Vec<_>>()))).unwrap_err().contains("are too large"));
     assert!(harness.ask(cx, "core.call", call("getUsers", Some(SERVER), json!(["x".repeat(300 << 10)]))).unwrap_err().contains("too large"));
     assert!(harness.ask(cx, "core.call", call("sendMessage", Some(SERVER), json!(["user:u-bob", { "text": "hi", "attachments": [{ "$file": { "path": "/etc/passwd" } }] }]))).unwrap_err().contains("not its path"));
