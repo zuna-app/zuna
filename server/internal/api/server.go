@@ -464,6 +464,10 @@ func (s *Server) Handler() http.Handler {
 	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
 		mux.Handle("/livekit/", s.liveKitProxy())
 	}
+	// LiveKit saying who came into a room, signed with the secret it shares with this server.
+	if s.liveKitConfigured() {
+		mux.HandleFunc("POST /api/livekit/webhook", s.handleLiveKitEvent)
+	}
 
 	// Messages
 	mux.HandleFunc("GET /api/groups/{id}/messages", s.member(s.handleMessages))

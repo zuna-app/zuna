@@ -232,6 +232,18 @@ Apps reach it through Zuna's own address, at `/livekit/`, so there's no second n
 
 If you use the web app with `--servers`, and apps reach LiveKit at an address of its own, list that with `--media-servers` too.
 
+**With LiveKit at an address of its own,** also have it tell Zuna who comes into a room, so that Zuna can take back out someone whose token outlived their place there, such as someone removed from a conversation a few minutes after they were let in. Through Zuna's own address that's done before LiveKit hears of them, with nothing to set ([SECURITY_DETAILS.md](SECURITY_DETAILS.md#voice-channels)). In LiveKit's config, with the key Zuna has:
+
+```yaml
+webhook:
+  api_key: <its API key>
+  urls:
+    - https://chat.example.com/api/livekit/webhook
+  filter_params:
+    include_events:
+      - participant_joined
+```
+
 ## Phone notifications
 
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.

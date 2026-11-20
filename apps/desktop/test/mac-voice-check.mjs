@@ -20,7 +20,7 @@ import { copyFileSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { build, here, root, session, sleep, until } from "./mac-session.mjs";
-import { LIVEKIT_CONFIG, TCP_ONLY_CONFIG, ensureLiveKit, lanAddress, liveKitTcpOnly, liveKitWays, viteNodeArgs } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, TCP_ONLY_CONFIG, ensureLiveKit, lanAddress, liveKitTcpOnly, liveKitWays, liveKitWebhook, viteNodeArgs } from "../../../scripts/lib.mjs";
 
 const { server: serverBinary } = build();
 const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
@@ -28,16 +28,40 @@ const { work, check, start, startServer, startApp, finish } = session({ shots: p
 /**
  * A LiveKit of its own on ports nothing else here takes, as the test server's media server: on
  * loopback, or for TCP alone on this Mac's address on its network, as a TCP connection to
- * loopback finds none of its candidates.
+ * loopback finds none of its candidates. The apps reach it at its own address, so it tells the
+ * server who comes into a room, which takes back out anyone it isn't for.
  */
-function startLiveKit() {
-  const port = 30000 + Math.floor(Math.random() * 20000);
+function startLiveKit(port, serverUrl) {
   const address = liveKitTcpOnly ? lanAddress() : "127.0.0.1";
   // The ports go under the `rtc` LIVEKIT_CONFIG ends with.
-  const config = `${LIVEKIT_CONFIG}  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\n${liveKitTcpOnly ? TCP_ONLY_CONFIG : ""}port: ${port}\n`;
+  const config = `${liveKitWebhook(serverUrl)}${LIVEKIT_CONFIG}  tcp_port: ${port + 1}\n  udp_port: ${port + 2}\n${liveKitTcpOnly ? TCP_ONLY_CONFIG : ""}port: ${port}\n`;
   const binds = liveKitTcpOnly ? ["--bind", address, "--bind", "127.0.0.1"] : ["--bind", "127.0.0.1"];
-  const media = start(ensureLiveKit(), ["--dev", ...binds, "--node-ip", address, "--config-body", config], process.env, "livekit");
-  return { media, url: `ws://127.0.0.1:${port}` };
+  return start(ensureLiveKit(), ["--dev", ...binds, "--node-ip", address, "--config-body", config], process.env, "livekit");
+}
+
+/**
+ * LiveKit's webhooks, handed on to the server as they come, and each one's event and the server's
+ * answer kept, so the check can say LiveKit told the server who came in and nobody was taken out.
+ */
+async function startWebhookRelay(serverUrl) {
+  const heard = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", async () => {
+      const body = Buffer.concat(chunks);
+      const headers = { authorization: request.headers.authorization ?? "", "content-type": request.headers["content-type"] ?? "" };
+      const answer = await fetch(serverUrl + request.url, { method: "POST", headers, body }).catch(() => null);
+      let event = "unreadable";
+      try {
+        event = JSON.parse(body).event;
+      } catch {}
+      heard.push({ event, status: answer?.status ?? 0 });
+      response.writeHead(answer?.status ?? 502).end();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, heard, url: `http://127.0.0.1:${server.address().port}` };
 }
 
 /** Where the question about a new device has its answers, and after No, Change password, in the window's points. */
@@ -95,12 +119,15 @@ function playerAt(app) {
 
 let apps = [];
 let fakePlayer;
+let webhooks;
 try {
   fakePlayer = await startFakePlayer();
-  const { media, url: liveKitUrl } = startLiveKit();
+  const liveKitPort = 30000 + Math.floor(Math.random() * 20000);
+  const { setupLink, url: serverUrl, server } = await startServer(serverBinary, ["--livekit-url", `ws://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
+  webhooks = await startWebhookRelay(serverUrl);
+  const media = startLiveKit(liveKitPort, webhooks.url);
   await sleep(1500);
   check("LiveKit starts", media.exitCode === null, media.output.slice(-300));
-  const { setupLink, url: serverUrl } = await startServer(serverBinary, ["--livekit-url", liveKitUrl, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
 
   // Moving bars in place of a screen, past macOS's picker, which nobody's here to click.
   const first = await startApp("first", { ZUNA_FAKE_MIC: "1", ZUNA_FAKE_SCREEN: "1", ZUNA_WATCH_PLAYER: fakePlayer.url, RUST_LOG: "info,zuna=debug" });
@@ -330,6 +357,14 @@ try {
   await first.shot("new-device-security");
   thief.kill();
 
+  // --- LiveKit told the server of everyone who came into a room, and the server, finding each was let in, kept them there ---
+  const joins = webhooks.heard.filter((heard) => heard.event === "participant_joined");
+  check(
+    "LiveKit told the server who came into each room, and nobody let in was taken out",
+    joins.length >= 4 && webhooks.heard.every((heard) => heard.status === 200) && !server.output.includes("taking someone out of a room"),
+    JSON.stringify(webhooks.heard),
+  );
+
   // --- With TCP alone, everything above went over it, as LiveKit says ---
   if (liveKitTcpOnly) {
     const ways = liveKitWays(media.output);
@@ -340,5 +375,6 @@ try {
 } finally {
   for (const app of apps) await app.quit();
   fakePlayer?.server.close();
+  webhooks?.server.close();
   finish();
 }

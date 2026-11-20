@@ -351,6 +351,23 @@ func (d *DB) Membership(ctx context.Context, groupID, userID string) (*GroupMemb
 	return &m, err
 }
 
+// MayBeInRoom says whether a device may be in a group's voice channel or call on the media
+// server now: one of its person's, not revoked, whose person is on the group's roster and is
+// neither banned nor a bot.
+func (d *DB) MayBeInRoom(ctx context.Context, groupID, userID, deviceID string) (bool, error) {
+	var one int
+	err := d.sql.QueryRowContext(ctx, `SELECT 1 FROM group_members m
+		JOIN users u ON u.id = m.user_id
+		JOIN devices v ON v.user_id = m.user_id AND v.id = ?
+		LEFT JOIN bots b ON b.id = m.user_id
+		WHERE m.group_id = ? AND m.user_id = ? AND v.revoked_at IS NULL AND u.banned_at IS NULL AND b.id IS NULL`,
+		deviceID, groupID, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // RemoveMember takes a user out of the roster and logs it, so that a remaining
 // member's client can commit the removal of their MLS leaves.
 func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*GroupEvent, error) {

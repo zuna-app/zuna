@@ -191,9 +191,10 @@ func (s *Server) liveKitPublicURL() string {
 	return strings.Replace(strings.Replace(base, "https://", "wss://", 1), "http://", "ws://", 1) + "/livekit"
 }
 
-// liveKitProxy hands /livekit/ to the media server. It decides who gets in by itself,
-// from the tokens this server gives out, so this adds no way in. Media doesn't come
-// this way: only the signaling that sets it up.
+// liveKitProxy hands /livekit/ to the media server. Only a token to join a room gets
+// through, for a device the room is for now (admission.go), and the media server decides
+// the rest from it, so this adds no way in. Media doesn't come this way: only the
+// signaling that sets it up.
 func (s *Server) liveKitProxy() http.Handler {
 	target, err := url.Parse(s.cfg.LiveKitInternalURL)
 	if err != nil {
@@ -230,6 +231,13 @@ func (s *Server) liveKitProxy() http.Handler {
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if admitted, err := s.mayEnter(r); err != nil {
+			writeFailure(w, err)
+			return
+		} else if !admitted {
+			writeFailure(w, store.ErrForbidden)
+			return
+		}
 		// A socket here lasts as long as the call, far longer than a request's body may take.
 		controller := http.NewResponseController(w)
 		_ = controller.SetReadDeadline(time.Time{})

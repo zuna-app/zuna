@@ -120,6 +120,18 @@ rtc:
 export const liveKitTcpOnly = process.env.ZUNA_TEST_TCP === "1";
 export const TCP_ONLY_CONFIG = "  force_tcp: true\n";
 
+/**
+ * LiveKit's word to a chat server as someone comes into one of its rooms, which the server
+ * takes them straight back out of if the room isn't for them now, as a token outlives a
+ * membership (`server/internal/api/admission.go`). Only where apps reach LiveKit at its own
+ * address, with `--livekit-url`: through the server's /livekit/, as `deploy/` sets it up, the
+ * server turns them away itself. Signed with `key`, the one LiveKit's `--dev` has unless
+ * another's given. It goes before LIVEKIT_CONFIG, whose `rtc` comes last.
+ */
+export function liveKitWebhook(serverUrl, key = "devkey") {
+  return `webhook:\n  api_key: ${key}\n  urls:\n    - ${serverUrl}/api/livekit/webhook\n  filter_params:\n    include_events:\n      - participant_joined\n`;
+}
+
 /** This machine's IPv4 address on its network, where a LiveKit carrying calls over TCP has to be. */
 export function lanAddress() {
   const address = Object.values(networkInterfaces())

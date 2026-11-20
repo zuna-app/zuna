@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { LIVEKIT_CONFIG, devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run, viteNodeArgs } from "./lib.mjs";
+import { LIVEKIT_CONFIG, devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, liveKitWebhook, root, run, viteNodeArgs } from "./lib.mjs";
 
 const URL = "http://localhost:8787";
 const serverData = join(devData, "server");
@@ -45,8 +45,9 @@ function fail(message) {
   stop(1);
 }
 
-// For voice channels. Its development mode has a key and secret everyone knows, on this machine only.
-const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
+// For voice channels. Its development mode has a key and secret everyone knows, on this machine
+// only. Apps reach it at its own address, so it tells the server who comes into a room.
+const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--config-body", liveKitWebhook("http://127.0.0.1:8787") + LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
 children.push(media);
 media.stdout.on("data", (chunk) => log.write(chunk));
 media.stderr.on("data", (chunk) => log.write(chunk));

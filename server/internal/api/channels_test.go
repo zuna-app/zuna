@@ -513,14 +513,15 @@ func TestAppsCanReachTheMediaServerThroughThisServer(t *testing.T) {
 	owner := h.owner()
 	voice := owner.createChannel("voice", 0)
 	var out struct {
-		URL string `json:"url"`
+		URL   string `json:"url"`
+		Token string `json:"token"`
 	}
 	h.mustDo("POST", "/api/channels/"+voice.ID+"/voice", owner.token, map[string]any{}, &out)
 	if out.URL != "wss://chat.example/livekit" {
 		t.Fatalf("apps were told to go to %q", out.URL)
 	}
 
-	request, err := http.NewRequest("GET", h.url+"/livekit/rtc/validate?x=1", nil)
+	request, err := http.NewRequest("GET", h.url+"/livekit/rtc/validate?access_token="+out.Token, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

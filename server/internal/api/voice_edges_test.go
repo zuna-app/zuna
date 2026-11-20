@@ -58,17 +58,24 @@ func TestVoiceThroughTheServersOwnAddress(t *testing.T) {
 		cfg.LiveKitInternalURL, cfg.LiveKitKey, cfg.LiveKitSecret = liveKit, "key", "a-long-enough-secret-for-signing-tokens"
 	})
 	owner := h.owner()
+	voice := owner.createChannel("voice", 0)
+	token := owner.roomToken("/api/channels/" + voice.ID + "/voice")
 	// The media server, reached through the server, answers whatever it answers.
-	if status, _, _ := h.raw("POST", "/livekit/twirp/livekit.RoomService/ListRooms", "", []byte(`{}`), nil); status != http.StatusOK {
+	if status, _, _ := h.raw("POST", "/livekit/twirp/livekit.RoomService/ListRooms", token, []byte(`{}`), nil); status != http.StatusOK {
 		t.Fatalf("through the proxy: %d", status)
 	}
-	_ = owner
+	// Without a token to join a room, nothing gets that far.
+	if status, _, _ := h.raw("POST", "/livekit/twirp/livekit.RoomService/ListRooms", "", []byte(`{}`), nil); status != http.StatusForbidden {
+		t.Fatalf("through the proxy with no token: %d", status)
+	}
 
 	// One that isn't there is said to be unreachable.
 	gone := newHarness(t, func(cfg *api.Config) {
 		cfg.LiveKitInternalURL, cfg.LiveKitKey, cfg.LiveKitSecret = "wss://127.0.0.1:1", "key", "a-long-enough-secret-for-signing-tokens"
 	})
-	if status, _, _ := gone.raw("GET", "/livekit/rtc", "", nil, nil); status != http.StatusBadGateway {
+	someone := gone.owner()
+	elsewhere := someone.createChannel("voice", 0)
+	if status, _, _ := gone.raw("GET", "/livekit/rtc", someone.roomToken("/api/channels/"+elsewhere.ID+"/voice"), nil, nil); status != http.StatusBadGateway {
 		t.Fatalf("a media server that isn't there gave %d", status)
 	}
 }
