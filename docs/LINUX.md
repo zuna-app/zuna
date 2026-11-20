@@ -18,7 +18,13 @@ It doesn't set up a reverse proxy or a firewall: those are yours. For the chat s
 
 ## Installing
 
-Get the code:
+The quickest way is one command, which installs git where it's missing, gets the code into `/opt/zuna`, at the newest stable release unless it's given `--channel nightly`, and starts the installer below with any options given to it (`apps/site/public/install.sh`, served at zuna.chat):
+
+```bash
+curl -fsSL https://zuna.chat/install.sh | sudo sh
+```
+
+Or get the code yourself:
 
 ```bash
 sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna

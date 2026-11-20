@@ -139,7 +139,7 @@ async function interactions(browser) {
   check("systemd's tab shows only the installer", script.length === 1 && script[0].includes("install.sh") && !script[0].includes("docker"), script.join(" | "));
   const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
   check("and its guide is the script's", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/LINUX.md"));
-  check("and the steps follow it", steps.length === 1 && steps[0].includes("run the installer"), steps.join(" | "));
+  check("and the steps follow it", steps.length === 1 && steps[0].includes("Run one command"), steps.join(" | "));
   const moved = await place();
   check("switching how to host doesn't move the page", moved === placed, `${placed} to ${moved}`);
   await page.keyboard.press("ArrowLeft");

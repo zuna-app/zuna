@@ -47,7 +47,13 @@ Compose builds whatever's checked out, which after cloning is `main`'s newest co
 
 ## Option 2: The installer, on Linux with systemd
 
-On Debian, Ubuntu, Fedora or another Linux with systemd and apt or dnf, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
+On Debian, Ubuntu, Fedora or another Linux with systemd and apt or dnf, on amd64 or arm64:
+
+```bash
+curl -fsSL https://zuna.chat/install.sh | sudo sh
+```
+
+That installs git where it's missing, gets the code into `/opt/zuna`, at the newest stable release, and starts `deploy/install.sh`. To read it first, `curl -fsSLO https://zuna.chat/install.sh` and then `sudo sh install.sh`, or do the same by hand:
 
 ```bash
 sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna

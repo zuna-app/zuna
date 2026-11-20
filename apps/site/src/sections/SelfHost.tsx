@@ -28,21 +28,23 @@ const METHODS = [
     ],
   },
   {
-    // deploy/install.sh, as docs/LINUX.md describes it.
+    // public/install.sh, which gets the code and starts deploy/install.sh, as docs/LINUX.md describes it.
     id: "systemd",
     name: "systemd",
     caption: "# Without Docker, with systemd",
     guide: doc("docs/LINUX.md"),
-    commands: ["sudo git clone https://github.com/zuna-app/zuna.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/install.sh"],
+    commands: ["curl -fsSL https://zuna.chat/install.sh | sudo sh"],
     output: [
-      "# Asks how people reach it, then about the proxy and firewall.",
+      "# Gets the code, then asks how people reach it, about the",
+      "# proxy and firewall, and stable releases or nightly.",
       "# Runs Zuna and LiveKit for calls with systemd, behind Caddy,",
       "# your nginx or Apache, or a proxy you set up, and checks it.",
-      "# Later: sudo zuna-update. A build that won't start is undone.",
+      "# It can update itself every night, and undoes a build that",
+      "# won't start. Run it again to update, change or uninstall.",
     ],
     steps: [
       { title: "Point a domain at a Linux machine", text: "One with systemd, such as Debian, Ubuntu or Fedora. Or go by its IP address." },
-      { title: "Clone it and run the installer", text: "It asks a few questions, builds the server from git with LiveKit for voice, and sets up the proxy, or shows you what to add." },
+      { title: "Run one command", text: "It gets the code, asks a few questions, builds the server with LiveKit for voice, and sets up the proxy, or shows you what to add." },
       { title: "Open the setup link in Zuna", text: "Once the server answers at its address, the installer shows it, with a QR code. Make the owner account and invite people." },
     ],
   },

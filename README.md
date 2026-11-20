@@ -82,14 +82,13 @@ docker compose logs zuna
 
 The log prints a one-time setup link. Open it in Zuna to make the owner account, then invite people from the app. HTTPS certificates are handled for you, and [LiveKit](https://livekit.io) runs beside the server for voice, seeing only encrypted media. Open 80, 443, 7881/tcp and 7882/udp.
 
-**Without Docker,** the installer asks how people will reach the server (a domain or an IP address), builds it from git, runs it and LiveKit under systemd, and puts Caddy in front or adds a site to your nginx or Apache, then checks that it answers:
+**Without Docker,** one command gets the code into `/opt/zuna` and starts the installer, which asks how people will reach the server (a domain or an IP address), builds it from git, runs it and LiveKit under systemd, and puts Caddy in front or adds a site to your nginx or Apache, then checks that it answers:
 
 ```bash
-sudo git clone https://github.com/zuna-app/zuna.git /opt/zuna
-sudo /opt/zuna/deploy/install.sh
+curl -fsSL https://zuna.chat/install.sh | sudo sh
 ```
 
-Update later with `sudo zuna-update`, which undoes a build that won't start. Everything lives in one data folder, in SQLite, or PostgreSQL for a large server. The [self-hosting guide](docs/SELF_HOSTING.md) covers proxies, backups and phone notifications, and [LINUX.md](docs/LINUX.md) the scripts.
+It can update itself every night, or with `sudo zuna-update`, and undoes a build that won't start. Running it again updates, changes or uninstalls it. Everything lives in one data folder, in SQLite, or PostgreSQL for a large server. The [self-hosting guide](docs/SELF_HOSTING.md) covers proxies, backups and phone notifications, and [LINUX.md](docs/LINUX.md) the scripts.
 
 ## Join a server
 
