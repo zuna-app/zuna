@@ -622,15 +622,27 @@ export abstract class SessionSending extends SessionConversations {
     if (now - (this.lastTypingSent.get(groupId) ?? 0) < TYPING_THROTTLE_MS) return;
     if (!this.hasMlsGroup(groupId)) return;
     this.lastTypingSent.set(groupId, now);
-    const epoch = this.rememberCurrentEpochKey(groupId);
-    const key = this.epochKey(groupId, epoch);
-    if (!key) return;
-    // Signed inside, so that a server can't show someone typing who isn't, timed, so it can't send it on again
-    // later, and sealed, so it doesn't say who's typing, which would name whoever sends the message after it.
-    const data = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, "typing", epoch, { at: now }, this.signer));
-    void this.seal(groupId, epoch, null)
-      .then((seal) => this.api.sealedTyping(groupId, seal, data))
+    void this.cleanBeforeSignal(groupId)
+      .then(() => {
+        const epoch = this.rememberCurrentEpochKey(groupId);
+        const key = this.epochKey(groupId, epoch);
+        if (!key) return;
+        // Signed inside, so that a server can't show someone typing who isn't, timed, so it can't send it on again
+        // later, and sealed, so it doesn't say who's typing, which would name whoever sends the message after it.
+        const data = frameSigned(epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, "typing", epoch, { at: now }, this.signer));
+        return this.seal(groupId, epoch, null).then((seal) => this.api.sealedTyping(groupId, seal, data));
+      })
       .catch(() => undefined);
+  }
+
+  /**
+   * Takes out whoever shouldn't hold a group's key before a signal is sealed under it, as before a
+   * message: who's typing, how far someone has read, what a room watches and which sound played are
+   * the members' alone too. Quick once the tree has been checked for the epoch.
+   */
+  protected async cleanBeforeSignal(groupId: string): Promise<void> {
+    if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
+    await this.withLock(groupId, () => this.ensureTreeClean(groupId));
   }
 
   async markRead(groupId: string, seq: number): Promise<void> {
@@ -650,11 +662,21 @@ export abstract class SessionSending extends SessionConversations {
    */
   protected async sendRead(group: CachedGroup): Promise<void> {
     const seq = group.ownRead;
+    const receipts = this.prefs.sendReadReceipts && group.kind !== "channel";
+    // A position nobody else may read waits until it can go: it goes again at the next sync.
+    if (receipts) {
+      try {
+        await this.cleanBeforeSignal(group.id);
+      } catch (error) {
+        console.warn("[zuna] read state", error);
+        return;
+      }
+    }
     const epoch = this.rememberCurrentEpochKey(group.id);
     const { userId, deviceSecret, accountKey } = this.account;
     let framed: Uint8Array;
     // Nobody has read ticks in a channel, so where someone is stays their own.
-    if (this.prefs.sendReadReceipts && group.kind !== "channel") {
+    if (receipts) {
       const key = this.epochKey(group.id, epoch);
       if (!key) return;
       framed = frameSigned(epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }, this.signer));

@@ -722,6 +722,7 @@ export abstract class SessionChannels extends SessionManagement {
 
   /** Seals a signal under the room's key for its current epoch, signed by this device, as a played sound is. */
   protected async sendWatch(channelId: string, signal: WatchSignal, to?: string): Promise<void> {
+    await this.cleanBeforeSignal(channelId);
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
     if (!key) throw new Error(t("errors.thisDeviceIsntReadyTo"));

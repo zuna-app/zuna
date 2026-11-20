@@ -164,6 +164,8 @@ export abstract class SessionJoining extends SessionGroups {
       // Until that's worked, nothing about this leaf has been checked, so it counts for nothing.
       const pinned = this.pinnedIdentity(cert.userId);
       if (!pinned) return { ...found, genuine: false, unchecked: true };
+      // What the log says of them came without its body, and may be that this device was removed.
+      if (this.withheldUsers.has(cert.userId)) return { ...found, genuine: false, unchecked: true };
       const standing = this.certificateStanding(cert.userId, pinned, member.credential);
       // A certificate from a generation the log has a link for, which the server hasn't handed over,
       // is a real device's: it waits for the link rather than being removed over it.
@@ -175,7 +177,8 @@ export abstract class SessionJoining extends SessionGroups {
         const known = this.users.get(cert.userId)?.devices.get(cert.deviceId);
         if (!known || !equalBytes(known.signatureKey, standing.cert.signatureKey)) return { ...found, genuine: false, unchecked: true };
       }
-      return { ...found, genuine: !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey) };
+      const genuine = !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey);
+      return standing?.gone ? { ...found, genuine, gone: true } : { ...found, genuine };
     });
     // A device ID is only someone's together with whose it is: another account can claim the same one.
     const seen = new Set<string>();
@@ -378,6 +381,14 @@ export abstract class SessionJoining extends SessionGroups {
     }
   }
 
+  /** Leaves of other people's devices that look genuine, which the server doesn't list among their devices. */
+  protected unlistedLeaves(groupId: string): number[] {
+    const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
+    return this.treeMembers(groupId)
+      .filter((member) => member.genuine && !member.gone && member.userId !== this.account.userId && roster.has(member.userId) && !this.users.get(member.userId)?.devices.has(member.deviceId))
+      .map((member) => member.leaf);
+  }
+
   /**
    * Removes anyone from the tree who shouldn't be in it, before this device
    * encrypts anything else: someone who just left or was banned, and any leaf that
@@ -399,6 +410,9 @@ export abstract class SessionJoining extends SessionGroups {
         throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
       }
       if ((await this.staleLeaves(groupId)).length === 0) {
+        // A device of someone else's that the server no longer lists may have been removed in a way this
+        // device hasn't heard of yet: nothing goes to it until the server says what became of it.
+        if (this.unlistedLeaves(groupId).length > 0) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
         this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));
         return;
       }

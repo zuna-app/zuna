@@ -129,6 +129,7 @@ export abstract class SessionServer extends SessionChannels {
   async playSound(channelId: string, soundId: string): Promise<void> {
     if (!this.sounds.get(soundId)?.details) throw new Error(t("errors.thatSoundIsntOnThe"));
     if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error(t("errors.joinVoiceToPlay"));
+    await this.cleanBeforeSignal(channelId);
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
     if (!key) throw new Error(t("errors.thisDeviceCantPlaySounds"));

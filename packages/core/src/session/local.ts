@@ -368,6 +368,13 @@ export abstract class SessionLocal extends SessionBase {
       bot: api.bot ? { ownerId: api.bot.owner_id, listed: api.bot.listed === true, add: api.bot.add === "admins" || api.bot.add === "anyone" ? api.bot.add : "owner" } : null,
     };
     if (api.bot?.proof) this.botProofs.set(api.id, api.bot.proof);
+    // Which devices count, and which are removed, decides whose leaves are stale: every tree is checked again.
+    const standing = (held: Map<string, CachedDevice> | undefined) =>
+      [...(held?.values() ?? [])]
+        .map((device) => `${device.id}:${device.revoked ? 1 : 0}:${toBase64(device.signatureKey)}`)
+        .sort()
+        .join(",");
+    if (previous && standing(previous.devices) !== standing(devices)) this.cleanEpochs.clear();
     this.users.set(api.id, user);
     this.persistUser(user);
     // An account the server says is a bot's keeps a bot's rules, as after its data was brought back with its recovery key.

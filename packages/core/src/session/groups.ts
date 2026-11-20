@@ -245,6 +245,8 @@ export abstract class SessionGroups extends SessionRotation {
    * keeping only ones their identity key vouches for.
    */
   protected async claimKeyPackages(userId: string, groupId: string, exceptDevice?: string): Promise<{ deviceId: string; data: Uint8Array }[]> {
+    // While what the log says of them can't be read, none of their devices is known to still be theirs.
+    if (this.withheldUsers.has(userId)) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
     const user = await this.ensureUser(userId, true);
     if (!user) return [];
     const pinned = this.pinnedIdentity(userId) ?? user.identityKey;
@@ -395,6 +397,9 @@ export abstract class SessionGroups extends SessionRotation {
       if (groupId === api.id && !group.historyWanted?.includes(userId!)) this.historyHandedOn.delete(asked);
     }
     this.showRosterRoles(group);
+    // Who's listed decides whose leaves are stale, so the tree is checked again before anything's sent.
+    const membersOf = (members: CachedGroup["members"]) => members.map((member) => member.userId).sort().join(",");
+    if (!previous || membersOf(previous.members) !== membersOf(group.members) || previous.doubtful !== group.doubtful) this.cleanEpochs.delete(api.id);
     this.groups.set(api.id, group);
     this.checkSendKey(api.id, api.epoch, api.send_key);
     this.refreshGroupSecrets(group);
@@ -451,6 +456,7 @@ export abstract class SessionGroups extends SessionRotation {
     group.rosterBefore = group.roster;
     group.roster = toBase64(bytes);
     this.showRosterRoles(group);
+    this.cleanEpochs.delete(groupId);
     this.persistGroup(group);
     // This account's other devices, and any it signs in on later, hold the group to this.
     this.sayRostersSoon();

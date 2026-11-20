@@ -39,6 +39,10 @@ const LOG_CHECKPOINT = 256;
 const HEAD_RESENT_MS = 7 * 24 * 3600 * 1000;
 /** Past this many accounts the log said something new about, they're all listed again at once. */
 const LOG_REFRESH_ONE_BY_ONE = 20;
+/** How many times asking for an account's bodies fails before the person is told, and how long between tries. */
+const BODIES_TRIES = 3;
+const BODIES_RETRY_MS = 5000;
+const BODIES_RETRY_MAX_MS = 5 * 60 * 1000;
 /** How often the manifest is written only to carry a newer head. */
 const HEAD_IN_MANIFEST_MS = 24 * 3600 * 1000;
 
@@ -127,6 +131,17 @@ export abstract class SessionDirectory extends SessionChains {
   protected logBumps = new Map<string, number>();
   /** When the log was last read as far as the server said it goes (ms). */
   protected logReadAt = 0;
+  /**
+   * Accounts this device knows whose records the log holds without their bodies. What it says of them
+   * can't be read, so their devices count for nothing new: none of their leaves is encrypted to, and
+   * none of their key packages taken, until the bodies come (`askForBodies`).
+   */
+  protected withheldUsers = new Set<string>();
+  /** Accounts whose bodies are being asked for, and how many times in a row asking failed. */
+  protected bodiesAsked = new Set<string>();
+  protected bodiesFailed = new Map<string, number>();
+  /** Unopened records were tested against the accounts known, this session. */
+  protected withheldLooked = false;
 
   protected logState(): LogState {
     if (!this.logLoaded) {
@@ -227,7 +242,11 @@ export abstract class SessionDirectory extends SessionChains {
     }
     this.logRead = true;
     this.logReadAt = Date.now();
-    if (read) this.lookForWithheld();
+    // Once a session too, as nothing remembers which accounts had records come without their bodies.
+    if (read || !this.withheldLooked) {
+      this.withheldLooked = true;
+      this.lookForWithheld();
+    }
     this.checkFloor();
     if (this.logState().own === null && this.logState().frontier.size > 0) this.warnOnce("log/own", t(WARNINGS.ownLeftOut), this.account.userId);
   }
@@ -249,6 +268,9 @@ export abstract class SessionDirectory extends SessionChains {
     this.loggedAccounts.clear();
     this.logBumps.clear();
     this.standingCache.clear();
+    this.withheldUsers.clear();
+    // What the log says of a device decides whose leaves are stale, so every tree is checked again.
+    this.cleanEpochs.clear();
     this.logLoaded = {
       ...state,
       era,
@@ -398,6 +420,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.unsavedAccounts.add(body.user);
     this.logTouched.add(body.user);
     this.logBumps.set(body.user, (this.logBumps.get(body.user) ?? 0) + 1);
+    this.cleanEpochs.clear();
     switch (body.t) {
       case "account": {
         if (account.account) {
@@ -576,7 +599,54 @@ export abstract class SessionDirectory extends SessionChains {
         if (equalBytes(userTag(id, parts.nonce), parts.userTag)) wanted.set(id, [...(wanted.get(id) ?? []), row.idx]);
       }
     }
-    for (const [id, places] of wanted) void this.askForBodies(id, places).catch((error) => console.warn("[zuna] asking for the log's entries about someone", error));
+    for (const [id, places] of wanted) {
+      if (!this.withheldUsers.has(id)) {
+        this.withheldUsers.add(id);
+        this.cleanEpochs.clear();
+      }
+      if (this.bodiesAsked.has(id)) continue;
+      this.bodiesAsked.add(id);
+      void this.askForBodies(id, places)
+        .then(
+          () => this.bodiesFailed.delete(id),
+          (error) => this.noteBodiesFailed(id, error),
+        )
+        .finally(() => this.bodiesAsked.delete(id));
+    }
+  }
+
+  /**
+   * Asking for an account's bodies failed. A server can't keep them back by failing the request: it's
+   * asked again, and after a few tries, whatever went wrong, the person is warned.
+   */
+  protected noteBodiesFailed(userId: string, error: unknown): void {
+    console.warn("[zuna] asking for the log's entries about someone", error);
+    const failures = (this.bodiesFailed.get(userId) ?? 0) + 1;
+    this.bodiesFailed.set(userId, failures);
+    if (failures >= BODIES_TRIES) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
+    if (this.stopped) return;
+    const timer = setTimeout(() => {
+      if (!this.stopped && this.withheldUsers.has(userId)) this.lookForWithheld([userId]);
+    }, Math.min(BODIES_RETRY_MS * 2 ** (failures - 1), BODIES_RETRY_MAX_MS));
+    (timer as { unref?: () => void }).unref?.();
+  }
+
+  /** Whether this device shares a conversation with someone, where their devices would be encrypted to. */
+  protected sharesAConversation(userId: string): boolean {
+    for (const group of this.groups.values()) {
+      if (!group.removedAt && group.members.some((member) => member.userId === userId)) return true;
+    }
+    return false;
+  }
+
+  /** The records already opened that fit an account, whose bodies the server has to give again. */
+  protected openedFor(userId: string): number[] {
+    const out: number[] = [];
+    for (const row of this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 1")) {
+      const parts = readRecord(row.record);
+      if (parts && equalBytes(userTag(userId, parts.nonce), parts.userTag)) out.push(row.idx);
+    }
+    return out;
   }
 
   /** Someone newly there for this device, such as a private bot it was just put in a chat with. */
@@ -594,17 +664,22 @@ export abstract class SessionDirectory extends SessionChains {
       answer = await this.api.logBodies(userId);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 404) throw error;
-      const listed = await this.api.user(userId).then(
-        () => true,
-        (failure: unknown) => (failure instanceof ApiError && failure.status === 404 ? false : Promise.reject(failure)),
-      );
+      // Someone this device shares a conversation with is there for it, whatever the server says now.
+      const listed =
+        this.sharesAConversation(userId) ||
+        (await this.api.user(userId).then(
+          () => true,
+          (failure: unknown) => (failure instanceof ApiError && failure.status === 404 ? false : Promise.reject(failure)),
+        ));
       if (listed) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
       return;
     }
     const state = this.logState();
     if (answer.era !== state.era) return;
     const given = new Map(answer.bodies.map((item) => [item.idx, decode(item.body)]));
-    if (places.some((idx) => !given.has(idx))) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
+    // What's rebuilt is all the log says of the account, so leaving out one already read, such as a
+    // device's removal, would take it back.
+    if ([...places, ...this.openedFor(userId)].some((idx) => !given.has(idx))) return this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);
     const entries: { idx: number; body: LogBody }[] = [];
     for (const [idx, bytes] of [...given].sort((a, b) => a[0] - b[0])) {
       const row = this.db.get<{ record: Uint8Array }>("SELECT record FROM log_records WHERE idx = ?", [idx]);
@@ -619,6 +694,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.db.transaction(() => {
       this.loggedAccounts.set(userId, null);
       this.logBumps.set(userId, (this.logBumps.get(userId) ?? 0) + 1);
+      this.cleanEpochs.clear();
       this.db.run("DELETE FROM log_accounts WHERE user_id = ?", [userId]);
       const quiet = state.quietBelow;
       state.quietBelow = state.frontier.size;
@@ -630,6 +706,7 @@ export abstract class SessionDirectory extends SessionChains {
       this.saveLoggedAccounts();
       this.saveLogState();
     });
+    this.withheldUsers.delete(userId);
     await this.refreshLogTouched();
   }
 

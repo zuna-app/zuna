@@ -276,6 +276,8 @@ export interface TreeMember {
   unchecked?: boolean;
   /** In a DM, someone who isn't one of its two people. */
   outsider?: boolean;
+  /** The log says its device was removed, whatever the server lists: it's stale, though nobody is caught out. */
+  gone?: boolean;
 }
 
 export interface MessageRow {

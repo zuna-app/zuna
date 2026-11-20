@@ -635,6 +635,11 @@ export abstract class SessionChanges extends SessionJoining {
     const stale: number[] = [];
     for (const member of this.treeMembers(groupId)) {
       if (member.leaf === own) continue;
+      // Removed, as the log says, whether or not the server still lists the device.
+      if (member.gone) {
+        stale.push(member.leaf);
+        continue;
+      }
       // Not caught out, only not checked yet. ensureTreeClean waits for that.
       if (member.unchecked && roster.has(member.userId)) continue;
       if (!member.genuine || !roster.has(member.userId) || !this.admitted(group, member.userId)) {
