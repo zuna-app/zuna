@@ -28,7 +28,7 @@
 Zuna looks like the chat apps you know: servers as icons on a rail, channels anyone can join, direct messages with everyone on the server, and invite-only groups. The difference is that nobody owns it. Anyone can run a server in a few minutes, and that server only ever holds ciphertext, so even the person running it can't read a word.
 
 > [!NOTE]
-> Zuna is **pre-1.0**. There's no stable release yet, only nightlies, built from `main` several times a day. Expect rough edges, and read [the limits](#honest-limits) before trusting it with anything high-risk.
+> Zuna is **pre-1.0**. 0.1.0 is its first stable release, and nightlies are built from `main` several times a day. Expect rough edges, and read [the limits](#honest-limits) before trusting it with anything high-risk.
 
 ## Highlights
 

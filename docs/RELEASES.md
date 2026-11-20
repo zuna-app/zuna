@@ -243,7 +243,7 @@ To replace a key: make the new one with `keygen --spare`, add its public half to
 - **The Authenticode lock,** as no build is signed.
 - **The macOS DMG a release carries.** Nightly 1156 was built on a runner, in 21 minutes with nothing cached, signed with the Developer ID imported there from the environment, notarized with the key and stapled, and Gatekeeper accepted the app and its DMG on that runner. Opening a DMG downloaded from a release, with the quarantine a browser gives it, hasn't been seen.
 - **The iPhone app for the App Store from CI.** Nightlies archived, signed, checked and uploaded on CI reach the team's iPhones from TestFlight, as 1559 and 1601 did. A stable release's upload, unmarked for the App Store, hasn't run.
-- **A patch from a line's branch on GitHub,** as there's no stable release yet. The script cut one from `release/0.1` in a throwaway clone, with a local origin, after a stable release from `main` had made the branch, and refused a nightly there, a patch with something new, one past the newest nightly and one on an older line.
+- **A patch from a line's branch on GitHub,** as none has been needed yet. The script cut one from `release/0.1` in a throwaway clone, with a local origin, after a stable release from `main` had made the branch, and refused a nightly there, a patch with something new, one past the newest nightly and one on an older line.
 - **Two maintainers' sessions cutting a release at the same moment.** The script refuses when `main` moved, and the workflow cancels a nightly that's overtaken, but neither has been seen happening.
 
 ## Later, each its own piece of work

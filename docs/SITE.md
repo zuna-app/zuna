@@ -50,7 +50,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/ter
 - React 19, Vite 8 and `@vitejs/plugin-react` 6, the versions the rest of the repository uses.
 - Prerendered at build time: Vite builds a server bundle, `react-dom/static` renders each page into its HTML, and the browser hydrates it. No framework.
 - Plain CSS with custom properties, as `packages/ui` does. Fonts from `@fontsource-variable`, icons from `lucide-react`.
-- Download links are fetched from the latest GitHub release at build time, since file names carry the version. GitHub's latest release leaves nightlies out, so until the first stable release they lead to the releases page. The visitor's browser never contacts GitHub.
+- Download links are fetched from the latest GitHub release at build time, since file names carry the version. GitHub's latest release leaves nightlies out, so they lead to the newest stable release's files, or to the releases page when there's none. The visitor's browser never contacts GitHub.
 - No cookies, analytics or requests to any other origin, under a strict content security policy. `apps/site/test/site-check.mjs` checks that, with screenshots at 375, 768 and 1440 pixels wide and no sideways scrolling.
 - A sitemap and `robots.txt` are made at build time. The picture a shared link shows, `public/og.png`, is drawn by `og.mjs` in the page's fonts, and kept in the repository.
 - The maintainers host it on their own server, not on GitHub. "Hosting" below says what that takes.
