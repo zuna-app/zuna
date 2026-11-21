@@ -145,6 +145,16 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(share.label, "Stop sharing")
         try waitFor("the screen to stay on while it's shown") { try self.voiceState()["awake"] as? Bool == true }
         zuna.screenshot("96b-voice-screen")
+        // Full screen it turns sideways with the phone, and the stage is upright again once it's closed.
+        zuna.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "voice.fullScreen.")).firstMatch.tap()
+        let viewer = zuna.element(A11y.Voice.viewer)
+        XCTAssertTrue(viewer.waitForExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        try waitFor("the screen to turn sideways") { self.zuna.app.frame.width > self.zuna.app.frame.height }
+        zuna.element(A11y.Voice.closeViewer).tap()
+        try waitFor("the stage upright again") { !viewer.exists && self.zuna.app.frame.height > self.zuna.app.frame.width }
+        XCUIDevice.shared.orientation = .portrait
         share.tap()
         try waitFor("alice to see it stopped") { try self.bobsPhone(alice)?["screen"] as? Bool == false }
         try waitFor("his screen off his stage") { !ownScreen.exists }

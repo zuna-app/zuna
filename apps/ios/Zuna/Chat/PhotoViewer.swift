@@ -8,6 +8,7 @@ import ZunaModels
 /// screen, and drag it up or down to close, the chat showing through as it goes. Above it, Close,
 /// who sent it and when, and Share; under a video, play and where it's at. A tap hides or shows
 /// them, the status bar and the shade behind them. A video plays as it comes (`VideoStream`).
+/// On a phone, which otherwise stays upright, it turns sideways with it, the chat turning back as it closes.
 @MainActor
 final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
     private let items: [Item]
@@ -91,6 +92,18 @@ final class PhotoViewer: UIViewController, UIPageViewControllerDataSource, UIPag
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
     override var prefersHomeIndicatorAutoHidden: Bool { chromeHidden }
+
+    /// Sideways while it's up, so a video held that way fills the screen.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Orientation.allowRotation(.viewer, true)
+    }
+
+    /// Upright again as it goes, rather than once the chat is back on show sideways.
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        Orientation.allowRotation(.viewer, false)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()

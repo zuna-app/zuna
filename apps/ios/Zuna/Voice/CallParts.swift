@@ -162,11 +162,11 @@ struct VideoViewer: View {
             }
         }
         .onAppear {
-            Orientation.allowRotation(true)
+            Orientation.allowRotation(.callVideo, true)
             ScreenAwake.hold(.viewer, true)
         }
         .onDisappear {
-            Orientation.allowRotation(false)
+            Orientation.allowRotation(.callVideo, false)
             ScreenAwake.hold(.viewer, false)
         }
         // Nothing to watch once they've stopped.
@@ -176,17 +176,24 @@ struct VideoViewer: View {
     }
 }
 
-/// The app stays upright on a phone, except to watch a video sideways.
+/// The app stays upright on a phone, except to watch a video or look at a picture sideways: a
+/// call's video full screen, or the chat's pictures and videos in the viewer.
 @MainActor
 enum Orientation {
-    private(set) static var mask: UIInterfaceOrientationMask = .portrait
+    enum Reason { case callVideo, viewer }
 
-    static func allowRotation(_ allowed: Bool) {
+    private static var reasons: Set<Reason> = []
+
+    static var mask: UIInterfaceOrientationMask { reasons.isEmpty ? .portrait : .allButUpsideDown }
+
+    static func allowRotation(_ reason: Reason, _ allowed: Bool) {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        mask = allowed ? .allButUpsideDown : .portrait
+        let before = mask
+        if allowed { reasons.insert(reason) } else { reasons.remove(reason) }
+        guard mask != before else { return }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            if !allowed { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) }
+            if reasons.isEmpty { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) }
         }
     }
 }

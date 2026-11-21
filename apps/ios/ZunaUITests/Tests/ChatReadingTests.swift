@@ -435,6 +435,17 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("it to play", timeout: 20) { (seconds() ?? 0) >= 1 && play.label == "Pause" }
         zuna.screenshot("63d-video-playing")
 
+        // Turned sideways, as the phone is, it fills the screen that way, its bar too.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let page = zuna.element(A11y.Chat.videoPage)
+        try waitFor("the video to turn sideways") {
+            let screen = self.zuna.app.frame
+            return screen.width > screen.height && page.frame.width >= screen.width - 1 && page.frame.height >= screen.height - 1
+        }
+        XCTAssertTrue(zuna.app.frame.contains(position.frame), "\(position.frame) past \(zuna.app.frame)")
+        zuna.screenshotScreen("63e-video-sideways")
+
         // Dragged most of the way, it plays on from there.
         position.adjust(toNormalizedSliderPosition: 0.75)
         try waitFor("it to play from where it was dragged to", timeout: 20) { (seconds() ?? 0) >= 6 && play.label == "Pause" }
@@ -442,8 +453,10 @@ final class ChatReadingTests: XCTestCase {
         // Share, once all of it is on the phone.
         let share = zuna.app.buttons["Share"]
         try waitFor("all of it to come", timeout: 60) { share.isEnabled }
+        // Closed with the phone still sideways, the chat is upright again, where it was.
         zuna.app.buttons["Close"].tap()
         try waitFor("the viewer to close") { !viewer.exists }
+        try waitFor("the chat upright again") { self.zuna.app.frame.height > self.zuna.app.frame.width }
         XCTAssertTrue(tile.isHittable)
     }
 

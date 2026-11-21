@@ -88,7 +88,7 @@ targets:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
         UIApplicationSupportsIndirectInputEvents: true
-        # Upright, but for a video watched full screen in a call (Orientation in Voice/CallParts.swift).
+        # Upright, but for a video watched full screen in a call and the chat's picture viewer (Orientation in Voice/CallParts.swift).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

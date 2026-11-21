@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    /// Upright on a phone, except for a call's video watched full screen.
+    /// Upright on a phone, except for a call's video watched full screen and the chat's pictures and videos.
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         UIDevice.current.userInterfaceIdiom == .phone ? Orientation.mask : .all
     }
