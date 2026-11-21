@@ -20,23 +20,33 @@ use crate::models::{DeviceView, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Accent, RADIUS_M, RADIUS_S, TextSize, Theme};
 
-/// Each section: its id, the key of its name, and its icon.
-const SECTIONS: [(&str, &str, &str); 11] = [
+/// A section: its id, the key of its name, and its icon.
+type Section = (&'static str, &'static str, &'static str);
+
+/// The sections that are the server in front's own, under its name, which the Telegram account
+/// in front has none of.
+const SERVER_SECTIONS: [Section; 4] = [
     ("profile", mark("settings.sections.profile"), "user-round"),
     ("privacy", mark("settings.sections.privacy"), "lock"),
+    ("security", mark("settings.sections.security"), "shield-check"),
+    ("data", mark("settings.sections.data"), "server"),
+];
+
+/// The sections that are this device's, for every server on it, under "App".
+const APP_SECTIONS: [Section; 8] = [
     ("connections", mark("settings.connections.title"), "link"),
+    ("device-privacy", mark("settings.sections.devicePrivacy"), "eye-off"),
     ("notifications", mark("settings.sections.notifications"), "bell"),
     ("voice", mark("settings.sections.voice"), "mic"),
     ("screen", mark("settings.sections.screen"), "monitor-up"),
     ("appearance", mark("settings.sections.appearance"), "palette"),
-    ("security", mark("settings.sections.security"), "shield-check"),
-    ("data", mark("settings.sections.data"), "server"),
     ("plugins", mark("settings.sections.plugins"), "puzzle"),
     ("about", mark("settings.sections.about"), "info"),
 ];
 
-/// The sections that are a server's own, which the Telegram account in front has none of.
-const SERVER_SECTIONS: [&str; 4] = ["profile", "privacy", "security", "data"];
+fn is_servers(section: &str) -> bool {
+    SERVER_SECTIONS.iter().any(|(id, _, _)| *id == section)
+}
 
 pub struct SettingsView {
     state: Entity<AppState>,
@@ -197,6 +207,100 @@ impl SettingsView {
         .detach();
     }
 
+    /// Shows another server's own settings: it comes to the front, as a click on it in the rail
+    /// brings it, and what was read or typed here for the one before goes.
+    fn switch_server(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| state.select_server(id, cx));
+        self.devices.clear();
+        self.recovery_key = None;
+        self.strength = (0, String::new());
+        for input in [self.current.clone(), self.next.clone(), self.confirm.clone(), self.recovery_password.clone()] {
+            input.update(cx, |input, cx| input.set_text(String::new(), cx));
+        }
+        self.reset_profile(cx);
+        self.load_devices(cx);
+        if self.section == "data" {
+            self.load_server_data(false, cx);
+        }
+        cx.notify();
+    }
+
+    /// Above the server's own sections: the one they're for, and every other server to pick
+    /// from instead, or a prompt to pick one while the Telegram account is in front.
+    fn server_picker(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = theme(cx);
+        let (servers, front) = {
+            let state = self.state.read(cx);
+            let servers: Vec<_> = state.order.iter().filter_map(|id| state.servers.get(id)).filter(|server| !server.entry.is_telegram()).map(|server| (server.entry.id.clone(), server.entry.name.clone(), server.entry.url.clone(), server.entry.has_icon)).collect();
+            (servers, state.active_server.clone())
+        };
+        if servers.is_empty() {
+            return None;
+        }
+        let choices: Vec<_> = servers
+            .into_iter()
+            .map(|(id, name, url, has_icon)| {
+                let image = if has_icon {
+                    let icon_url = format!("{url}/api/icon");
+                    self.state.update(cx, |state, cx| state.remote_picture(&icon_url, cx))
+                } else {
+                    None
+                };
+                (id, name, url, image)
+            })
+            .collect();
+        let current = choices.iter().find(|(id, ..)| front.as_deref() == Some(id.as_str())).cloned();
+        let (bounds, probe) = bounds_probe();
+        let view = cx.entity().downgrade();
+        Some(
+            named_div("settings-server")
+                .relative()
+                .child(probe)
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .mb(px(4.))
+                .px(px(8.))
+                .py(px(6.))
+                .rounded(RADIUS_M)
+                .border_1()
+                .border_color(theme.line)
+                .bg(theme.bg2)
+                .hover(move |style| style.bg(theme.hover))
+                .cursor_pointer()
+                .child(match &current {
+                    Some((_, name, url, image)) => avatar(AvatarProps { name: name.clone(), seed: url.clone(), image: image.clone(), size: 22., online: false, rounded: true, dot_border: theme.bg2 }, cx).into_any_element(),
+                    None => icon("server", 16., theme.text2).into_any_element(),
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .one_line()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(if current.is_some() { theme.text1 } else { theme.text2 })
+                        .child(current.as_ref().map(|(_, name, ..)| name.clone()).unwrap_or_else(|| t("settings.groups.chooseServer").to_string())),
+                )
+                .child(icon("chevrons-up-down", 14., theme.text3))
+                .on_click(move |_, _, cx| {
+                    let at = bounds.get();
+                    let entries = choices
+                        .iter()
+                        .map(|(id, name, url, image)| {
+                            let (view, id) = (view.clone(), id.clone());
+                            crate::ui::menu::MenuEntry::plain(name.clone(), std::rc::Rc::new(move |_, cx| {
+                                view.update(cx, |view, cx| view.switch_server(&id, cx)).ok();
+                            }))
+                            .with_avatar(name.clone(), url.clone(), image.clone())
+                        })
+                        .collect();
+                    crate::ui::menu::open_menu_from("settings-server", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
+                })
+                .into_any_element(),
+        )
+    }
+
     fn close(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| state.set_overlay(None, cx));
     }
@@ -240,7 +344,6 @@ impl SettingsView {
 
     fn about(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
-        let server = self.state.read(cx).active().cloned();
         let mut parts = vec![
             div()
                 .flex()
@@ -256,9 +359,6 @@ impl SettingsView {
                 .into_any_element(),
         ];
         parts.extend(self.updates(cx));
-        if let Some(server) = server {
-            parts.push(Self::row(&server.entry.name, Some(&server.entry.url), div().text_size(px(12.5)).text_color(theme.text3).child(server.info.map(|info| info.version).unwrap_or_default()), &theme));
-        }
         let links = [("source", t("settings.about.sourceCode"), super::PROJECT_URL.to_string()), ("security-model", t("settings.about.securityModel"), format!("{}/blob/main/SECURITY.md", super::PROJECT_URL)), ("terms", t("settings.about.terms"), super::TERMS_URL.to_string())];
         parts.push(
             div()
@@ -339,16 +439,14 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let telegram_in_front = self.state.read(cx).active().is_some_and(|server| server.entry.is_telegram());
-        let has_connections = crate::telegram::available() || self.state.read(cx).servers.contains_key(crate::telegram::SERVER_ID);
-        if telegram_in_front && SERVER_SECTIONS.contains(&self.section.as_str()) {
+        // Whether a server is in front, whose own sections are shown: none while it's Telegram.
+        let has_server = self.state.read(cx).active().is_some_and(|server| !server.entry.is_telegram());
+        if !has_server && is_servers(&self.section) {
             self.section = "connections".into();
-        }
-        if self.section == "connections" && !has_connections {
-            self.section = "profile".into();
         }
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
+            "device-privacy" => self.device_privacy(cx),
             "notifications" => self.notifications(cx),
             "voice" => {
                 let state = self.state.clone();
@@ -374,6 +472,37 @@ impl Render for SettingsView {
         };
         // Each plugin with settings has a section of its own, under a heading of their own.
         let plugin_sections = Self::plugin_sections(cx);
+        let picker = self.server_picker(cx);
+        let group = |label: String, first: bool| div().px(px(10.)).when(!first, |el| el.pt(px(14.))).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child(label);
+        let entry = |(id, label, icon_name): Section, cx: &mut Context<Self>| {
+            let active = self.section == id;
+            named_div(SharedString::from(format!("section-{id}")))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(RADIUS_M)
+                .text_size(px(14.))
+                .text_color(if active { theme.text1 } else { theme.text2 })
+                .when(active, |el| el.bg(theme.bg3))
+                .when(!active, |el| el.hover(move |style| style.bg(theme.hover).text_color(theme.text1)))
+                .cursor_pointer()
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    view.section = id.to_string();
+                    if view.section == "profile" {
+                        view.reset_profile(cx);
+                    } else if view.section == "data" {
+                        view.load_server_data(false, cx);
+                    }
+                    cx.notify();
+                }))
+                .child(icon(icon_name, 17., if active { theme.text1 } else { theme.text2 }))
+                .child(div().flex_1().min_w_0().one_line().child(t(label)))
+        };
+        let has_servers = picker.is_some();
+        let server_entries: Vec<_> = if has_server { SERVER_SECTIONS.into_iter().map(|section| entry(section, cx)).collect() } else { Vec::new() };
+        let app_entries: Vec<_> = APP_SECTIONS.into_iter().map(|section| entry(section, cx)).collect();
         let nav = div()
             .w(px(228.))
             .flex_none()
@@ -386,35 +515,12 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .gap(px(1.))
-            .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child(t("settings.title")))
-            // Connections only where Telegram can be linked, or one is: a build without an api_id has nothing to say there.
-            .children(SECTIONS.iter().filter(|(id, _, _)| (!telegram_in_front || !SERVER_SECTIONS.contains(id)) && (*id != "connections" || has_connections)).map(|(id, label, icon_name)| {
-                let active = self.section == *id;
-                let id_string = id.to_string();
-                named_div(SharedString::from(format!("section-{id}")))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(10.))
-                    .py(px(7.))
-                    .rounded(RADIUS_M)
-                    .text_size(px(14.))
-                    .text_color(if active { theme.text1 } else { theme.text2 })
-                    .when(active, |el| el.bg(theme.bg3))
-                    .when(!active, |el| el.hover(move |style| style.bg(theme.hover).text_color(theme.text1)))
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |view, _, _, cx| {
-                        view.section = id_string.clone();
-                        if view.section == "profile" {
-                            view.reset_profile(cx);
-                        } else if view.section == "data" {
-                            view.load_server_data(false, cx);
-                        }
-                        cx.notify();
-                    }))
-                    .child(icon(icon_name, 17., if active { theme.text1 } else { theme.text2 }))
-                    .child(t(*label))
-            }))
+            // Which server's own sections are shown, then those, then the app's, for every server.
+            .when(picker.is_some(), |el| el.child(group(t("settings.groups.server").to_string(), true)))
+            .children(picker)
+            .children(server_entries)
+            .child(group(t("settings.groups.app").to_string(), !has_servers))
+            .children(app_entries)
             .when(!plugin_sections.is_empty(), |el| el.child(div().px(px(10.)).pt(px(14.)).pb(px(6.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).child(t("settings.sections.plugins"))))
             .children(plugin_sections.into_iter().map(|(uid, name, verified)| {
                 let section = format!("plugin:{uid}");
@@ -509,11 +615,7 @@ mod tests {
             state.set_overlay(Some(Overlay::Settings { section: None }), cx);
         });
         let view = app.window.update(cx, |root, _, _| root.settings.as_ref().and_then(|(_, view)| view.clone().downcast::<SettingsView>().ok())).unwrap().expect("Settings are open");
-        for (id, _, _) in SECTIONS {
-            if !app.drawn(cx, &format!("section-{id}")) {
-                assert_eq!(id, "connections", "only Connections is left out, in a build that can't link Telegram");
-                continue;
-            }
+        for (id, _, _) in SERVER_SECTIONS.into_iter().chain(APP_SECTIONS) {
             app.click(cx, &format!("section-{id}"));
             assert_eq!(cx.read(|cx| view.read(cx).section.clone()), id);
         }
@@ -531,5 +633,81 @@ mod tests {
         window.simulate_keystrokes("escape");
         app.run(cx);
         assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
+    }
+
+    /// The picker above the server's own sections lists every server but Telegram, and picking
+    /// one brings it to the front with Settings still open, from a server or from Telegram.
+    #[gpui::test]
+    fn the_picker_chooses_whose_settings_are_shown(cx: &mut TestAppContext) {
+        use crate::telegram::SERVER_ID as TELEGRAM;
+        let mut world = World::new("settings-picker");
+        // No call ringing, whose card would cover the picker.
+        world.server["getCalls"] = json!([]);
+        world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": TELEGRAM, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "1" }));
+        world.telegram = world.server.clone();
+        world.telegram.insert("getSelf".into(), json!({ "userId": "1", "username": "alice", "role": "member", "deviceId": "" }));
+        world.telegram.insert("getConversations".into(), json!([]));
+        world.telegram.insert("getChannels".into(), json!([]));
+        world.telegram.insert("takesCalls".into(), json!(true));
+        let app = Running::open(cx, &world);
+        let pick = |cx: &mut TestAppContext, name: &str| {
+            app.click(cx, "settings-server");
+            assert_eq!(cx.read(|cx| crate::ui::menu::open_labels(cx)), vec!["Test Server".to_string(), "Elsewhere".to_string()]);
+            assert!(app.window.update(cx, |_, window, cx| crate::ui::menu::choose(name, window, cx)).unwrap());
+            app.run(cx);
+        };
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::Settings { section: Some("security".into()) }), cx);
+        });
+        pick(cx, "Elsewhere");
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(OTHER));
+        assert!(app.read(cx, |state| matches!(state.overlay, Some(Overlay::Settings { .. }))), "Settings stay open");
+        assert!(app.drawn(cx, "section-security"));
+        // From Telegram, which has none of a server's sections, until a server is picked.
+        app.update(cx, |state, cx| {
+            state.set_overlay(None, cx);
+            state.select_server(TELEGRAM, cx);
+            state.set_overlay(Some(Overlay::Settings { section: None }), cx);
+        });
+        app.run(cx);
+        assert!(!app.drawn(cx, "section-profile"));
+        pick(cx, "Test Server");
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER));
+        assert!(app.drawn(cx, "section-profile"));
+    }
+
+    /// Connections lists every server, the one signed out of too, and the Telegram account apart
+    /// from them, whichever is in front; the server's own sections are there only while it is.
+    #[gpui::test]
+    fn connections_list_every_server_and_telegram(cx: &mut TestAppContext) {
+        use crate::telegram::SERVER_ID as TELEGRAM;
+        let mut world = World::new("settings-connections");
+        world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": TELEGRAM, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "1" }));
+        world.telegram = world.server.clone();
+        world.telegram.insert("getSelf".into(), json!({ "userId": "1", "username": "alice", "role": "member", "deviceId": "" }));
+        world.telegram.insert("getUsers".into(), json!([{ "id": "1", "username": "alice", "displayName": "Alice A", "role": "member", "trust": "unverified" }]));
+        world.telegram.insert("getConversations".into(), json!([]));
+        world.telegram.insert("getChannels".into(), json!([]));
+        world.telegram.insert("takesCalls".into(), json!(true));
+        let app = Running::open(cx, &world);
+        for front in [SERVER, TELEGRAM] {
+            app.update(cx, |state, cx| {
+                state.settings.reduce_motion = true;
+                state.select_server(front, cx);
+                state.set_overlay(Some(Overlay::Settings { section: (front == SERVER).then(|| "connections".into()) }), cx);
+            });
+            app.run(cx);
+            for id in [SERVER, OTHER] {
+                assert!(app.drawn(cx, &format!("connection-server-{id}")), "{id} is listed with {front} in front");
+            }
+            assert!(!app.drawn(cx, &format!("connection-server-{TELEGRAM}")), "Telegram isn't one of the servers");
+            assert!(app.drawn(cx, "connection-telegram") && app.drawn(cx, "tg-unlink"));
+            assert_eq!(app.drawn(cx, "section-profile"), front == SERVER, "the server's own sections, with {front} in front");
+            assert!(app.drawn(cx, "section-device-privacy"));
+            app.update(cx, |state, cx| state.set_overlay(None, cx));
+            app.run(cx);
+        }
     }
 }

@@ -1,15 +1,15 @@
-//! The Privacy, Notifications and Appearance sections, and the confirmation for keeping files'
-//! metadata.
+//! The Privacy sections, the server's and this device's, Notifications and Appearance, and the
+//! confirmation for keeping files' metadata.
 
 use super::*;
 
 impl SettingsView {
+    /// What the server in front shares of the person: read receipts, being online, and who's blocked.
     pub(super) fn privacy(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let Some((server, me)) = self.me(cx) else { return Vec::new() };
-        let settings = self.state.read(cx).settings.clone();
         let receipts = server.prefs.send_read_receipts;
-        let (state_a, state_b, state_c, state_d) = (self.state.clone(), self.state.clone(), self.state.clone(), self.state.clone());
+        let (state_a, state_b) = (self.state.clone(), self.state.clone());
         let hides = me.hides_last_seen;
         let mut parts = vec![
             Self::heading(t("settings.sections.privacy"), &theme),
@@ -46,8 +46,16 @@ impl SettingsView {
             ));
         }
         parts.push(div().text_size(px(12.5)).text_color(theme.text2).child(t("settings.privacy.blockedHint")).into_any_element());
-        parts.push(Self::divider(&theme));
-        parts.push(Self::subheading(t("settings.privacy.onThisDevice")));
+        parts
+    }
+
+    /// What this device does for every server on it: link previews, files' metadata, the proxy
+    /// and YouTube.
+    pub(super) fn device_privacy(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let settings = self.state.read(cx).settings.clone();
+        let (state_c, state_d) = (self.state.clone(), self.state.clone());
+        let mut parts = vec![Self::heading(t("settings.sections.devicePrivacy"), &theme), Self::lead(t("settings.privacy.deviceLead").into(), &theme)];
         let link_previews = settings.link_previews;
         parts.push(Self::row(
             t("settings.privacy.linkPreviews"),
@@ -397,6 +405,9 @@ mod tests {
         app.click(cx, "online");
         assert_eq!(app.calls_of("updatePreferences"), vec![vec![json!({ "sendReadReceipts": false })]]);
         assert_eq!(app.calls_of("setHideLastSeen"), vec![vec![json!(true)]]);
+        // What's this device's has a section of its own, and none of it is under the server's.
+        assert!(!app.drawn(cx, "link-previews"));
+        section(&app, cx, "device-privacy");
         let before = settings(&app, cx);
         app.click(cx, "link-previews");
         app.click(cx, "play-youtube");

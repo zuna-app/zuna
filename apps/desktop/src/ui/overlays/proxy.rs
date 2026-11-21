@@ -305,7 +305,7 @@ mod tests {
         app.click(cx, "proxy-on");
         fields[0].update(cx, |_, cx| cx.emit(InputEvent::Escape));
         app.run(cx);
-        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Settings { section: Some("privacy".into()) }));
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Settings { section: Some("device-privacy".into()) }));
         assert_eq!(super::milliseconds(Duration::from_micros(10)), "1 ms");
     }
 

@@ -345,7 +345,7 @@ impl Dialog {
         if matches!(self.kind, DialogKind::Channel { .. }) && self.deleting_channel.take().is_some() {
             return cx.notify();
         }
-        let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("privacy".into()) });
+        let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("device-privacy".into()) });
         self.state.update(cx, |state, cx| state.set_overlay(back, cx));
     }
 
