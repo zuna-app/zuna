@@ -747,6 +747,16 @@ mod tests {
         app.run(cx);
     }
 
+    /// Reduce motion on, so that the picker is where it's drawn from its first frame: the
+    /// window sets motion from the settings each time it's drawn, and the picker's entrance
+    /// moves it on real time, which under load left a click on a tab where it no longer was.
+    fn still(app: &Running, cx: &mut TestAppContext) {
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            cx.notify();
+        });
+    }
+
     fn layer(cx: &mut TestAppContext) -> Entity<PickerLayer> {
         cx.update(|cx| cx.global::<PickerGlobal>().0.clone())
     }
@@ -770,11 +780,11 @@ mod tests {
 
     #[gpui::test]
     fn a_large_set_is_built_only_near_what_is_seen(cx: &mut TestAppContext) {
-        crate::ui::motion::set_reduced(true);
         let mut world = World::new("picker-large-set");
         let emotes: Vec<_> = (0..300).map(|n| json!({ "id": format!("E{n:03}"), "name": format!("emote{n}"), "animated": true, "width": 28, "height": 28 })).collect();
         world.server["getEmotes"] = json!({ "set_id": "big", "set_name": "Big set", "emotes": emotes });
         let app = Running::open(cx, &world);
+        still(&app, cx);
         app.update(cx, |state, cx| state.select_server(SERVER, cx));
         let picked = Rc::new(RefCell::new(Vec::new()));
         open(&app, cx, true, &picked);
@@ -794,8 +804,8 @@ mod tests {
 
     #[gpui::test]
     fn emoji_and_emotes_are_found_and_picked(cx: &mut TestAppContext) {
-        crate::ui::motion::set_reduced(true);
         let app = Running::open(cx, &World::new("picker"));
+        still(&app, cx);
         app.update(cx, |state, cx| state.select_server(SERVER, cx));
         let picked = Rc::new(RefCell::new(Vec::new()));
         open(&app, cx, true, &picked);
@@ -852,10 +862,10 @@ mod tests {
 
     #[gpui::test]
     fn the_telegram_accounts_stickers_are_picked_by_set(cx: &mut TestAppContext) {
-        crate::ui::motion::set_reduced(true);
         let mut world = World::new("picker-stickers");
         world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": crate::telegram::SERVER_ID, "kind": "telegram", "name": "Telegram", "userId": "tg-me" }));
         let app = Running::open(cx, &world);
+        still(&app, cx);
         app.answer("getStickerSets", |_| Ok(json!([{ "id": "cats", "title": "Cats", "cover": "11" }, { "id": "dogs", "title": "Dogs" }])));
         app.answer("getStickers", |args| {
             let file = if args[0] == "cats" { 21 } else { 31 };
