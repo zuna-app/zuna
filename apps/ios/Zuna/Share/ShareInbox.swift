@@ -43,7 +43,9 @@ final class ShareInbox {
 
     private func answerTargets() {
         guard listening else { return }
-        let servers = model.order.compactMap { model.servers[$0] }.map { server in
+        // Not the linked Telegram account's chats, which nothing shared can go to yet, and which the
+        // extension's own core never lists (docs/TELEGRAM_PLAN.md, "Left for later there").
+        let servers = model.order.compactMap { model.servers[$0] }.filter { !$0.entry.isTelegram }.map { server in
             ShareServer(entry: server.entry, selfId: server.me?.userId, users: server.users, conversations: server.conversations, channels: server.channels, hidden: server.prefs.hidden)
         }
         do {

@@ -214,7 +214,10 @@ enum ShareSender {
     }
 }
 
-struct ShareFailure: Error, CustomStringConvertible {
+/// Why a share failed, in words to show. A `LocalizedError`, so that the app, which words what
+/// it hands back by `localizedDescription`, says them rather than iOS's "error 1".
+struct ShareFailure: LocalizedError, CustomStringConvertible {
     let message: String
     var description: String { message }
+    var errorDescription: String? { message }
 }
