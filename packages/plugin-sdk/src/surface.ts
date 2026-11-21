@@ -250,7 +250,7 @@ export const TELEGRAM: Record<MethodName<TelegramSession>, "never"> = {
   getNewDevices: "never", getPreferences: "never", getSelf: "never", getSounds: "never", getStickerSets: "never", getStickers: "never", getUsers: "never",
   getVoiceMembers: "never", isActiveElsewhere: "never", joinByLink: "never", leaveGroup: "never", linkWithPhone: "never", linkWithQr: "never", loadAround: "never",
   loadMedia: "never", loadMessages: "never", loadNewer: "never", loadPins: "never", markChatRead: "never", markListened: "never", markMentionSeen: "never",
-  markRead: "never", mediaCounts: "never", messageById: "never", mute: "never", nudge: "never", pressButton: "never", removeMember: "never", resendCode: "never",
+  markRead: "never", mediaCounts: "never", messageById: "never", mute: "never", nudge: "never", pressButton: "never", reactionsFor: "never", removeMember: "never", resendCode: "never",
   resume: "never", saveDraft: "never", search: "never", sendMessage: "never", sendSticker: "never", sendTyping: "never", sendWithAttachments: "never",
   serverUrl: "never", setActive: "never", setMarkedUnread: "never", setPinned: "never", setPinnedChats: "never", start: "never", stop: "never", suspend: "never",
   toggleReaction: "never", unlink: "never", unmute: "never", unreadMentions: "never", updateGroupMeta: "never", updatePreferences: "never",

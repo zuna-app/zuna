@@ -2685,6 +2685,8 @@
   "telegram.pinnedAMessage": "{name} a épinglé un message",
   "telegram.place": "Lieu",
   "telegram.poll": "Sondage",
+  "telegram.reaction.none": "Telegram n’autorise pas les réactions sur ce message.",
+  "telegram.reaction.notAllowed": "Telegram n’autorise pas cette réaction sur ce message.",
   "telegram.removedTheGroupsPicture": "{name} a retiré l’image du groupe",
   "telegram.requestSent": "Demande envoyée. Le groupe apparaîtra dès qu’un admin l’aura acceptée.",
   "telegram.savedMessages": "Messages enregistrés",

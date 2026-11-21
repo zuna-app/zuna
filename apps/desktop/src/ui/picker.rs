@@ -47,6 +47,11 @@ fn category_label(label: &'static str) -> &'static str {
     }
 }
 
+/// An emoji without its variation selectors, as the core matches a Telegram reaction.
+fn bare(emoji: &str) -> String {
+    emoji.replace('\u{fe0f}', "")
+}
+
 /// The place of rows not built, which keeps the rest where they'd be.
 fn space(height: f32) -> AnyElement {
     div().flex_none().h(px(height)).into_any_element()
@@ -117,6 +122,9 @@ pub struct PickerLayer {
     emotes_tab: bool,
     /// On the Telegram account: its stickers, which take the place of a server's emotes.
     stickers: Option<Stickers>,
+    /// For a reaction on Telegram: the emoji Telegram takes on the message, without their
+    /// variation selectors, or None until it's said. Most emoji aren't reactions there.
+    offered: Option<Option<std::collections::HashSet<String>>>,
     search: Entity<TextInput>,
     /// The line under the grid that names what's hovered: a view of its own, so that moving
     /// over hundreds of cells draws it again and not the grid.
@@ -198,7 +206,7 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
             _ => cx.notify(),
         })];
         let footer = cx.new(|_| PickerFooter { hovered: None });
-        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, stickers: None, search, footer, _subscriptions: subscriptions }
+        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, stickers: None, offered: None, search, footer, _subscriptions: subscriptions }
     });
     cx.set_global(PickerGlobal(layer.clone()));
     layer
@@ -206,12 +214,22 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
 
 /// Opens the picker with its top left near this point, kept inside the window.
 pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl Fn(Pick, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) {
+    open(position, stays_for_emoji, None, on_pick, window, cx);
+}
+
+/// Opens the picker for a reaction to this message on Telegram, with only the emoji Telegram
+/// takes on it (`reactionsFor`).
+pub fn open_telegram_reactions(position: Point<Pixels>, group: String, id: String, on_pick: impl Fn(Pick, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) {
+    open(position, false, Some((group, id)), on_pick, window, cx);
+}
+
+fn open(position: Point<Pixels>, stays_for_emoji: bool, reacting: Option<(String, String)>, on_pick: impl Fn(Pick, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) {
     super::scrollbar::forget_scroll("picker-body");
     if super::menu::reopens_closed(position) {
         return;
     }
     let layer = picker_layer(window, cx);
-    let has_emotes = store(cx).read(cx).active().is_some_and(|server| !server.emotes.emotes.is_empty());
+    let has_emotes = reacting.is_none() && store(cx).read(cx).active().is_some_and(|server| !server.emotes.emotes.is_empty());
     // Stickers only for the message box, never a reaction.
     let telegram = stays_for_emoji && store(cx).read(cx).active().is_some_and(|server| server.entry.is_telegram());
     layer.update(cx, |layer, cx| {
@@ -222,6 +240,10 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
         layer.opened += 1;
         layer.closing = None;
         layer.open = Some(Open { id: layer.opened, position, on_pick: Rc::new(on_pick), stays_for_emoji });
+        layer.offered = None;
+        if let Some((group, id)) = reacting {
+            layer.load_offered(group, id, cx);
+        }
         layer.emotes_tab = has_emotes;
         PickerFooter::show(&layer.footer, None, cx);
         layer.search.update(cx, |input, cx| input.set_text("", cx));
@@ -231,6 +253,25 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
 }
 
 impl PickerLayer {
+    /// What Telegram takes as a reaction on this message, for the picker's opening now.
+    fn load_offered(&mut self, group: String, id: String, cx: &mut Context<Self>) {
+        self.offered = Some(None);
+        let opening = self.opened;
+        let call = store(cx).read(cx).core.call(Some(crate::telegram::SERVER_ID), "reactionsFor", vec![serde_json::json!(group), serde_json::json!(id)]);
+        cx.spawn(async move |layer, cx| {
+            let offered: Vec<String> = call.await.ok().and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
+            layer
+                .update(cx, |layer, cx| {
+                    if layer.open.as_ref().is_some_and(|open| open.id == opening) {
+                        layer.offered = Some(Some(offered.iter().map(|emoji| bare(emoji)).collect()));
+                        cx.notify();
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
     /// The account's sticker sets, and the first one's stickers.
     fn load_sticker_sets(&mut self, cx: &mut Context<Self>) {
         let call = store(cx).read(cx).core.call(Some(crate::telegram::SERVER_ID), "getStickerSets", vec![]);
@@ -393,8 +434,20 @@ impl PickerLayer {
             }
             shown
         };
+        let offered = match &self.offered {
+            Some(None) => return Vec::new(),
+            Some(Some(offered)) if offered.is_empty() => {
+                return vec![div().p(px(16.)).text_center().text_size(px(13.)).text_color(theme.text2).child(t("telegram.reaction.none")).into_any_element()];
+            }
+            Some(Some(offered)) => Some(offered),
+            None => None,
+        };
         for category in EMOJI_CATEGORIES {
-            let emoji: Vec<&(&str, &str)> = category.emoji.iter().filter(|(_, name)| needle.is_empty() || name.contains(needle)).collect();
+            let emoji: Vec<&(&str, &str)> = category
+                .emoji
+                .iter()
+                .filter(|(value, name)| (needle.is_empty() || name.contains(needle)) && offered.is_none_or(|offered| offered.contains(&bare(value))))
+                .collect();
             if emoji.is_empty() {
                 continue;
             }
@@ -628,7 +681,7 @@ impl Render for PickerLayer {
                     .pt(px(8.))
                     .border_b_1()
                     .border_color(theme.line)
-                    .child(tab("tab-emotes", if telegram { t("emoji.stickers").into() } else if set_name.is_empty() { t("emoji.serverEmotes").into() } else { set_name }, emotes_tab, cx))
+                    .when(self.offered.is_none(), |el| el.child(tab("tab-emotes", if telegram { t("emoji.stickers").into() } else if set_name.is_empty() { t("emoji.serverEmotes").into() } else { set_name }, emotes_tab, cx)))
                     .child(tab("tab-emoji", t("emoji.tab").into(), !emotes_tab, cx)),
             )
             .child(

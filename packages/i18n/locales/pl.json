@@ -2841,6 +2841,8 @@
   "telegram.pinnedAMessage": "Wiadomość przypięta przez {name}",
   "telegram.place": "Miejsce",
   "telegram.poll": "Ankieta",
+  "telegram.reaction.none": "Telegram nie pozwala na reakcje pod tą wiadomością.",
+  "telegram.reaction.notAllowed": "Telegram nie pozwala na tę reakcję pod tą wiadomością.",
   "telegram.removedTheGroupsPicture": "Zdjęcie grupy usunięte przez {name}",
   "telegram.requestSent": "Wysłano prośbę. Grupa pojawi się tutaj, gdy administrator ją zaakceptuje.",
   "telegram.savedMessages": "Zapisane wiadomości",

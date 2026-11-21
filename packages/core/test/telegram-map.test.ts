@@ -5,11 +5,15 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  asEmoji,
   attachmentsOf,
+  availableReactions,
   avatarOf,
+  bareEmoji,
   chatKey,
   chatKind,
   chatSenderView,
+  chosenReaction,
   conversationView,
   displayName,
   formatted,
@@ -347,6 +351,18 @@ describe("Telegram's messages as the app's", () => {
     // Without an account to be, nobody is this one.
     const anonymous = view(text("hi"), { interaction_info: { reactions: { reactions: [{ type: { "@type": "reactionTypeEmoji", emoji: "👍" }, total_count: 1, is_chosen: true }] } } }, { ...messages, selfId: null });
     expect(anonymous.reactions).toEqual([{ key: "👍", userIds: ["?0"] }]);
+  });
+
+  it("draws Telegram's reactions as emoji, and knows them again however they're spelled", () => {
+    // Telegram spells them without the variation selector a character drawn as text needs.
+    expect(["❤", "❤‍🔥", "🕊", "✍", "☃", "🤷‍♂", "👨‍💻", "⚡", "👍", "🆒", "❤️"].map(asEmoji)).toEqual(["❤️", "❤️‍🔥", "🕊️", "✍️", "☃️", "🤷‍♂️", "👨‍💻", "⚡", "👍", "🆒", "❤️"]);
+    expect(bareEmoji("❤️‍🔥")).toBe(bareEmoji("❤‍🔥"));
+    const reacted = view(text("hi"), { interaction_info: { reactions: { reactions: [{ type: { "@type": "reactionTypeEmoji", emoji: "❤" }, total_count: 1, is_chosen: true }] } } });
+    expect(reacted.reactions).toEqual([{ key: "❤️", userIds: [String(SELF)] }]);
+    const liked = message(text("hi"), { interaction_info: { reactions: { reactions: [{ type: { "@type": "reactionTypeEmoji", emoji: "❤" }, total_count: 2, is_chosen: true }, { type: { "@type": "reactionTypeEmoji", emoji: "🔥" }, total_count: 1, is_chosen: false }] } } });
+    expect(chosenReaction(liked, "❤️")).toBe("❤");
+    expect(chosenReaction(liked, "🔥")).toBeNull();
+    expect(availableReactions({ "@type": "ok" })).toEqual([]);
   });
 
   it("keeps only buttons with words, and a callback's data only when it's base64", () => {

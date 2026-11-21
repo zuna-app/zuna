@@ -327,6 +327,20 @@ export class FakeTdlib implements TelegramAdapter {
         if (!message) return fail(404, "Not Found");
         return answer({ "@type": "messageProperties", can_be_deleted_for_all_users: message.is_outgoing, can_be_deleted_only_for_self: true });
       }
+      case "getMessageAvailableReactions": {
+        if (!this.history.get(request.chat_id)?.some((each) => each.id === request.message_id)) return fail(404, "Not Found");
+        const emoji = (value: string, needs_premium = false) => ({ "@type": "availableReaction", type: { "@type": "reactionTypeEmoji", emoji: value }, needs_premium });
+        // As Telegram spells them: ❤ with no variation selector, one only Premium has, and a custom emoji.
+        return answer({
+          "@type": "availableReactions",
+          top_reactions: [emoji("👍"), emoji("❤"), emoji("🔥")],
+          recent_reactions: [emoji("❤")],
+          popular_reactions: [emoji("🤣"), emoji("🎉", true), { "@type": "availableReaction", type: { "@type": "reactionTypeCustomEmoji", custom_emoji_id: "1" }, needs_premium: false }, emoji("❤‍🔥")],
+          allow_custom_emoji: false,
+          are_tags: false,
+          unavailability_reason: null,
+        });
+      }
       case "getCallbackQueryAnswer":
         return answer({ "@type": "callbackQueryAnswer", text: "It's sunny", show_alert: false, url: "" });
       case "addChatToList": {

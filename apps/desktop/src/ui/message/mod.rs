@@ -579,6 +579,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
     let selected = context.selected.contains(&message.id);
     let react_state = context.state.clone();
     let (react_group, react_id) = (message.group_id.clone(), message.id.clone());
+    let telegram = context.server_id == crate::telegram::SERVER_ID;
     let menu_entries_for_right_click = entries.clone();
     let mut row = div()
         .id(SharedString::from(format!("msg-row-{id}")))
@@ -625,17 +626,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
             if menu_entries_for_right_click.is_empty() {
                 return;
             }
-            let state = react_state.clone();
-            let (group, id) = (react_group.clone(), react_id.clone());
-            let reactions = if can_act { QUICK_REACTIONS.to_vec() } else { Vec::new() };
-            open_menu_with_reactions(
-                event.position,
-                menu_entries_for_right_click.clone(),
-                reactions,
-                move |emoji, _, cx| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group), json!(id), json!(emoji)], cx)),
-                false,
-                cx,
-            );
+            open_message_menu(event.position, menu_entries_for_right_click.clone(), can_act, telegram, react_state.clone(), react_group.clone(), react_id.clone(), false, cx);
         });
     if !own && context.is_group {
         let mut slot = div().w(px(32.)).flex_none().mr(px(3.)).flex();
@@ -670,10 +661,9 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                 .child(icon_button_in(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, theme.text3, cx).tip(t("message.action.react"), Side::Top).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());
-                    super::picker::open_picker(
-                        event.position(),
-                        false,
-                        move |pick, _, cx| {
+                    let on_pick = {
+                        let (group, id) = (group.clone(), id.clone());
+                        move |pick, _: &mut Window, cx: &mut App| {
                             let args = match pick {
                                 super::picker::Pick::Sticker(_) => return,
                                 super::picker::Pick::Emoji(value) => vec![json!(group), json!(id), json!(value)],
@@ -685,10 +675,13 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                                 ],
                             };
                             state.update(cx, |state, cx| state.act("toggleReaction", args, cx));
-                        },
-                        window,
-                        cx,
-                    );
+                        }
+                    };
+                    if telegram {
+                        super::picker::open_telegram_reactions(event.position(), group, id, on_pick, window, cx);
+                    } else {
+                        super::picker::open_picker(event.position(), false, on_pick, window, cx);
+                    }
                 }))
                 .child(
                     icon_button_in(SharedString::from(format!("reply-btn-{id}")), "corner-up-left", 15., true, false, theme.text3, cx)
@@ -696,20 +689,30 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply_message.clone()), cx))),
                 )
                 .child(icon_button_in(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, theme.text3, cx).tip(t("message.action.more"), Side::Top).on_click(move |event, _, cx| {
-                    let state = more_state.clone();
-                    let (group, id) = (more_group.clone(), more_id.clone());
-                    open_menu_with_reactions(
-                        event.position(),
-                        more_entries.clone(),
-                        QUICK_REACTIONS.to_vec(),
-                        move |emoji, _, cx| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group), json!(id), json!(emoji)], cx)),
-                        own,
-                        cx,
-                    );
+                    open_message_menu(event.position(), more_entries.clone(), true, telegram, more_state.clone(), more_group.clone(), more_id.clone(), own, cx);
                 })),
         );
     }
     row.into_any_element()
+}
+
+/// Opens a message's menu with its quick reactions over it, if it can be reacted to. On
+/// Telegram they're the first of those it takes on the message, asked for first, as most emoji
+/// aren't reactions there.
+#[allow(clippy::too_many_arguments)]
+fn open_message_menu(position: gpui::Point<Pixels>, entries: Vec<MenuEntry>, can_act: bool, telegram: bool, state: Entity<AppState>, group: String, id: String, align_right: bool, cx: &mut App) {
+    let ask = (can_act && telegram).then(|| state.read(cx).core.call(Some(crate::telegram::SERVER_ID), "reactionsFor", vec![json!(group), json!(id)]));
+    let react = move |emoji: &str, _: &mut Window, cx: &mut App| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group), json!(id), json!(emoji)], cx));
+    let Some(ask) = ask else {
+        let reactions = if can_act { QUICK_REACTIONS.to_vec() } else { Vec::new() };
+        open_menu_with_reactions(position, entries, reactions, react, align_right, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let offered: Vec<String> = ask.await.ok().and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
+        cx.update(|cx| open_menu_with_reactions(position, entries, offered.into_iter().take(QUICK_REACTIONS.len()), react, align_right, cx));
+    })
+    .detach();
 }
 
 /// How long a message can take to send before it's shown as waiting, with the clock in place of

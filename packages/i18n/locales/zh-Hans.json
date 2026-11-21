@@ -2606,6 +2606,8 @@
   "telegram.pinnedAMessage": "{name} 置顶了一条消息",
   "telegram.place": "地点",
   "telegram.poll": "投票",
+  "telegram.reaction.none": "Telegram 不允许对此消息添加回应。",
+  "telegram.reaction.notAllowed": "Telegram 不允许对此消息使用该回应。",
   "telegram.removedTheGroupsPicture": "{name} 移除了群头像",
   "telegram.requestSent": "申请已发送。管理员批准后，群聊会显示在此处。",
   "telegram.savedMessages": "已保存的消息",

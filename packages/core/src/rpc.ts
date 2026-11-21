@@ -66,7 +66,7 @@ const TELEGRAM_METHODS: Record<MethodName<TelegramSession>, true> = {
   getConversations: true, getDraft: true, getEmotes: true, getInfo: true, getLink: true, getNewDevices: true, getPreferences: true, getSelf: true, getSounds: true,
   getStickerSets: true, getStickers: true, getUsers: true, getVoiceMembers: true, isActiveElsewhere: true, joinByLink: true, leaveGroup: true, linkWithPhone: true,
   linkWithQr: true, loadAround: true, loadMedia: true, loadMessages: true, loadNewer: true, loadPins: true, markChatRead: true, markListened: true,
-  markMentionSeen: true, markRead: true, mediaCounts: true, messageById: true, mute: true, nudge: true, pressButton: true, removeMember: true, resendCode: true,
+  markMentionSeen: true, markRead: true, mediaCounts: true, messageById: true, mute: true, nudge: true, pressButton: true, reactionsFor: true, removeMember: true, resendCode: true,
   resume: true, saveDraft: true, search: true, sendMessage: true, sendSticker: true, sendTyping: true, sendWithAttachments: true, serverUrl: true, setActive: true,
   setMarkedUnread: true, setPinned: true, setPinnedChats: true, start: true, stop: true, suspend: true, toggleReaction: true, unlink: true, unmute: true,
   unreadMentions: true, updateGroupMeta: true, updatePreferences: true,

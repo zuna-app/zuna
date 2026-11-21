@@ -2685,6 +2685,8 @@
   "telegram.pinnedAMessage": "{name} pinned a message",
   "telegram.place": "Place",
   "telegram.poll": "Poll",
+  "telegram.reaction.none": "Telegram doesn't allow reactions on this message.",
+  "telegram.reaction.notAllowed": "Telegram doesn't allow that reaction on this message.",
   "telegram.removedTheGroupsPicture": "{name} removed the group's picture",
   "telegram.requestSent": "Request sent. The group will appear here once an admin approves your request.",
   "telegram.savedMessages": "Saved messages",

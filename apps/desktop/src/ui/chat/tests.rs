@@ -123,6 +123,73 @@ fn mentions_people_on_telegram_by_name(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn reacts_on_telegram_only_with_what_telegram_takes(cx: &mut TestAppContext) {
+    use crate::telegram::SERVER_ID as TELEGRAM;
+    let mut world = World::new("telegram-reactions");
+    world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": TELEGRAM, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "1" }));
+    world.telegram = world.server.clone();
+    world.telegram.insert("getSelf".into(), json!({ "userId": "1", "username": "alice", "role": "member", "deviceId": "" }));
+    world.telegram.insert("getUsers".into(), json!([{ "id": "2", "username": "", "displayName": "Grace Hopper", "role": "member", "trust": "unverified" }]));
+    let members: Vec<Value> = ["1", "2"].iter().map(|id| json!({ "userId": id, "role": "member", "joinedAt": NOW })).collect();
+    world.telegram.insert("getConversations".into(), json!([{ "key": "group:77", "kind": "group", "groupId": "77", "title": "Hackers", "ready": true, "lastActivityAt": NOW, "ownRead": 0, "members": members }]));
+    world.telegram.insert("getChannels".into(), json!([]));
+    world.telegram.insert("loadMessages".into(), json!({ "messages": [message("m1", "77", 5.0, "2", "Lunch?", json!({})), message("m2", "77", 6.0, "2", "Quiet here", json!({}))], "hasMore": false }));
+    world.telegram.insert("getDraft".into(), json!(""));
+    world.telegram.insert("saveDraft".into(), Value::Null);
+    let app = App::open(cx, &world);
+    app.answer("toggleReaction", |_| Ok(Value::Null));
+    // Telegram takes these on the first message, and nothing on the second.
+    app.answer("reactionsFor", |args| Ok(if args[1] == "m1" { json!(["👍", "❤️", "🔥", "🤣", "🎉", "🙏", "👏", "😁"]) } else { json!([]) }));
+    app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.select_server(TELEGRAM, cx);
+        state.select_conversation(Some("group:77".into()), cx);
+    });
+    crate::ui::motion::set_reduced(true);
+    app.settle(cx, |state| state.lists.get("77").is_some_and(|list| list.loaded));
+    app.run(cx);
+    let chat = chat_of(&app, cx);
+    // Near a row's bottom, where its message is, under the day's line above the first.
+    let row = |cx: &mut TestAppContext, index: usize| cx.read(|cx| chat.read(cx).row_bounds.borrow().get(&index).map(|bounds| gpui::point(bounds.center().x, bounds.bottom() - gpui::px(20.)))).expect("drawn");
+    let right_click = |cx: &mut TestAppContext, index: usize| {
+        let at = row(cx, index);
+        let mut window = VisualTestContext::from_window(app.window.into(), cx);
+        window.simulate_mouse_move(at, None, gpui::Modifiers::none());
+        window.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+        window.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+        app.run(cx);
+        cx.read(|cx| crate::ui::menu::open_reactions(cx))
+    };
+
+    // The menu's quick reactions are the first of Telegram's, in its order.
+    assert_eq!(right_click(cx, 0), vec!["👍", "❤️", "🔥", "🤣", "🎉", "🙏"]);
+    assert_eq!(app.calls_of("reactionsFor")[0], vec![json!("77"), json!("m1")]);
+    app.window.update(cx, |_, window, cx| crate::ui::menu::react(1, window, cx)).unwrap();
+    app.run(cx);
+    assert_eq!(app.calls_of("toggleReaction")[0], vec![json!("77"), json!("m1"), json!("❤️")]);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Where Telegram takes none, there are none to pick.
+    assert!(right_click(cx, 1).is_empty());
+    assert!(cx.read(|cx| crate::ui::menu::is_open(cx)));
+    app.update(cx, |_, cx| crate::ui::menu::close_menu(cx));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // The picker has only Telegram's, and no emotes.
+    let at = row(cx, 0);
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    app.run(cx);
+    app.click(cx, "react-m1");
+    assert!(cx.read(|cx| crate::ui::picker::is_open(cx)));
+    assert!(app.drawn(cx, "emoji-👍") && app.drawn(cx, "emoji-❤️") && app.drawn(cx, "emoji-🤣"));
+    assert!(!app.drawn(cx, "emoji-😂") && !app.drawn(cx, "emoji-😮"));
+    assert!(!app.drawn(cx, "tab-emotes"));
+    app.window.update(cx, |_, window, cx| crate::ui::picker::choose(crate::ui::picker::Pick::Emoji("🔥".into()), window, cx)).unwrap();
+    app.run(cx);
+    assert_eq!(app.calls_of("toggleReaction")[1], vec![json!("77"), json!("m1"), json!("🔥")]);
+}
+
+#[gpui::test]
 fn only_who_is_in_a_direct_message_is_suggested_to_mention(cx: &mut TestAppContext) {
     // The two in it: Carol and Helper are on the server, not in it.
     let (app, chat) = open_chat(cx, &World::new("mention-dm"), &format!("user:{BOB}"));

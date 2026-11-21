@@ -52,6 +52,7 @@
     "searchMessages": true,
     "getChatMessageCount": true,
     "getMessageProperties": true,
+    "getMessageAvailableReactions": true,
 
     "sendMessage": true,
     "sendMessageAlbum": true,

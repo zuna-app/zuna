@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, Anchor, App, Context, Entity, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Styled, Window, anchored,
+    AnyElement, Anchor, App, Context, Entity, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, SharedString, Styled, Window, anchored,
     deferred, div, prelude::*, px,
 };
 
@@ -63,7 +63,7 @@ struct OpenMenu {
     position: Point<Pixels>,
     entries: Vec<MenuEntry>,
     /// Quick reactions above the entries, as on a message.
-    reactions: Option<(Vec<&'static str>, Rc<dyn Fn(&'static str, &mut Window, &mut App)>)>,
+    reactions: Option<(Vec<SharedString>, Rc<dyn Fn(&str, &mut Window, &mut App)>)>,
     align_right: bool,
     /// Drawn above the entries each frame, such as a person's volume.
     header: Option<Header>,
@@ -172,8 +172,8 @@ pub fn open_menu_with_header(position: Point<Pixels>, header: Option<Header>, en
 pub fn open_menu_with_reactions(
     position: Point<Pixels>,
     entries: Vec<MenuEntry>,
-    reactions: Vec<&'static str>,
-    on_react: impl Fn(&'static str, &mut Window, &mut App) + 'static,
+    reactions: impl IntoIterator<Item = impl Into<SharedString>>,
+    on_react: impl Fn(&str, &mut Window, &mut App) + 'static,
     align_right: bool,
     cx: &mut App,
 ) {
@@ -184,6 +184,7 @@ pub fn open_menu_with_reactions(
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
         layer.closing = None;
+        let reactions = reactions.into_iter().map(Into::into).collect();
         layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false, owner: None });
         cx.notify();
     });
@@ -278,7 +279,7 @@ impl MenuLayer {
         }
         if let Some((reactions, on_react)) = &open.reactions {
             let mut row = div().flex().gap(px(1.)).p(px(1.)).pb(px(5.)).mb(px(4.)).border_b_1().border_color(theme.line);
-            for emoji in reactions.iter().copied() {
+            for emoji in reactions.iter().cloned() {
                 let on_react = on_react.clone();
                 row = row.child(
                     named_div(gpui::ElementId::Name(format!("react-{emoji}").into()))
@@ -290,10 +291,13 @@ impl MenuLayer {
                         .text_size(px(18.))
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
-                        .on_click(cx.listener(move |layer, _, window, cx| {
-                            layer.close();
-                            cx.notify();
-                            on_react(emoji, window, cx);
+                        .on_click(cx.listener({
+                            let emoji = emoji.clone();
+                            move |layer, _, window, cx| {
+                                layer.close();
+                                cx.notify();
+                                on_react(&emoji, window, cx);
+                            }
                         }))
                         .child(emoji),
                 );
@@ -375,6 +379,14 @@ pub fn open_labels(cx: &App) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The open menu's quick reactions, for tests.
+#[cfg(test)]
+pub fn open_reactions(cx: &App) -> Vec<String> {
+    cx.try_global::<MenuGlobal>()
+        .and_then(|global| global.0.read(cx).open.as_ref().and_then(|open| open.reactions.as_ref().map(|(reactions, _)| reactions.iter().map(|emoji| emoji.to_string()).collect())))
+        .unwrap_or_default()
+}
+
 /// Picks an entry of the open menu by its label, as a click on it does: a submenu's entries
 /// take the menu's place, and anything else closes it and runs. Says whether there was one.
 #[cfg(test)]
@@ -401,11 +413,11 @@ pub fn choose(label: &str, window: &mut Window, cx: &mut App) -> bool {
 pub fn react(index: usize, window: &mut Window, cx: &mut App) -> bool {
     let layer = menu_layer(cx);
     let Some((reactions, on_react)) = layer.read(cx).open.as_ref().and_then(|open| open.reactions.clone()) else { return false };
-    let Some(emoji) = reactions.get(index).copied() else { return false };
+    let Some(emoji) = reactions.get(index).cloned() else { return false };
     layer.update(cx, |layer, cx| {
         layer.close();
         cx.notify();
     });
-    on_react(emoji, window, cx);
+    on_react(&emoji, window, cx);
     true
 }

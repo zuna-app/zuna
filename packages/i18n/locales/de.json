@@ -2685,6 +2685,8 @@
   "telegram.pinnedAMessage": "{name} hat eine Nachricht angeheftet",
   "telegram.place": "Ort",
   "telegram.poll": "Umfrage",
+  "telegram.reaction.none": "Telegram erlaubt keine Reaktionen auf diese Nachricht.",
+  "telegram.reaction.notAllowed": "Telegram erlaubt diese Reaktion auf diese Nachricht nicht.",
   "telegram.removedTheGroupsPicture": "{name} hat das Gruppenbild entfernt",
   "telegram.requestSent": "Anfrage gesendet. Die Gruppe erscheint, sobald ein Admin sie bestätigt.",
   "telegram.savedMessages": "Gespeicherte Nachrichten",

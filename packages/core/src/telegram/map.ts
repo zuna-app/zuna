@@ -650,13 +650,55 @@ function serviceLine(content: unknown, senderId: string, context: MessageContext
   }
 }
 
+/**
+ * An emoji as it's drawn as one. Telegram spells a reaction without the variation selector a
+ * character drawn as text by default needs, as ❤ for ❤️, which a font draws as a black heart.
+ */
+export function asEmoji(emoji: string): string {
+  return emoji.replace(/\p{Emoji}(?!️)/gu, (character) => (/[#*0-9]|\p{Emoji_Presentation}/u.test(character) ? character : `${character}️`));
+}
+
+/** An emoji without its variation selectors, by which ❤️ is Telegram's ❤. */
+export function bareEmoji(emoji: string): string {
+  return emoji.replace(/️/g, "");
+}
+
+/**
+ * Telegram's own spellings of the reactions this account can add to a message
+ * (`getMessageAvailableReactions`), its most used first: only emoji, as custom ones aren't
+ * drawn here, and none that needs Telegram Premium. Nothing when it can't react at all.
+ */
+export function availableReactions(available: unknown): string[] {
+  if (kindOf(available) !== "availableReactions" || isObject(field(available, "unavailability_reason"))) return [];
+  const found = new Set<string>();
+  for (const name of ["top_reactions", "recent_reactions", "popular_reactions"]) {
+    for (const reaction of list(field(available, name), 200)) {
+      if (field(reaction, "needs_premium") === true || kindOf(field(reaction, "type")) !== "reactionTypeEmoji") continue;
+      const emoji = str(field(field(reaction, "type"), "emoji"), 16);
+      if (emoji) found.add(emoji);
+    }
+  }
+  return [...found];
+}
+
+/** Telegram's spelling of this reaction where this account has chosen it on the message, or null. */
+export function chosenReaction(message: TdObject, key: string): string | null {
+  for (const reaction of list(field(field(message.interaction_info, "reactions"), "reactions"), MAX_REACTIONS)) {
+    if (kindOf(field(reaction, "type")) !== "reactionTypeEmoji" || field(reaction, "is_chosen") !== true) continue;
+    const emoji = str(field(field(reaction, "type"), "emoji"), 16);
+    if (emoji && bareEmoji(emoji) === bareEmoji(key)) return emoji;
+  }
+  return null;
+}
+
 function reactions(message: TdObject, selfId: number | null): ReactionView[] {
   const views: ReactionView[] = [];
   const self = selfId ? String(selfId) : "";
   for (const reaction of list(field(field(message.interaction_info, "reactions"), "reactions"), MAX_REACTIONS)) {
     if (kindOf(field(reaction, "type")) !== "reactionTypeEmoji") continue;
-    const key = str(field(field(reaction, "type"), "emoji"), 16);
-    if (!key) continue;
+    const emoji = str(field(field(reaction, "type"), "emoji"), 16);
+    if (!emoji) continue;
+    const key = asEmoji(emoji);
     const total = int(field(reaction, "total_count"), 0, 100_000_000, 0);
     const userIds = list(field(reaction, "recent_sender_ids"), 10).map(senderOf).filter(Boolean);
     if (field(reaction, "is_chosen") === true && self && !userIds.includes(self)) userIds.unshift(self);

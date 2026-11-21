@@ -29,10 +29,14 @@ import { previewText } from "../notify";
 import { Engine, TelegramError, type TdObject, type TelegramAdapter } from "./engine";
 import {
   TELEGRAM_FILE,
+  asEmoji,
   attachmentsOf,
+  availableReactions,
+  bareEmoji,
   chatKey,
   chatKind,
   chatSenderView,
+  chosenReaction,
   conversationView,
   displayName,
   fileNumber,
@@ -194,6 +198,9 @@ function explain(error: unknown): Error {
     USER_PRIVACY_RESTRICTED: t("telegram.theirPrivacySettingsOnTelegram"),
     USER_NOT_MUTUAL_CONTACT: t("telegram.onlyTheirContactsCanAdd"),
     USER_CHANNELS_TOO_MUCH: t("telegram.theyreInAsManyGroups"),
+    REACTION_INVALID: t("telegram.reaction.notAllowed"),
+    // TDLib's own, from its check before it asks Telegram.
+    "The reaction isn't available for the message": t("telegram.reaction.notAllowed"),
   };
   // A code is matched whole, as one can end another: USER_CHANNELS_TOO_MUCH isn't CHANNELS_TOO_MUCH.
   for (const [code, text] of Object.entries(known)) if (new RegExp(`(^|[^A-Z_])${code}($|[^A-Z_])`).test(message)) return new Error(text);
@@ -1784,18 +1791,43 @@ export class TelegramSession {
     });
   }
 
+  /**
+   * Takes this account's reaction off a message, or adds it, spelled as Telegram spells it: a
+   * reaction Telegram doesn't take on the message is refused here, saying so.
+   */
   async toggleReaction(groupId: string, messageId: string, key: string): Promise<void> {
     const chatId = this.chatOf(groupId);
-    const message = this.find(chatId, Number(messageId));
-    const view = message ? this.view(message) : null;
-    const chosen = !!this.selfId && !!view?.reactions.some((reaction) => reaction.key === key && reaction.userIds.includes(String(this.selfId)));
-    const reaction = { "@type": "reactionTypeEmoji", emoji: key };
-    const query: TdObject = chosen
-      ? { "@type": "removeMessageReaction", chat_id: chatId, message_id: Number(messageId), reaction_type: reaction }
-      : { "@type": "addMessageReaction", chat_id: chatId, message_id: Number(messageId), reaction_type: reaction, is_big: false, update_recent_reactions: true };
+    const id = Number(messageId);
+    const message = this.find(chatId, id);
+    const chosen = message ? chosenReaction(message, key) : null;
+    let query: TdObject;
+    if (chosen) {
+      query = { "@type": "removeMessageReaction", chat_id: chatId, message_id: id, reaction_type: { "@type": "reactionTypeEmoji", emoji: chosen } };
+    } else {
+      // Without Telegram's list, as for a message it hasn't loaded, its own check decides.
+      const offered = await this.offeredReactions(chatId, id);
+      const emoji = offered ? offered.find((each) => bareEmoji(each) === bareEmoji(key)) : key;
+      if (!emoji) throw new Error(t("telegram.reaction.notAllowed"));
+      query = { "@type": "addMessageReaction", chat_id: chatId, message_id: id, reaction_type: { "@type": "reactionTypeEmoji", emoji }, is_big: false, update_recent_reactions: true };
+    }
     await this.engine.request(query).catch((error) => {
       throw explain(error);
     });
+  }
+
+  /**
+   * The reactions this account can add to a message on Telegram, as emoji are drawn, its most
+   * used first, or none where it can't react to it.
+   */
+  async reactionsFor(groupId: string, messageId: string): Promise<string[]> {
+    return ((await this.offeredReactions(this.chatOf(groupId), Number(messageId))) ?? []).map(asEmoji);
+  }
+
+  /** Telegram's spellings of the reactions a message takes, or null if Telegram couldn't say. */
+  private async offeredReactions(chatId: number, messageId: number): Promise<string[] | null> {
+    if (!Number.isSafeInteger(messageId)) return [];
+    const available = await this.engine.request({ "@type": "getMessageAvailableReactions", chat_id: chatId, message_id: messageId, row_size: 8 }).catch(() => null);
+    return available ? availableReactions(available) : null;
   }
 
   async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {

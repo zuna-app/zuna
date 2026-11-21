@@ -731,11 +731,30 @@ describe("sending, and what Telegram refuses", () => {
     engine.refuse("deleteMessages", "CHAT_ADMIN_REQUIRED");
     await expect(session.deleteMessage(String(GRACE), "1")).rejects.toThrow("Only the group's admins can do that.");
 
-    // A reaction to a message it hasn't seen is added.
+    // A reaction to a message it hasn't seen is added, for Telegram to judge.
     await session.toggleReaction(String(GRACE), "12345", "🔥");
     expect(engine.requests("addMessageReaction")[0]).toMatchObject({ chat_id: GRACE, message_id: 12345, reaction_type: { emoji: "🔥" } });
     engine.refuse("addMessageReaction", "REACTION_INVALID");
-    await expect(session.toggleReaction(String(GRACE), "12345", "🔥")).rejects.toThrow("Telegram reported: REACTION_INVALID");
+    await expect(session.toggleReaction(String(GRACE), "12345", "🔥")).rejects.toThrow("Telegram doesn't allow that reaction on this message.");
+    engine.refuse("addMessageReaction", "The reaction isn't available for the message");
+    await expect(session.toggleReaction(String(GRACE), "12345", "🔥")).rejects.toThrow("Telegram doesn't allow that reaction on this message.");
+    engine.answer("addMessageReaction", { "@type": "ok" });
+
+    // On one it has, only what Telegram offers, as emoji are drawn, and none that needs Premium or is a custom emoji.
+    const message = String(serverId(2));
+    expect(await session.reactionsFor(String(GRACE), message)).toEqual(["👍", "❤️", "🔥", "🤣", "❤️‍🔥"]);
+    expect(await session.reactionsFor(String(GRACE), "12345")).toEqual([]);
+    expect(await session.reactionsFor(String(GRACE), "x")).toEqual([]);
+    // ❤️ goes as Telegram spells it, and what it doesn't offer never goes.
+    await session.toggleReaction(String(GRACE), message, "❤️");
+    expect(engine.requests("addMessageReaction").at(-1)).toMatchObject({ message_id: serverId(2), reaction_type: { emoji: "❤" } });
+    const asked = engine.requests("addMessageReaction").length;
+    await expect(session.toggleReaction(String(GRACE), message, "😂")).rejects.toThrow("Telegram doesn't allow that reaction on this message.");
+    await expect(session.toggleReaction(String(GRACE), message, "🎉")).rejects.toThrow("Telegram doesn't allow that reaction on this message.");
+    expect(engine.requests("addMessageReaction")).toHaveLength(asked);
+    // Where it can't react at all, Telegram offers nothing.
+    engine.answer("getMessageAvailableReactions", { "@type": "availableReactions", top_reactions: [{ "@type": "availableReaction", type: { "@type": "reactionTypeEmoji", emoji: "👍" }, needs_premium: false }], recent_reactions: [], popular_reactions: [], allow_custom_emoji: false, are_tags: false, unavailability_reason: { "@type": "reactionUnavailabilityReasonGuest" } });
+    expect(await session.reactionsFor(String(GRACE), message)).toEqual([]);
 
     await session.setPinned(String(GRACE), String(serverId(1)), true);
     await session.setPinned(String(GRACE), String(serverId(1)), false);
