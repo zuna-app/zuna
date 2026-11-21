@@ -47,7 +47,7 @@ impl SettingsView {
             };
             let address = entry.url.strip_prefix("https://").unwrap_or(&entry.url).to_string();
             let (state, server_id) = (self.state.clone(), entry.id.clone());
-            let leave = button(SharedString::from(format!("leave-server-{}", entry.id)), ButtonKind::Ghost, ButtonSize::Small, false, cx)
+            let leave = button(SharedString::from(format!("leave-server-{}", entry.id)), ButtonKind::Danger, ButtonSize::Small, false, cx)
                 .child(t("settings.connections.leave"))
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer { server_id: server_id.clone(), from_section: Some("connections".into()) }), cx)));
             let right = div().flex().items_center().gap(px(14.)).child(div().text_size(px(12.5)).text_color(theme.text3).child(status)).child(leave);
