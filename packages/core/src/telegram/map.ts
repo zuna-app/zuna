@@ -235,6 +235,31 @@ function photoSize(photo: unknown): { file: unknown; width: number; height: numb
   return (fitting.length > 0 ? fitting : sizes).reduce((best, size) => (size.width * size.height > best.width * best.height ? size : best));
 }
 
+/** The longest side of a thumbnail Telegram makes, which is a picture's own size when it's smaller. */
+const THUMBNAIL_SIDE = 320;
+/** The longest side a picture sent as a file is taken to have when its thumbnail is as large as they go. */
+const PICTURE_SIDE = 1280;
+/** The largest picture sent as a file that's shown as one, as large as Telegram takes a photo. */
+const PICTURE_FILE_LIMIT = 10 * 1024 * 1024;
+
+/**
+ * A picture sent as a file, as Telegram's apps send one "without compression", is shown as a picture
+ * too, with its size from its thumbnail, as TDLib gives no other: a thumbnail smaller than Telegram
+ * makes them is the picture's own size, and one as large has the picture's shape, at a photo's size.
+ * Anything else, or a larger file, stays a file.
+ */
+function pictureSize(document: unknown, mime: string, size: number): { width?: number; height?: number } {
+  if (!/^image\/(jpeg|png|webp)$/.test(mime) || size <= 0 || size > PICTURE_FILE_LIMIT) return {};
+  const thumbnail = field(document, "thumbnail");
+  const width = int(field(thumbnail, "width"), 1, 20000, 0);
+  const height = int(field(thumbnail, "height"), 1, 20000, 0);
+  if (!width || !height) return {};
+  const longest = Math.max(width, height);
+  if (longest < THUMBNAIL_SIDE) return { width, height };
+  const scale = PICTURE_SIDE / longest;
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
 /** A message's media as the attachments the app shows, or null where it shows none. */
 export function attachmentsOf(content: unknown): Attachment[] | null {
   const kind = kindOf(content);
@@ -262,7 +287,9 @@ export function attachmentsOf(content: unknown): Attachment[] | null {
     }
     case "messageDocument": {
       const document = field(content, "document");
-      return one(attachment(field(document, "document"), { name: nameOf(field(document, "file_name"), "file"), mime: mimeOf(field(document, "mime_type"), "application/octet-stream"), thumb: minithumbnail(field(document, "minithumbnail")) }));
+      const file = field(document, "document");
+      const mime = mimeOf(field(document, "mime_type"), "application/octet-stream");
+      return one(attachment(file, { name: nameOf(field(document, "file_name"), "file"), mime, ...pictureSize(document, mime, fileSize(file)), thumb: minithumbnail(field(document, "minithumbnail")) }));
     }
     case "messageAudio": {
       const audio = field(content, "audio");

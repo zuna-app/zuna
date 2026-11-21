@@ -90,6 +90,38 @@ describe("Telegram's media as the app's attachments", () => {
     expect(attachmentsOf({ "@type": "messagePhoto" })).toBeNull();
   });
 
+  it("shows a picture sent as a file as a picture, sized by its thumbnail, and anything else as a file", () => {
+    const sent = (mime: string, thumbnail: unknown, size = 11_400) =>
+      attachmentsOf({ "@type": "messageDocument", document: { file_name: "tg_image_1.png", mime_type: mime, minithumbnail: { data: "AAEC" }, thumbnail, document: file(20, size) } })![0]!;
+    const thumbnail = (width: number, height: number) => ({ "@type": "thumbnail", format: { "@type": "thumbnailFormatJpeg" }, width, height, file: file(21) });
+    // A thumbnail smaller than Telegram makes them is the picture's own size.
+    expect(sent("image/png", thumbnail(212, 31))).toEqual({
+      fileId: "tg:20",
+      key: "",
+      prefix: "",
+      chunks: 0,
+      size: 11_400,
+      name: "tg_image_1.png",
+      mime: "image/png",
+      width: 212,
+      height: 31,
+      thumb: "data:image/jpeg;base64,AAEC",
+    });
+    // One as large as they go has the picture's shape, at a photo's size.
+    expect(sent("image/jpeg", thumbnail(320, 180))).toMatchObject({ width: 1280, height: 720 });
+    expect(sent("image/webp", thumbnail(240, 320))).toMatchObject({ width: 960, height: 1280 });
+    // Without a thumbnail, past what Telegram takes as a photo, or not a picture the apps show, it's a file.
+    const asFile = (attachment: object) => expect(attachment).not.toHaveProperty("width");
+    asFile(sent("image/png", null));
+    asFile(sent("image/png", thumbnail(0, 31)));
+    asFile(sent("image/png", thumbnail(212, 31), 10 * 1024 * 1024 + 1));
+    asFile(sent("image/svg+xml", thumbnail(212, 31)));
+    asFile(sent("image/gif", thumbnail(212, 31)));
+    asFile(sent("application/pdf", thumbnail(212, 300)));
+    asFile(sent("", thumbnail(212, 31)));
+    expect(sent("", thumbnail(212, 31)).mime).toBe("application/octet-stream");
+  });
+
   it("shows an animated sticker by its still thumbnail, of whichever format it is", () => {
     const animated = (format: string, width?: number) => ({
       "@type": "messageSticker",
