@@ -40,6 +40,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         var editing: String?
         var jump: JumpTarget?
         var actions: ChatActions
+        /// On Telegram, the reactions each message takes, by its ID, as far as they're known.
+        var reactions: [String: [String]]?
     }
 
     var model: AppModel!
@@ -299,6 +301,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 selecting: input.selection != nil,
                 selected: input.selection?.contains(message.id) ?? false,
                 channel: channel,
+                reactions: input.reactions.map { offered in offered[message.id].map { .only($0) } ?? .asking } ?? .any,
                 startOfChat: index == 0 && !input.hasMore,
                 editing: input.editing == message.id,
                 jumbo: jumbo
@@ -341,6 +344,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             discard: { [weak self] in self?.input?.actions.discard($0) },
             press: { [weak self] in self?.input?.actions.press($0, $1, $2) },
             pickReaction: { [weak self] in self?.input?.actions.pickReaction($0) },
+            prepareReactions: { [weak self] in self?.input?.actions.prepareReactions($0) },
             readers: { [weak self] in self?.input?.actions.readers($0) ?? [] },
             reactedBy: { [weak self] in self?.input?.actions.reactedBy($0) ?? "" },
             openChat: { [weak self] in self?.input?.actions.openChat($0) },

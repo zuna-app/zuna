@@ -24,6 +24,8 @@ struct MessageRowContext: Equatable {
     let selected: Bool
     /// Laid out as in a Discord channel, rather than in bubbles.
     var channel = false
+    /// Which reactions the message takes: any, or on Telegram only those it offers.
+    var reactions = OfferedReactions.any
     /// The oldest message there is, under the channel's welcome.
     var startOfChat = false
     /// Being edited where it is, in a channel.
@@ -56,6 +58,8 @@ struct ChatActions {
     var press: (_ message: MessageView, _ row: Int, _ column: Int) -> Void = { _, _, _ in }
     /// The full picker, for a reaction that isn't among the quick ones.
     var pickReaction: (_ messageId: String) -> Void = { _ in }
+    /// On Telegram, asks which reactions a message takes, for its menu, before it's opened.
+    var prepareReactions: (_ messageId: String) -> Void = { _ in }
     /// Who in this group has read a message, as far as their read receipts say.
     var readers: (_ message: MessageView) -> [UserView] = { _ in [] }
     /// The names of those who reacted, as a list to read: "You, alice".
@@ -71,6 +75,37 @@ struct ChatActions {
 
 /// The reactions offered first, as on the desktop.
 let quickReactions = ["👍", "❤️", "😂", "🔥", "😮", "😢"]
+
+/// Which emoji a message can be reacted to with: any, or on Telegram only those it takes on
+/// the message (`reactionsFor`), once it's said, as most emoji aren't reactions there.
+enum OfferedReactions: Equatable {
+    case any
+    case asking
+    case only([String])
+
+    /// The ones offered first, in its menu.
+    var quick: [String] {
+        switch self {
+        case .any: quickReactions
+        case .asking: []
+        case let .only(offered): Array(offered.prefix(quickReactions.count))
+        }
+    }
+
+    /// The emoji the picker shows, without their variation selectors, or nil for any.
+    var allowed: Set<String>? {
+        switch self {
+        case .any: nil
+        case .asking: []
+        case let .only(offered): Set(offered.map(Self.bare))
+        }
+    }
+
+    /// An emoji without its variation selectors, as the core matches a Telegram reaction.
+    static func bare(_ emoji: String) -> String {
+        emoji.replacingOccurrences(of: "\u{FE0F}", with: "")
+    }
+}
 
 /// How far a message is pulled to the left to answer it. The list sets it as the
 /// finger moves, and the row follows.
@@ -154,6 +189,9 @@ struct MessageRow: View {
             Color.clear
                 .contentShape(.rect)
                 .onTapGesture { Keyboard.dismiss() }
+        }
+        .task(id: context.message.id) {
+            if context.reactions == .asking { actions.prepareReactions(context.message.id) }
         }
     }
 
@@ -726,15 +764,18 @@ struct MessageMenu: View {
             Divider()
         }
         if canAct {
-            ControlGroup {
-                ForEach(quickReactions, id: \.self) { emoji in
-                    Button(emoji) { actions.react(message.id, emoji, nil) }
-                        .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
+            // None where Telegram takes none on the message.
+            if context.reactions != .only([]) {
+                ControlGroup {
+                    ForEach(context.reactions.quick, id: \.self) { emoji in
+                        Button(emoji) { actions.react(message.id, emoji, nil) }
+                            .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
+                    }
+                    Button(t("message.action.moreReactions"), systemImage: "plus") { actions.pickReaction(message.id) }
                 }
-                Button(t("message.action.moreReactions"), systemImage: "plus") { actions.pickReaction(message.id) }
+                .controlGroupStyle(.palette)
+                Divider()
             }
-            .controlGroupStyle(.palette)
-            Divider()
             Button(t("message.action.reply"), systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
             Button(t("message.action.forward"), systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
             Button(t("message.action.select"), systemImage: "checkmark.circle") { actions.select(message) }

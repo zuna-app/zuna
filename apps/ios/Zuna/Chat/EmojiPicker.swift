@@ -38,12 +38,15 @@ struct EmojiPicker: View {
 
     /// Picking a reaction, which a sticker can't be.
     private let reacting: Bool
+    /// Which emoji the reaction can be.
+    private let offered: OfferedReactions
     /// The panel it's in, which hears when its search is typed in, or nil in a sheet.
     private let panel: ComposerPanel?
 
-    init(server: AppModel.ServerState, reacting: Bool = false, panel: ComposerPanel? = nil, onPick: @escaping (EmojiPick) -> Void) {
+    init(server: AppModel.ServerState, reacting: Bool = false, offered: OfferedReactions = .any, panel: ComposerPanel? = nil, onPick: @escaping (EmojiPick) -> Void) {
         self.server = server
         self.reacting = reacting
+        self.offered = offered
         self.panel = panel
         self.onPick = onPick
         let stickers = server.entry.isTelegram && !reacting
@@ -174,10 +177,26 @@ struct EmojiPicker: View {
         }
     }
 
+    @ViewBuilder
     private func emoji(_ needle: String) -> some View {
-        LazyVStack(alignment: .leading, spacing: 8) {
+        switch offered {
+        case .asking:
+            ProgressView().padding(.top, 40)
+        case .only([]):
+            ContentUnavailableView(t("telegram.reaction.none"), systemImage: "face.smiling")
+                .padding(.top, 40)
+        default:
+            emojiGrid(needle)
+        }
+    }
+
+    private func emojiGrid(_ needle: String) -> some View {
+        let allowed = offered.allowed
+        return LazyVStack(alignment: .leading, spacing: 8) {
             ForEach(EmojiCategory.all) { category in
-                let shown = needle.isEmpty ? category.emoji : category.emoji.filter { $0.count > 1 && $0[1].contains(needle) }
+                let shown = category.emoji.filter { entry in
+                    !entry.isEmpty && (needle.isEmpty || (entry.count > 1 && entry[1].contains(needle))) && allowed.map { $0.contains(OfferedReactions.bare(entry[0])) } != false
+                }
                 if !shown.isEmpty {
                     Text(category.label)
                         .font(.footnote.weight(.semibold))

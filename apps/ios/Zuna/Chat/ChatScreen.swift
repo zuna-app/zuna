@@ -25,6 +25,8 @@ struct ChatScreen: View {
     @State private var deletingOne: MessageView?
     /// How Telegram lets the message being deleted go, once asked.
     @State private var deleteChoices: TelegramDeleteChoices?
+    /// On Telegram, the reactions each message shown takes, once asked, by its ID.
+    @State private var telegramReactions: [String: [String]] = [:]
     /// How wide the chat is, for whether a channel's member list fits beside it.
     @State private var width: CGFloat = 0
     @AppStorage(AppSettings.memberListHiddenKey) private var memberListHidden = false
@@ -181,7 +183,7 @@ struct ChatScreen: View {
             case let .editChannel(id):
                 ChannelEditor(serverId: serverId, target: .edit(channelId: id))
             case let .react(messageId):
-                EmojiPicker(server: server, reacting: true) { pick in
+                EmojiPicker(server: server, reacting: true, offered: offeredReactions(messageId)) { pick in
                     self.sheet = nil
                     guard let groupId = conversation.groupId else { return }
                     let (key, emote): (String, EmoteRef?) = switch pick {
@@ -191,6 +193,7 @@ struct ChatScreen: View {
                     }
                     run { try await model.core.session(serverId).toggleReaction(groupId, messageId: messageId, key: key, emote: emote) }
                 }
+                .task { prepareReactions(messageId) }
                 .presentationDetents([.medium, .large])
             }
         }
@@ -436,6 +439,7 @@ struct ChatScreen: View {
             // Goes to the whole chat, as its messages do, and shows nowhere: the bot answers as it likes.
             press: { message, row, column in run { try await model.core.session(serverId).pressButton(message.groupId, messageId: message.id, row: row, column: column) } },
             pickReaction: { sheet = .react(messageId: $0) },
+            prepareReactions: { messageId in prepareReactions(messageId) },
             readers: { message in
                 guard let seq = message.seq else { return [] }
                 return conversation.members
@@ -463,7 +467,8 @@ struct ChatScreen: View {
                 selection: selection,
                 editing: conversation.kind == .channel ? model.editingInPlace[AppModel.listKey(serverId, listId)]?.id : nil,
                 jump: jump,
-                actions: actions
+                actions: actions,
+                reactions: server.entry.isTelegram ? telegramReactions : nil
             ),
             bridge: bridge,
             onAtBottomChange: { atBottom = $0 },
@@ -586,6 +591,23 @@ struct ChatScreen: View {
     /// Editing the channel from its welcome, for a server admin.
     private func editChannel(_ server: AppModel.ServerState, _ channel: ChannelView) -> (() -> Void)? {
         server.isAdmin ? { sheet = .editChannel(channel.id) } : nil
+    }
+
+    /// On Telegram, asks once which reactions a message takes, for its menu and the picker.
+    private func prepareReactions(_ messageId: String) {
+        guard let server = model.activeServer, server.entry.isTelegram, telegramReactions[messageId] == nil,
+              let groupId = server.conversation(conversationKey)?.groupId else { return }
+        let serverId = server.entry.id
+        Task {
+            guard let offered = try? await model.core.session(serverId).reactionsFor(groupId, messageId: messageId) else { return }
+            telegramReactions[messageId] = offered
+        }
+    }
+
+    /// Which reactions the picker offers for a message: on Telegram, only those it takes on it.
+    private func offeredReactions(_ messageId: String) -> OfferedReactions {
+        guard model.activeServer?.entry.isTelegram == true else { return .any }
+        return telegramReactions[messageId].map { .only($0) } ?? .asking
     }
 
     /// Runs an action on the core, explaining a failure in a toast.

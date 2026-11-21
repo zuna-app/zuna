@@ -141,6 +141,8 @@ public struct SessionCalls: Sendable {
     /// How Telegram lets a message go: for everyone, for this account alone, or neither.
     public func deleteChoices(_ groupId: String, id: String) async throws -> TelegramDeleteChoices { try await call("deleteChoices", [groupId, id]) }
     public func deleteMessages(_ groupId: String, ids: [String], forEveryone: Bool) async throws { try await run("deleteMessages", [groupId, ids, forEveryone]) }
+    /// The reactions Telegram takes on a message, as emoji are drawn, its most used first: most emoji aren't reactions there.
+    public func reactionsFor(_ groupId: String, messageId: String) async throws -> [String] { try await call("reactionsFor", [groupId, messageId]) }
     /// Forwards messages between the Telegram account's own chats, as nothing crosses to a server's.
     public func forwardWithin(_ groupId: String, ids: [String], to conversationKey: String) async throws { try await run("forwardMessages", [groupId, ids, conversationKey]) }
     /// A voice or video message played, which Telegram marks as listened to.
