@@ -210,7 +210,12 @@ export class Socket {
       this.handlers.onDisconnect();
       this.scheduleRetry();
     };
-    ws.onerror = () => ws.close();
+    ws.onerror = () => {
+      // Closing one that never opened fails it, and Node's WebSocket fires `error` for that at
+      // once, while it still says it's connecting, so this closes it only the once.
+      ws.onerror = null;
+      ws.close();
+    };
   }
 
   private startPinging(ws: WebSocket): void {
