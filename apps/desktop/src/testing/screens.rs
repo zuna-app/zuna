@@ -95,7 +95,7 @@ fn draws_every_overlay(cx: &mut TestAppContext) {
         Overlay::NewGroup,
         Overlay::Invite,
         Overlay::Verify { user_id: BOB.into() },
-        Overlay::LeaveServer,
+        Overlay::LeaveServer { server_id: SERVER.into(), from_section: None },
         Overlay::Forward { server_id: SERVER.into(), group_id: DM.into(), ids: vec!["m01".into()] },
         Overlay::AddMembers { group_id: GROUP.into() },
         Overlay::ShareLocation { conversation_key: format!("user:{BOB}") },

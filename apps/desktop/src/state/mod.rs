@@ -148,7 +148,9 @@ pub enum Overlay {
     NewGroup,
     Invite,
     Verify { user_id: String },
-    LeaveServer,
+    /// Asking before leaving a server, and the Settings section it was asked from, which
+    /// Cancel goes back to, as leaving does while there's a server left.
+    LeaveServer { server_id: String, from_section: Option<String> },
     /// Where to forward messages: any chat on any server.
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     /// People to add to a group.
@@ -274,6 +276,10 @@ pub struct AppState {
     pub active_server: Option<String>,
     pub lists: HashMap<String, MessageList>,
     pub overlay: Option<Overlay>,
+    /// The server in front when another was picked in Settings, and the one picked: Settings
+    /// bring a server to the front to show its settings, and put the first back as they close,
+    /// unless something else has changed the server in front since.
+    pub settings_back: Option<(String, String)>,
     pub panel: Option<Panel>,
     /// A plugin's page over the main area, opened from its item in the rail.
     pub plugin_page: Option<u32>,
@@ -416,6 +422,7 @@ impl AppState {
             active_server: None,
             lists: HashMap::new(),
             overlay: None,
+            settings_back: None,
             panel: None,
             plugin_page: None,
             composer_inserts: Vec::new(),
@@ -627,8 +634,18 @@ impl AppState {
         }
         self.panel = None;
         self.overlay = None;
+        // Leaving a server is a step of its own, and the server in front stays where it lands.
+        self.settings_back = None;
         self.report_activity(cx);
         cx.notify();
+    }
+
+    /// Brings a server to the front for Settings to show its own, to put back the one in front
+    /// before as they close (`settings_back`).
+    pub fn select_server_in_settings(&mut self, server_id: &str, cx: &mut Context<Self>) {
+        let before = self.settings_back.take().map(|(before, _)| before).or_else(|| self.active_server.clone());
+        self.select_server(server_id, cx);
+        self.settings_back = before.filter(|before| before != server_id).map(|before| (before, server_id.to_string()));
     }
 
     pub fn select_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
@@ -712,6 +729,13 @@ impl AppState {
             }
         }
         self.overlay = overlay;
+        if self.overlay.is_none()
+            && let Some((before, picked)) = self.settings_back.take()
+            && self.active_server.as_deref() == Some(picked.as_str())
+            && self.servers.contains_key(&before)
+        {
+            self.select_server(&before, cx);
+        }
         cx.notify();
     }
 

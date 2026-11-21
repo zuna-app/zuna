@@ -67,6 +67,8 @@ pub const PROJECT_URL: &str = "https://github.com/zuna-app/zuna";
 
 /// The terms of use everyone agrees to when they create an account.
 pub const TERMS_URL: &str = "https://zuna.chat/terms/";
+/// zuna.chat, the project's website.
+pub const SITE_URL: &str = "https://zuna.chat";
 
 /// What a new password's rating is called, by its score from 0 to 4, as the core words it.
 pub fn password_strength(score: u8) -> &'static str {

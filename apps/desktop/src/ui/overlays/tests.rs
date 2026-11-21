@@ -167,20 +167,20 @@ fn messages_are_forwarded_to_another_chat(cx: &mut TestAppContext) {
 #[gpui::test]
 fn leaving_a_server_watching_youtube_and_joining_on_this_device(cx: &mut TestAppContext) {
     // Leaving the server signs this device out of it and forgets it here.
-    let app = open(cx, "dialog-leave", Overlay::LeaveServer);
+    let app = open(cx, "dialog-leave", Overlay::LeaveServer { server_id: SERVER.into(), from_section: None });
     app.answer("leaveServer", |_| Ok(Value::Null));
     app.click(cx, "leave");
     assert_eq!(app.calls_of("leaveServer"), vec![vec![json!(SERVER)]]);
     assert!(app.read(cx, |state| !state.servers.contains_key(SERVER)));
 
     // A click beside a dialog puts it away, and so does Escape.
-    let app = open(cx, "dialog-beside", Overlay::LeaveServer);
+    let app = open(cx, "dialog-beside", Overlay::LeaveServer { server_id: SERVER.into(), from_section: None });
     let mut window = gpui::VisualTestContext::from_window(app.window.into(), cx);
     window.simulate_click(gpui::point(gpui::px(4.), gpui::px(600.)), gpui::Modifiers::none());
     app.run(cx);
     assert_eq!(app.read(cx, |state| state.overlay.clone()), None);
     std::thread::sleep(std::time::Duration::from_millis(200));
-    app.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx));
+    app.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer { server_id: SERVER.into(), from_section: None }), cx));
     let view = dialog(&app, cx);
     app.window.update(cx, |_, window, cx| view.read(cx).focus.clone().focus(window, cx)).unwrap();
     gpui::VisualTestContext::from_window(app.window.into(), cx).simulate_keystrokes("escape");

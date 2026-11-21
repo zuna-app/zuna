@@ -298,6 +298,7 @@ impl Render for ConversationList {
         let is_admin = server.is_admin();
         // The Telegram account linked here has no invites, settings or new groups yet: its menu unlinks it.
         let telegram = server.entry.is_telegram();
+        let server_id = server.entry.id.clone();
         let name_width = {
             let font = gpui::Font { weight: FontWeight::SEMIBOLD, ..gpui::font(crate::theme::FONT_UI) };
             let run = gpui::TextRun { len: server.entry.name.len(), font, color: theme.text1, background_color: None, underline: None, strikethrough: None };
@@ -358,8 +359,8 @@ impl Render for ConversationList {
                             entries.push(MenuEntry::new(t("conversations.menu.serverSettings"), "settings", move |_, cx| settings.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: None }), cx))));
                         }
                         entries.push(MenuEntry::separator());
-                        let leave = state.clone();
-                        entries.push(MenuEntry::new(t("conversations.menu.leave"), "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
+                        let (leave, server_id) = (state.clone(), server_id.clone());
+                        entries.push(MenuEntry::new(t("conversations.menu.leave"), "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer { server_id: server_id.clone(), from_section: None }), cx))).danger());
                         // From the title's left edge, 4 px under it, as the web opens it.
                         let at = title_bounds.get();
                         super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);

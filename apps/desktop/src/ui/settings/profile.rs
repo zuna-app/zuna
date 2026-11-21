@@ -122,7 +122,10 @@ impl SettingsView {
                         button("sign-out", ButtonKind::Danger, ButtonSize::Normal, false, cx)
                             .child(icon("log-out", 15., theme.red))
                             .child(t("settings.account.signOut"))
-                            .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))),
+                            .on_click(move |_, _, cx| state.update(cx, |state, cx| {
+                                let server_id = state.active_server.clone().unwrap_or_default();
+                                state.set_overlay(Some(Overlay::LeaveServer { server_id, from_section: None }), cx)
+                            })),
                     )
                     .child(
                         button("delete-account", ButtonKind::Danger, ButtonSize::Normal, false, cx)

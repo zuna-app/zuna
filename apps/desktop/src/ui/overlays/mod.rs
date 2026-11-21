@@ -43,7 +43,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::NewGroup => cx.new(|cx| Dialog::new(state, DialogKind::NewGroup, window, cx)).into(),
         Overlay::Invite => cx.new(|cx| Dialog::new(state, DialogKind::Invite, window, cx)).into(),
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
-        Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
+        Overlay::LeaveServer { server_id, from_section } => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer { server_id, from_section }, window, cx)).into(),
         Overlay::MoveVoice(moving) => cx.new(|cx| Dialog::new(state, DialogKind::MoveVoice(moving), window, cx)).into(),
         Overlay::InstallUpdate => cx.new(|cx| Dialog::new(state, DialogKind::InstallUpdate, window, cx)).into(),
         Overlay::WatchConsent { then_link } => cx.new(|cx| Dialog::new(state, DialogKind::WatchConsent { then_link }, window, cx)).into(),
@@ -127,7 +127,7 @@ enum DialogKind {
     NewGroup,
     Invite,
     Verify(String),
-    LeaveServer,
+    LeaveServer { server_id: String, from_section: Option<String> },
     MoveVoice(crate::voice::VoiceMove),
     InstallUpdate,
     Forward { server_id: String, group_id: String, ids: Vec<String> },
@@ -345,7 +345,11 @@ impl Dialog {
         if matches!(self.kind, DialogKind::Channel { .. }) && self.deleting_channel.take().is_some() {
             return cx.notify();
         }
-        let back = matches!(self.kind, DialogKind::Proxy { from_settings: true }).then(|| Overlay::Settings { section: Some("device-privacy".into()) });
+        let back = match &self.kind {
+            DialogKind::Proxy { from_settings: true } => Some(Overlay::Settings { section: Some("device-privacy".into()) }),
+            DialogKind::LeaveServer { from_section: Some(section), .. } => Some(Overlay::Settings { section: Some(section.clone()) }),
+            _ => None,
+        };
         self.state.update(cx, |state, cx| state.set_overlay(back, cx));
     }
 
@@ -457,9 +461,9 @@ impl Dialog {
         self.modal(Some(t("invites.title").into()), 440., body, None, cx)
     }
 
-    fn leave_server(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn leave_server(&mut self, server_id: String, from_section: Option<String>, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
-        let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
+        let Some(server) = self.state.read(cx).servers.get(&server_id).cloned() else { return div().into_any_element() };
         let id = server.entry.id.clone();
         let body = vec![div()
             .text_size(px(13.5))
@@ -473,7 +477,16 @@ impl Dialog {
             .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child(t("common.cancel")).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
             .child(button("leave", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(t("servers.leave.confirm")).on_click(move |_, _, cx| {
                 let id = id.clone();
-                state.update(cx, |state, cx| state.call(None, "leaveServer", vec![json!(id.clone())], cx, move |state, _, cx| state.remove_server(&id, cx)))
+                let (id, back) = (id.clone(), from_section.clone());
+                state.update(cx, |state, cx| {
+                    state.call(None, "leaveServer", vec![json!(id.clone())], cx, move |state, _, cx| {
+                        state.remove_server(&id, cx);
+                        // Back to Settings while there's a server left to have them.
+                        if let Some(section) = back.filter(|_| state.servers.values().any(|server| !server.entry.is_telegram())) {
+                            state.set_overlay(Some(Overlay::Settings { section: Some(section) }), cx);
+                        }
+                    })
+                })
             }))
             .into_any_element();
         self.modal(Some(tr!("servers.leave.title", server = server.entry.name)), 440., body, Some(footer), cx)
@@ -629,7 +642,7 @@ impl Render for Dialog {
                 let user_id = user_id.clone();
                 self.verify(user_id, cx)
             }
-            DialogKind::LeaveServer => self.leave_server(cx),
+            DialogKind::LeaveServer { server_id, from_section } => self.leave_server(server_id.clone(), from_section.clone(), cx),
             DialogKind::MoveVoice(moving) => {
                 let moving = moving.clone();
                 self.move_voice(moving, cx)

@@ -23,7 +23,7 @@ impl SettingsView {
     }
 
     /// Every server on this device, in the rail's order, with its icon, name, address and
-    /// version, or how its connection stands.
+    /// version, or how its connection stands, and Leave, which asks first.
     fn server_list(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let state = self.state.read(cx);
@@ -46,7 +46,12 @@ impl SettingsView {
                 div().child(server.info.as_ref().map(|info| tr!("settings.connections.serverVersion", version = info.version)).unwrap_or_default()).into_any_element()
             };
             let address = entry.url.strip_prefix("https://").unwrap_or(&entry.url).to_string();
-            parts.push(account_row(format!("connection-server-{}", entry.id), picture, entry.name.clone(), address, true, div().text_size(px(12.5)).text_color(theme.text3).child(status).into_any_element(), &theme));
+            let (state, server_id) = (self.state.clone(), entry.id.clone());
+            let leave = button(SharedString::from(format!("leave-server-{}", entry.id)), ButtonKind::Ghost, ButtonSize::Small, false, cx)
+                .child(t("settings.connections.leave"))
+                .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer { server_id: server_id.clone(), from_section: Some("connections".into()) }), cx)));
+            let right = div().flex().items_center().gap(px(14.)).child(div().text_size(px(12.5)).text_color(theme.text3).child(status)).child(leave);
+            parts.push(account_row(format!("connection-server-{}", entry.id), picture, entry.name.clone(), address, true, right.into_any_element(), &theme));
         }
         parts
     }

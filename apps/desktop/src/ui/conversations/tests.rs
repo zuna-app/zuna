@@ -123,7 +123,7 @@ fn the_servers_menu_and_a_rows_own(cx: &mut TestAppContext) {
     world.server["getCalls"] = json!([]);
     let app = open(cx, &world);
     // The server's menu, from its name.
-    for (entry, overlay) in [(0, Overlay::Invite), (1, Overlay::NewGroup), (2, Overlay::ServerSettings { section: None }), (4, Overlay::LeaveServer)] {
+    for (entry, overlay) in [(0, Overlay::Invite), (1, Overlay::NewGroup), (2, Overlay::ServerSettings { section: None }), (4, Overlay::LeaveServer { server_id: SERVER.into(), from_section: None })] {
         app.click(cx, "server-title");
         app.click(cx, &format!("menu-item-{entry}"));
         assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(overlay));

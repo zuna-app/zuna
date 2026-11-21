@@ -208,9 +208,10 @@ impl SettingsView {
     }
 
     /// Shows another server's own settings: it comes to the front, as a click on it in the rail
-    /// brings it, and what was read or typed here for the one before goes.
+    /// brings it, until Settings close (`settings_back`), and what was read or typed here for the
+    /// one before goes.
     fn switch_server(&mut self, id: &str, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| state.select_server(id, cx));
+        self.state.update(cx, |state, cx| state.select_server_in_settings(id, cx));
         self.devices.clear();
         self.recovery_key = None;
         self.strength = (0, String::new());
@@ -359,11 +360,12 @@ impl SettingsView {
                 .into_any_element(),
         ];
         parts.extend(self.updates(cx));
-        let links = [("source", t("settings.about.sourceCode"), super::PROJECT_URL.to_string()), ("security-model", t("settings.about.securityModel"), format!("{}/blob/main/SECURITY.md", super::PROJECT_URL)), ("terms", t("settings.about.terms"), super::TERMS_URL.to_string())];
+        let links = [("website", t("settings.about.website"), super::SITE_URL.to_string()), ("source", t("settings.about.sourceCode"), super::PROJECT_URL.to_string()), ("security-model", t("settings.about.securityModel"), format!("{}/blob/main/SECURITY.md", super::PROJECT_URL))];
         parts.push(
             div()
                 .flex()
                 .flex_wrap()
+                .justify_center()
                 .gap(px(8.))
                 .children(links.into_iter().map(|(id, label, url)| button(id, ButtonKind::Default, ButtonSize::Normal, false, cx).child(label).on_click(move |_, _, cx| cx.open_url(&url))))
                 .into_any_element(),
@@ -636,7 +638,8 @@ mod tests {
     }
 
     /// The picker above the server's own sections lists every server but Telegram, and picking
-    /// one brings it to the front with Settings still open, from a server or from Telegram.
+    /// one brings it to the front with Settings still open, from a server or from Telegram, until
+    /// they close and put back the one that was.
     #[gpui::test]
     fn the_picker_chooses_whose_settings_are_shown(cx: &mut TestAppContext) {
         use crate::telegram::SERVER_ID as TELEGRAM;
@@ -665,9 +668,10 @@ mod tests {
         assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(OTHER));
         assert!(app.read(cx, |state| matches!(state.overlay, Some(Overlay::Settings { .. }))), "Settings stay open");
         assert!(app.drawn(cx, "section-security"));
+        app.update(cx, |state, cx| state.set_overlay(None, cx));
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER), "closing puts back the server that was in front");
         // From Telegram, which has none of a server's sections, until a server is picked.
         app.update(cx, |state, cx| {
-            state.set_overlay(None, cx);
             state.select_server(TELEGRAM, cx);
             state.set_overlay(Some(Overlay::Settings { section: None }), cx);
         });
@@ -676,6 +680,37 @@ mod tests {
         pick(cx, "Test Server");
         assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER));
         assert!(app.drawn(cx, "section-profile"));
+        app.update(cx, |state, cx| state.set_overlay(None, cx));
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(TELEGRAM));
+    }
+
+    /// Leave beside a server in Connections asks first, for that server, whichever is in front;
+    /// Cancel goes back to Connections, and so does leaving, without it.
+    #[gpui::test]
+    fn connections_leave_a_server_after_asking(cx: &mut TestAppContext) {
+        let mut world = World::new("settings-leave");
+        // No call ringing, whose card would cover the dialog.
+        world.server["getCalls"] = json!([]);
+        let app = Running::open(cx, &world);
+        app.answer("leaveServer", |_| Ok(serde_json::Value::Null));
+        app.update(cx, |state, cx| {
+            state.settings.reduce_motion = true;
+            state.select_server(SERVER, cx);
+            state.set_overlay(Some(Overlay::Settings { section: Some("connections".into()) }), cx);
+        });
+        let asking = Some(Overlay::LeaveServer { server_id: OTHER.into(), from_section: Some("connections".into()) });
+        let connections = Some(Overlay::Settings { section: Some("connections".into()) });
+        app.click(cx, &format!("leave-server-{OTHER}"));
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), asking);
+        app.click(cx, "cancel");
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), connections);
+        assert!(app.calls_of("leaveServer").is_empty());
+        app.click(cx, &format!("leave-server-{OTHER}"));
+        app.click(cx, "leave");
+        assert_eq!(app.calls_of("leaveServer"), vec![vec![json!(OTHER)]]);
+        assert_eq!(app.read(cx, |state| state.overlay.clone()), connections);
+        assert!(!app.read(cx, |state| state.servers.contains_key(OTHER)) && !app.drawn(cx, &format!("connection-server-{OTHER}")));
+        assert_eq!(app.read(cx, |state| state.active_server.clone()).as_deref(), Some(SERVER));
     }
 
     /// Connections lists every server, the one signed out of too, and the Telegram account apart
