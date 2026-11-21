@@ -1,6 +1,6 @@
 {
   "name": "@zuna/plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "description": "What a plugin for Zuna's native app is written with: the plugin API's types, a JSX factory for views, and zuna-plugin, which builds, packs, checks and signs a plugin.",

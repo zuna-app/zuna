@@ -1,6 +1,6 @@
 [package]
 name = "zuna-telegram"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 description = "The engine a linked Telegram account runs in: TDLib, in a process of its own, which the native app starts and talks to over its pipes."
