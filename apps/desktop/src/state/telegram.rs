@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_accounts_icon_in_the_rail_is_a_picture_chosen_and_put_back(cx: &mut TestAppContext) {
+    fn the_accounts_icon_is_a_picture_chosen_and_put_back_in_the_rail_or_connections(cx: &mut TestAppContext) {
         let app = App::open(cx, &world("telegram-icon", true));
         app.run(cx);
         assert!(app.read(cx, |state| state.telegram_icon.is_none()), "Zuna's drawing to begin with");
@@ -467,6 +467,26 @@ mod tests {
         app.update(cx, |state, cx| state.set_telegram_icon(crate::media::prepare_icon(&path), cx));
         assert!(app.toasts(cx).contains(&"That image couldn't be processed.".to_string()));
         assert!(app.read(cx, |state| state.telegram_icon.is_none()));
+
+        // Connections offers the same, through the system's own picker.
+        app.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Settings { section: Some("connections".into()) }), cx));
+        assert!(app.drawn(cx, "tg-icon-change") && !app.drawn(cx, "tg-icon-reset"), "nothing to put back yet");
+        app.click(cx, "tg-icon-change");
+        cx.simulate_path_prompt_response(|_| None);
+        app.run(cx);
+        assert!(app.read(cx, |state| state.telegram_icon.is_none()), "a picker closed changes nothing");
+        wide.save(&path).unwrap();
+        app.click(cx, "tg-icon-change");
+        assert!(cx.did_prompt_for_paths());
+        cx.simulate_path_prompt_response(|options| {
+            assert!(options.files && !options.directories && !options.multiple, "one file");
+            Some(vec![path.clone()])
+        });
+        app.run(cx);
+        assert!(app.read(cx, |state| state.telegram_icon.is_some()) && super::telegram_icon_file().exists());
+        app.click(cx, "tg-icon-reset");
+        assert!(app.read(cx, |state| state.telegram_icon.is_none()) && !super::telegram_icon_file().exists());
+        assert!(!app.drawn(cx, "tg-icon-reset"));
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -184,21 +184,8 @@ impl Root {
                                 })
                             })
                             .map(|button| {
-                                if let (true, Some(image)) = (server.telegram, telegram_icon.clone()) {
-                                    // The picture this person chose, as a server's icon is drawn.
-                                    button.child(cover_image(image, 42., 42., RADIUS_L, cx))
-                                } else if server.telegram {
-                                    // A drawing of Zuna's own: Telegram's terms keep its logo for its own apps.
-                                    button.child(
-                                        div()
-                                            .size(px(42.))
-                                            .rounded(RADIUS_L)
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .bg(theme.bg3)
-                                            .child(gpui::svg().path("icons/messages-square.svg").size(px(21.)).text_color(theme.text1)),
-                                    )
+                                if server.telegram {
+                                    button.child(telegram_icon_view(telegram_icon.clone(), 42., cx))
                                 } else {
                                     button.child(avatar(
                                         AvatarProps {
@@ -333,5 +320,24 @@ impl Root {
             .border_color(theme.line)
             .child(div().id("rail-list").flex_1().min_h_0().w_full().overflow_y_scroll().child(list))
             .child(footer)
+    }
+}
+
+/// The linked Telegram account's icon: the picture its person chose, drawn as a server's icon
+/// is, or else a drawing of Zuna's own, as Telegram's terms keep its logo for its own apps.
+pub(super) fn telegram_icon_view(image: Option<std::sync::Arc<gpui::Image>>, size: f32, cx: &App) -> AnyElement {
+    let theme = theme(cx);
+    match image {
+        Some(image) => cover_image(image, size, size, RADIUS_L, cx).into_any_element(),
+        None => div()
+            .size(px(size))
+            .flex_none()
+            .rounded(RADIUS_L)
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme.bg3)
+            .child(gpui::svg().path("icons/messages-square.svg").size(px(size / 2.)).text_color(theme.text1))
+            .into_any_element(),
     }
 }

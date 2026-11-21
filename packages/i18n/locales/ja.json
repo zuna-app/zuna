@@ -2200,6 +2200,8 @@
   "settings.connections.linkedAsWithUsername": "{name}（@{username}）として連携済み。Telegram はチャットをエンドツーエンドで暗号化せず、自社サーバーに保存します。",
   "settings.connections.telegramCalls": "この端末で Telegram の通話を受ける",
   "settings.connections.telegramCallsHint": "オフにすると Telegram の着信はここでは鳴りませんが、ここから発信はできます。これは Telegram のこの端末の「通話を受ける」設定そのものなので、そちらも変わります。通話は Telegram の中継サーバーを通るため、相手にこの端末のアドレスが知られることはありません。",
+  "settings.connections.telegramIcon": "サーバー一覧のアイコン",
+  "settings.connections.telegramIconHint": "左側のサーバー一覧で Telegram に自分の画像を表示します。画像はこの端末にのみ保存されます。",
   "settings.connections.title": "連携",
   "settings.connections.unavailable": "この Zuna ビルドには Telegram の api_id が含まれないため、Telegram を利用できません。",
   "settings.connections.unlink": "連携を解除",

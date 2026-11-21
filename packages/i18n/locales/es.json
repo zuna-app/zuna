@@ -2275,6 +2275,8 @@
   "settings.connections.linkedAsWithUsername": "Vinculado como {name} (@{username}). Telegram guarda estos chats sin cifrado de extremo a extremo.",
   "settings.connections.telegramCalls": "Recibir llamadas de Telegram en este dispositivo",
   "settings.connections.telegramCallsHint": "Desactivado, aquí no suena ninguna llamada de Telegram, y aún puedes llamar desde aquí. Es el «Aceptar llamadas» de Telegram para este dispositivo, así que también cambia allí. Las llamadas pasan por los relés de Telegram, así que la otra persona nunca conoce la dirección de este dispositivo.",
+  "settings.connections.telegramIcon": "Icono junto a tus servidores",
+  "settings.connections.telegramIconHint": "Muestra una imagen propia para Telegram en la lista de servidores de la izquierda. Se queda en este dispositivo.",
   "settings.connections.title": "Conexiones",
   "settings.connections.unavailable": "Telegram no está disponible porque esta versión de Zuna no incluye un api_id de Telegram.",
   "settings.connections.unlink": "Desvincular",

@@ -2275,6 +2275,8 @@
   "settings.connections.linkedAsWithUsername": "Linked as {name} (@{username}). Telegram stores these chats on its servers without end-to-end encryption.",
   "settings.connections.telegramCalls": "Take Telegram calls on this device",
   "settings.connections.telegramCallsHint": "Off, no Telegram call rings here, and you can still call from here. It's Telegram's own Accept calls for this device, so it changes there too. Calls go through Telegram's relays, so the person you call never learns this device's address.",
+  "settings.connections.telegramIcon": "Icon beside your servers",
+  "settings.connections.telegramIconHint": "Show a picture of your own for Telegram in the list of servers on the left. It stays on this device.",
   "settings.connections.title": "Connections",
   "settings.connections.unavailable": "Telegram is unavailable because this build of Zuna doesn't include a Telegram api_id.",
   "settings.connections.unlink": "Unlink",

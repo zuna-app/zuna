@@ -2200,6 +2200,8 @@
   "settings.connections.linkedAsWithUsername": "已关联为 {name}（@{username}）。Telegram 将这些聊天存放在自己的服务器上，未采用端到端加密。",
   "settings.connections.telegramCalls": "在此设备上接听 Telegram 通话",
   "settings.connections.telegramCallsHint": "关闭后，Telegram 的来电不会在这里响铃，但你仍可从这里拨打。它就是 Telegram 对此设备的“接受通话”设置，因此那边也会随之改变。通话经过 Telegram 的中继，对方永远不会知道此设备的地址。",
+  "settings.connections.telegramIcon": "服务器旁的图标",
+  "settings.connections.telegramIconHint": "在左侧服务器列表中为 Telegram 显示你自己的图片。图片仅保存在此设备上。",
   "settings.connections.title": "连接",
   "settings.connections.unavailable": "此版本的 Zuna 未配置 Telegram api_id，Telegram 功能不可用。",
   "settings.connections.unlink": "取消关联",

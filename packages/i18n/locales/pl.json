@@ -2423,6 +2423,8 @@
   "settings.connections.linkedAsWithUsername": "Połączono jako {name} (@{username}). Telegram przechowuje te czaty bez szyfrowania end-to-end.",
   "settings.connections.telegramCalls": "Odbieraj rozmowy z Telegrama na tym urządzeniu",
   "settings.connections.telegramCallsHint": "Po wyłączeniu żadna rozmowa z Telegrama tu nie zadzwoni, a dzwonić stąd nadal można. To ustawienie „Odbieraj połączenia” Telegrama dla tego urządzenia, więc zmienia się też tam. Rozmowy idą przez przekaźniki Telegrama, więc rozmówca nigdy nie pozna adresu tego urządzenia.",
+  "settings.connections.telegramIcon": "Ikona obok serwerów",
+  "settings.connections.telegramIconHint": "Pokaż własny obraz dla Telegrama na liście serwerów po lewej. Zostaje na tym urządzeniu.",
   "settings.connections.title": "Połączenia",
   "settings.connections.unavailable": "Telegram jest niedostępny, ponieważ ta wersja Zuny nie zawiera api_id Telegrama.",
   "settings.connections.unlink": "Odłącz",

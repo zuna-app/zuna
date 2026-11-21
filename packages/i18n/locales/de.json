@@ -2275,6 +2275,8 @@
   "settings.connections.linkedAsWithUsername": "Als {name} (@{username}) verknüpft. Telegram speichert diese Chats ohne Ende-zu-Ende-Verschlüsselung.",
   "settings.connections.telegramCalls": "Telegram-Anrufe auf diesem Gerät annehmen",
   "settings.connections.telegramCallsHint": "Ist es aus, klingelt hier kein Telegram-Anruf, und du kannst trotzdem von hier anrufen. Es ist Telegrams eigenes „Anrufe annehmen“ für dieses Gerät und ändert sich dort mit. Anrufe laufen über Telegrams Relays, daher erfährt die angerufene Person nie die Adresse dieses Geräts.",
+  "settings.connections.telegramIcon": "Symbol neben deinen Servern",
+  "settings.connections.telegramIconHint": "Zeige für Telegram ein eigenes Bild in der Liste der Server links. Es bleibt auf diesem Gerät.",
   "settings.connections.title": "Verbindungen",
   "settings.connections.unavailable": "Telegram ist nicht verfügbar, weil diese Zuna-Version keine Telegram-api_id enthält.",
   "settings.connections.unlink": "Trennen",
