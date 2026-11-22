@@ -79,26 +79,9 @@ struct ServerSettingsView: View {
 
                 Section(t("serverSettings.sections.members")) {
                     NavigationLink(t("serverSettings.members.count", ["count": server.users.values.filter { !$0.deleted && !$0.banned }.count])) { ServerMembersView(serverId: serverId) }
-                    NavigationLink(t("serverSettings.sections.reports")) { ReportsView(serverId: serverId) }
-                        .accessibilityIdentifier(A11y.Settings.reports)
-                    NavigationLink { BansView(serverId: serverId) } label: {
-                        LabeledContent(t("serverSettings.sections.bans"), value: "\(server.users.values.filter { $0.banned && !$0.deleted }.count)")
-                    }
-                    .accessibilityIdentifier(A11y.Settings.bans)
                 }
                 Section(t("serverSettings.channels.title")) {
                     NavigationLink(t("serverSettings.channels.count", ["count": server.channels.count])) { ChannelsSettingsView(serverId: serverId) }
-                }
-                Section(t("serverSettings.voice")) {
-                    // The rules come with what a member is told about the server.
-                    if server.info?.screenShare != nil {
-                        NavigationLink(t("serverSettings.sections.screen")) { ScreenRulesView(serverId: serverId) }
-                            .accessibilityIdentifier(A11y.Settings.screenRules)
-                    }
-                    NavigationLink { SoundboardSettingsView(serverId: serverId) } label: {
-                        LabeledContent(t("serverSettings.sections.soundboard"), value: t("serverSettings.sounds", ["count": server.sounds.count]))
-                    }
-                    .accessibilityIdentifier(A11y.Settings.soundboard)
                 }
                 Section(t("serverSettings.sections.emotes")) {
                     NavigationLink { EmoteSetView(serverId: serverId) } label: {
@@ -106,11 +89,31 @@ struct ServerSettingsView: View {
                     }
                     .accessibilityIdentifier(A11y.Settings.emotes)
                 }
+                Section(t("serverSettings.voice")) {
+                    NavigationLink { SoundboardSettingsView(serverId: serverId) } label: {
+                        LabeledContent(t("serverSettings.sections.soundboard"), value: t("serverSettings.sounds", ["count": server.sounds.count]))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.soundboard)
+                    // The rules come with what a member is told about the server.
+                    if server.info?.screenShare != nil {
+                        NavigationLink(t("serverSettings.sections.screen")) { ScreenRulesView(serverId: serverId) }
+                            .accessibilityIdentifier(A11y.Settings.screenRules)
+                    }
+                }
                 Section(t("serverSettings.sections.storage")) {
                     NavigationLink(t("serverSettings.storage.filesAndRetention")) { StorageView(serverId: serverId) }
                 }
                 Section(t("serverSettings.sections.bots")) {
                     NavigationLink(t("serverSettings.sections.bots")) { BotsSettingsView(serverId: serverId) }
+                }
+                // What admins answer for comes last, as on the desktop.
+                Section {
+                    NavigationLink(t("serverSettings.sections.reports")) { ReportsView(serverId: serverId) }
+                        .accessibilityIdentifier(A11y.Settings.reports)
+                    NavigationLink { BansView(serverId: serverId) } label: {
+                        LabeledContent(t("serverSettings.sections.bans"), value: "\(server.users.values.filter { $0.banned && !$0.deleted }.count)")
+                    }
+                    .accessibilityIdentifier(A11y.Settings.bans)
                 }
             }
         }
