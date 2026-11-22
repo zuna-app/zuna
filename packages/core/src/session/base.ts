@@ -130,6 +130,8 @@ export abstract class SessionBase {
   protected externalJoins = new Set<string>();
   /** The epoch each group's tree was last found clean at, so sending needn't check it every time. */
   protected cleanEpochs = new Map<string, number>();
+  /** Groups the server says are past what their feed brought, read once more before that's taken for a commit this device couldn't apply. */
+  protected feedBehind = new Set<string>();
   /** Who holds each group's keys now, for showing its members. */
   protected treeUsersCache = new Map<string, Set<string>>();
   /**

@@ -2,7 +2,7 @@
 // while other conversations are being set up and messages are already flowing.
 
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { TestApp, TestServer, loadCrypto, waitFor } from "./helpers";
+import { TestApp, TestServer, atOneEpoch, loadCrypto, waitFor } from "./helpers";
 
 let server: TestServer;
 let owner: TestApp;
@@ -94,5 +94,41 @@ it("shows the name to someone who had to join without a Welcome", async () => {
     await waitFor(() => noor.texts(`group:${groupId}`).includes("can you read this?"), "the message");
   } finally {
     session.api.welcomes = fetchWelcomes;
+  }
+});
+
+it("reads what changed again, rather than joining again, for a commit the server took while it read", async () => {
+  const mina = members[0]!;
+  const groupId = await creator.session.createGroup("Read again", [mina.userId], false);
+  await waitFor(() => atOneEpoch(groupId, creator, mina), "mina to join");
+  const session = mina.session as any;
+  const other = creator.session as any;
+  const { changes, joinExternal } = { changes: session.api.changes, joinExternal: session.joinExternal };
+  let joinedAgain = false;
+  session.joinExternal = (id: string) => {
+    joinedAgain = true;
+    return joinExternal.call(session, id);
+  };
+  let first = true;
+  session.api.changes = async (id: string, after: number) => {
+    const page = await changes.call(session.api, id, after);
+    if (id !== groupId || !first) return page;
+    first = false;
+    // After this page was read, a commit, and a message under the epoch it makes.
+    await other.withLock(groupId, () => other.commitWithRetry(groupId, async () => ({ kind: "update" })));
+    creator.session.sendMessage(`group:${groupId}`, { text: "under the new epoch" });
+    await waitFor(() => creator.texts(`group:${groupId}`).includes("under the new epoch"), "it to be sent");
+    // Meanwhile something else of mina's app hears from the server where the group is now.
+    session.applyGroup(await session.api.group(groupId));
+    return page;
+  };
+  try {
+    await session.withLock(groupId, () => session.pullChanges(groupId));
+    // Joining again would have left mina with no key for the epoch it's under.
+    await waitFor(() => mina.texts(`group:${groupId}`).includes("under the new epoch"), "the message");
+    expect(joinedAgain).toBe(false);
+  } finally {
+    session.api.changes = changes;
+    session.joinExternal = joinExternal;
   }
 });

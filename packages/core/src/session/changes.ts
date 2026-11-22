@@ -139,11 +139,21 @@ export abstract class SessionChanges extends SessionJoining {
     }
     if (items.length > 0) this.emitConversations();
     // Caught up, and still behind: a commit this device couldn't apply. If it's
-    // been waiting for someone able to deal with that, this may be them.
-    if (!page.has_more && group && !group.removedAt && this.hasMlsGroup(groupId) && group.epoch > this.mlsEpoch(groupId)) {
-      await this.repair(groupId);
+    // been waiting for someone able to deal with that, this may be them. Or one the
+    // server took after this page was read, which another read brings: joining again
+    // loses every epoch in between, so the feed is read once more first.
+    const behind = !page.has_more && !!group && !group.removedAt && this.hasMlsGroup(groupId) && group.epoch > this.mlsEpoch(groupId);
+    if (!behind) {
+      this.feedBehind.delete(groupId);
+      return page.has_more;
     }
-    return page.has_more;
+    if (!this.feedBehind.has(groupId)) {
+      this.feedBehind.add(groupId);
+      return true;
+    }
+    this.feedBehind.delete(groupId);
+    await this.repair(groupId);
+    return false;
   }
 
   protected async applyEvent(event: ApiEvent): Promise<void> {
