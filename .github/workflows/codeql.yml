@@ -1,0 +1,125 @@
+name: CodeQL
+
+# Scans each push to main, each pull request and, every week, main again with CodeQL's newest
+# queries, for GitHub's code scanning. What it scans and with which queries is in
+# .github/codeql/codeql-config.yml. It takes the place of GitHub's default setup, which scanned the
+# App Store's tooling and the tests as well, and read the native app's Cargo workspace without its
+# patched crates, so it understood none of its dependencies. Swift isn't scanned, as that would
+# take building the iPhone app on a Mac.
+#
+# Each language's category is the one default setup gave it, so the alerts it raised, and the
+# ones dismissed, stay the same alerts.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+# A run on main finishes, and of the pushes that came meanwhile only the newest runs after it,
+# as main.yml does. A pull request's is replaced by its next push.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Third-party actions are pinned to full commits, since a tag can be moved.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The workflows themselves.
+          - language: actions
+            build-mode: none
+          # The screen share's encoder and its CUDA import on Linux, and the iPhone's TDLib shim.
+          - language: c-cpp
+            build-mode: none
+          # The server, zuna-web and the push relay, built as Go builds them.
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: server/go.mod
+          # setup-go keys its cache on a go.sum at the root by default.
+          cache-dependency-path: server/go.sum
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: /language:${{ matrix.language }}
+
+  # Rust is read without a build, but through Cargo's metadata, which the native app's workspace
+  # only has once its patched LiveKit crates are fetched, and CodeQL runs the build scripts and
+  # procedural macros to understand the code. So it's read where it builds, as coverage.yml's
+  # desktop job tests it: in Debian 12, with what the build links and clang 21, which libwebrtc
+  # needs. It's read for Linux, so code only for Windows or macOS is read without its types.
+  rust:
+    name: Analyze (rust)
+    runs-on: ubuntu-latest
+    container: debian:12
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      CC: clang-21
+      CXX: clang++-21
+      LIBCLANG_PATH: /usr/lib/llvm-21/lib
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: sh scripts/linux-build-deps.sh
+      # CodeQL reads the commit with git, which won't look at a checkout another user owns, as
+      # the container's is.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: rust-src
+      # GPUI comes from Zuna's fork of Zed, whose repository is large to fetch: coverage.yml's
+      # cache of it, read and never saved here.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: desktop-coverage-cargo-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          restore-keys: desktop-coverage-cargo-
+      - run: npm ci
+      # What the app's build needs first (CLAUDE.md): the core's bundle, the patched LiveKit
+      # crates and the pinned FFmpeg.
+      - run: node apps/desktop/core-bundle/build.mjs
+      - run: node scripts/webrtc-sys.mjs
+      - run: node scripts/ffmpeg.mjs
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: rust
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: /language:rust

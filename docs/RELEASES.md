@@ -13,7 +13,7 @@ Only the native app is released: its Windows installer, its Linux packages and i
 - **A stable release on "release a new stable version".** Published only after CI has run its tests.
 - **Work goes on `main`, and so does every release.** A line's first stable release, `0.2.0`, makes its branch, `release/0.2`, at the commit it tags, which GitHub keeps from ever moving, so what went out stays as it was, [below](#release-lines). The line's patches are released from `main` too.
 - **Servers on stable build stable releases.** `deploy/update.sh` builds the newest stable release's tag on a server's stable channel, the installers' default, and `main`'s newest commit on nightly ([LINUX.md](LINUX.md#updating)). So a fix to the server reaches servers on stable only with the next stable release, which is cut only when an app changed too.
-- **Each push to `main` is checked.** `.github/workflows/main.yml` runs `ci.yml`'s `test` job: the type checks, the tests of the crypto core, the server, the core, the release script, the languages and the plugin SDK, and the web app's build. A push that only changes docs starts nothing.
+- **Each push to `main` is checked.** `.github/workflows/main.yml` runs `ci.yml`'s `test` job: the type checks, the tests of the crypto core, the server, the core, the release script, the languages and the plugin SDK, and the web app's build. A push that only changes docs starts nothing. `codeql.yml` scans the same pushes for GitHub's code scanning, whose alerts stop none of them.
 - **The app updates itself on Windows.** A channel switch in Settings, stable or nightly. When a newer build is out, an Update button shows beside the window's buttons. Pressing it closes the app, installs the update and starts the app again.
 
 ## Versions

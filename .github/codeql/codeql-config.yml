@@ -1,0 +1,32 @@
+# What CodeQL scans, for .github/workflows/codeql.yml.
+#
+# The security queries with the extended suite's lower-precision ones too, as the code is a chat
+# whose point is its security. Only what an app, the server or the core runs is scanned: tests,
+# the checks that drive the apps and the tooling run by hand only ever see what they make
+# themselves, and every alert there so far was dismissed as test code or a false positive.
+#
+# These paths are left out for JavaScript and TypeScript, Rust and C, which are scanned without a
+# build. Go is built, so its tests are still read, and Rust's tests inside a source file, in
+# `#[cfg(test)]` modules, are too: dismiss what they find as "used in tests".
+name: Zuna
+
+queries:
+  - uses: security-extended
+
+paths-ignore:
+  # The App Store's art and showcase scripts, run by hand on a Mac (appstore/README.md).
+  - appstore
+  # The end-to-end workspace, each package's and app's tests and checks, and Rust's tests in
+  # files of their own.
+  - tests
+  - "**/test"
+  - "**/tests.rs"
+  - "**/*.test.mjs"
+  # The fake of YouTube's player that the checks put in its place.
+  - packages/watch/fake
+  # The native app's checks and benchmarks that Cargo builds as examples.
+  - apps/desktop/examples
+  - apps/desktop/screenshare/examples
+  # LiveKit's crates as scripts/webrtc-sys.mjs patches them, and FFmpeg, which the Rust job
+  # fetches so Cargo can read the app's workspace. They aren't Zuna's code.
+  - apps/desktop/.deps
