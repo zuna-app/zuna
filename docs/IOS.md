@@ -156,8 +156,8 @@ interface FileAdapter {
 ```
 apps/ios/
   project.yml                 XcodeGen spec; the .xcodeproj is generated and not committed
-  telegram.yml                taken in for a build given Telegram's api_id: links TDLib into the app
-  TDLib/                      TDLib's C functions as a Swift module, which only Zuna/Telegram/TDLibEngine.swift imports
+  telegram.yml                taken in for a build given Telegram's api_id: TDLib in a framework, ZunaTD, the app embeds
+  TDLib/                      TDLib's C functions as a Swift module, which only Zuna/Telegram/TDLibEngine.swift imports, and ZunaTD's own files
   Zuna/                       app: SwiftUI screens, UIKit message list, text and composer
   ZunaNotifications/          notification service extension
   ZunaShare/                  share extension

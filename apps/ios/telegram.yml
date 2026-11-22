@@ -2,17 +2,43 @@
 # app set it for a build given Telegram's api_id (TELEGRAM_API_ID, TELEGRAM_API_HASH). Without it
 # the app has no Telegram and needs no TDLib, as the desktop builds without its engine.
 #
-# A linked Telegram account's TDLib runs in the app's own process (docs/TELEGRAM_PLAN.md, "On the
-# iPhone and iPad"), linked statically from what `node scripts/tdlib.mjs --ios` builds into
-# apps/ios/.deps, for the app's own deployment target. ZUNA_TELEGRAM is what Swift is built with
-# beside it, which Zuna/Telegram/TDLibEngine.swift names TDLib behind, and TDLib's functions reach
-# Swift as a module of their own (apps/ios/TDLib), not through a bridging header on the whole app.
+# A linked Telegram account's TDLib runs in the process that holds the core's lock: the app's, or
+# the share extension's while it sends to a Telegram chat (docs/IOS_TELEGRAM_SHARE_PLAN.md). It's a
+# framework of its own, ZunaTD, which the app embeds and both link, so that it's in the download
+# once: the static libraries `node scripts/tdlib.mjs --ios` builds into apps/ios/.deps, for the
+# app's own deployment target, linked whole from TDLib's JSON interface, with only the functions
+# apps/ios/TDLib/TDLib.h declares exported. ZUNA_TELEGRAM is what Swift is built with beside it,
+# which Zuna/Telegram/TDLibEngine.swift names TDLib behind, and TDLib's functions reach Swift as a
+# module of their own (apps/ios/TDLib), not through a bridging header on the whole app.
 
 targets:
+  ZunaTD:
+    type: framework
+    platform: iOS
+    sources:
+      - path: TDLib/ZunaTD.c
+      - path: TDLib/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.td
+        PRODUCT_NAME: ZunaTD
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: ZunaTD
+        # Linked by an extension too, which may only call what an extension may.
+        APPLICATION_EXTENSION_API_ONLY: YES
+        DEFINES_MODULE: NO
+        SKIP_INSTALL: YES
+        LIBRARY_SEARCH_PATHS: $(inherited) $(SRCROOT)/.deps/tdlib/$(PLATFORM_NAME)/lib
+        # TDLib's JSON interface whole, and what it needs from the rest, with nothing else of it, of
+        # OpenSSL's or of libc++'s exported (TDLib/exported-symbols.txt).
+        OTHER_LDFLAGS: $(inherited) -Wl,-force_load,$(SRCROOT)/.deps/tdlib/$(PLATFORM_NAME)/lib/libtdjson_static.a -ltdjson_private -ltdclient -ltdcore -ltdmtproto -ltdapi -ltde2e -ltddb -ltdsqlite -ltdnet -ltdactor -ltdutils -lssl -lcrypto -lz -lc++
+        EXPORTED_SYMBOLS_FILE: $(SRCROOT)/TDLib/exported-symbols.txt
   Zuna:
+    dependencies:
+      - target: ZunaTD
+        embed: true
     settings:
       base:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) ZUNA_TELEGRAM
         SWIFT_INCLUDE_PATHS: $(inherited) $(SRCROOT)/TDLib
-        LIBRARY_SEARCH_PATHS: $(inherited) $(SRCROOT)/.deps/tdlib/$(PLATFORM_NAME)/lib
-        OTHER_LDFLAGS: $(inherited) -ltdjson_static -ltdjson_private -ltdclient -ltdcore -ltdmtproto -ltdapi -ltde2e -ltddb -ltdsqlite -ltdnet -ltdactor -ltdutils -lssl -lcrypto -lz -lc++

@@ -72,8 +72,8 @@ enum TelegramCallPush {
 }
 
 #if ZUNA_TELEGRAM
-/// TDLib's JSON interface (`td/telegram/td_json_client.h`), linked statically from what
-/// `scripts/tdlib.mjs --ios` builds. Every client's answers and updates come from one call,
+/// TDLib's JSON interface (`td/telegram/td_json_client.h`), in the ZunaTD framework, which links what
+/// `scripts/tdlib.mjs --ios` builds (apps/ios/telegram.yml). Every client's answers and updates come from one call,
 /// `td_receive`, which only one thread may make, so one thread makes it while there's a client and
 /// hands each to its client by the `@client_id` TDLib puts at its end. The broker makes one client
 /// at a time.

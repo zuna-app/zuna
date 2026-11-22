@@ -67,6 +67,12 @@ function bundlesOf(app) {
   return [...extensions, app];
 }
 
+/** The frameworks the app embeds: LiveKit's, and TDLib's (ZunaTD) in a build with Telegram. */
+function frameworksOf(app) {
+  const dir = join(app, "Frameworks");
+  return existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".framework")).sort().map((name) => join(dir, name)) : [];
+}
+
 /** A bundle's entitlements file in apps/ios, named after its target, which its executable is too. */
 function entitlementsFile(bundle) {
   const name = field(join(bundle, "Info.plist"), "CFBundleExecutable");
@@ -247,6 +253,10 @@ function check(ipa, build, prefix, work, store) {
     const xml = read("codesign", ["-d", "--entitlements", "-", "--xml", bundle]).trim();
     const got = xml ? JSON.parse(read("plutil", ["-convert", "json", "-o", "-", "-"], { input: xml })) : {};
     problems.push(...entitlementProblems(name, file ? filled(plistOf(file), prefix) : {}, got));
+  }
+  // A framework declares the reasons for what it calls itself, as TDLib's does for its files' times and the free space.
+  for (const framework of frameworksOf(app)) {
+    if (!existsSync(join(framework, "PrivacyInfo.xcprivacy"))) problems.push(`${basename(framework)} has no privacy manifest, PrivacyInfo.xcprivacy.`);
   }
   const internal = field(join(app, "Info.plist"), "TFInternalTestingOnly") === "true";
   if (!store && !internal) problems.push("Zuna.app isn't marked for the team's own testers only (TFInternalTestingOnly).");
