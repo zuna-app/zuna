@@ -208,18 +208,19 @@ impl Render for ServerSettings {
                 ("overview", t("serverSettings.sections.overview"), "server"),
                 ("invites", t("serverSettings.sections.invites"), "link"),
                 ("members", t("serverSettings.sections.members"), "users"),
-                ("reports", t("serverSettings.sections.reports"), "flag"),
-                ("bans", t("serverSettings.sections.bans"), "ban"),
                 ("emotes", t("serverSettings.sections.emotes"), "face-slightly-smiling"),
                 ("soundboard", t("serverSettings.sections.soundboard"), "audio-lines"),
-                ("storage", t("serverSettings.sections.storage"), "hard-drive"),
                 ("screen", t("serverSettings.sections.screen"), "monitor-up"),
+                ("storage", t("serverSettings.sections.storage"), "hard-drive"),
             ]);
         }
         // Bots are there for admins, for members where the server lets them make bots, and for whoever has one.
         let has_bots = is_admin || server.info.as_ref().is_some_and(|info| info.allow_member_bots) || server.users.values().any(|user| !user.deleted && user.bot.as_ref().is_some_and(|bot| bot.owner_id == server.self_id()));
         if has_bots {
             sections.push(("bots", t("serverSettings.sections.bots"), "bot"));
+        }
+        if is_admin {
+            sections.extend([("reports", t("serverSettings.sections.reports"), "flag"), ("bans", t("serverSettings.sections.bans"), "ban")]);
         }
         sections.push(("leave", t("serverSettings.sections.leave"), "log-out"));
         sections.push(("delete", t("serverSettings.sections.delete"), "trash"));
