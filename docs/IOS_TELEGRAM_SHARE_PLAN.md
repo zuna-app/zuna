@@ -200,7 +200,21 @@ Written on 2026-11-22, and changed the same day for the owner's answers. Built t
 - **Step 4,** the folder in the App Group: the move on the first launch, TDLib on its database there, and a close of 32 ms as the app slept, with none of its files left open.
 - **Step 5,** the extension: built, linking `ZunaTD` from the app, the bridge's tests for a broker that waits for the lock, registers nothing and keeps its own marks, and the core's for sending without reading the list. `ShareTests` on a build without Telegram.
 
-**Not run yet:** a share to a Telegram chat, in the simulator, where the test account is no longer linked, or on a phone; any of it on a phone, where the step 3 and 4 checks above are still to be made on the owner's iPhone the day a nightly with them is installed; and the extension's memory with TDLib in it.
+**On the owner's phone,** the day nightly 0.3.0-nightly.1749 was installed (2026-11-22, iPhone 17 Pro Max, iOS 27.0.1, the owner's own account linked), driven over USB through two starts from nothing and two returns from sleep, then a share from Photos with Zuna asleep:
+
+| What | Found |
+|---|---|
+| The folder's move | On the first start, the account still linked |
+| TDLib closed as the app slept | 23, 12, 10 and 13 ms, and the app suspended a tenth of a second after each |
+| What iOS ended for a lock (`0xDEAD10CC`) | Nothing, the app nor the extension |
+| TDLib's first connection to Telegram after a start, or a return from sleep | 0.07 s and 0.49 s, and 0.07 s and 0.47 s: a return is faster than the 1.5 s it took before step 3 |
+| A share to Saved Messages with the app asleep | Sent by the extension's own TDLib, there on the owner's other devices; about 0.5 MB went to Telegram, the whole run of TDLib 0.85 s |
+| The extension's memory, of its 220 MB | 53 MB before Send, 71 at most while TDLib ran, 55 once it closed. Its log: 167 MB left before TDLib, 148 after |
+| TDLib closed in the extension | 14 ms |
+
+What an older iPhone gives the extension is still unknown, but with 71 MB at most, a 120 MB limit would leave it room.
+
+**Not run yet:** a large video, a group, a chat picked from the row of people, leaving the sharing app while it sends, and opening Zuna while it sends.
 
 ## What was read
 
