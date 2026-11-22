@@ -349,6 +349,7 @@ describe("signing in, against a server that chose the keys", () => {
       rootPublic: identity.publicKey,
       rootSecret: identity.secretKey,
       olderKeys: {},
+      olderAuthors: [],
       olderHpkeSecrets: [],
       closedBelow: 0,
       slots: {},

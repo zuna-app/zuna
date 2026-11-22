@@ -85,7 +85,7 @@ describe("certificates and profiles that don't read", () => {
     expect(openProfileAtGeneration(wasm.randomBytes(32), identity.publicKey, "u1", "ada", 3, sealed, head)).toBeNull();
   });
 
-  it("reads a manifest's number from a vault core only when it's a whole number", () => {
+  it("reads a manifest's number from a vault core only when it's a whole number, and author roots only from one that keeps them", () => {
     const bytes = () => wasm.randomBytes(8);
     const core: VaultCore = {
       identityPublic: bytes(),
@@ -97,6 +97,7 @@ describe("certificates and profiles that don't read", () => {
       rootPublic: bytes(),
       rootSecret: bytes(),
       olderKeys: { 0: bytes() },
+      olderAuthors: [bytes()],
       olderHpkeSecrets: [bytes()],
       closedBelow: 0,
       slots: {},
@@ -107,6 +108,9 @@ describe("certificates and profiles that don't read", () => {
     expect(coreFromJson({ ...json, manifest: "5" }).manifest).toBe(0);
     expect(coreFromJson({ ...json, manifest: undefined }).manifest).toBe(0);
     expect(coreFromJson(json).olderKeys[0]).toEqual(core.olderKeys[0]);
+    expect(coreFromJson(json).olderAuthors).toEqual(core.olderAuthors);
+    // A core sealed before author roots were kept has none.
+    expect(coreFromJson({ ...json, olderAuthors: undefined }).olderAuthors).toEqual([]);
   });
 });
 

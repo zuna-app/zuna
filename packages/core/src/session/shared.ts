@@ -105,6 +105,8 @@ export const MAX_REMOVAL_ROTATIONS = 5;
 export const REMOVAL_ROTATION_WINDOW_MS = 3600 * 1000;
 /** Enough for anyone to have heard about a rotation by the time a key is forgotten, in a core with a size limit. */
 export const OLDER_HPKE_KEPT = 16;
+/** Older generations whose author roots a core keeps, at 32 bytes each, so that it stays within its size limit. */
+export const OLDER_AUTHORS_KEPT = 256;
 /** A device that has held a leaf this long, as this device saw it, has continuity with what came before. */
 export const CONTINUITY_MS = 7 * 24 * 3600 * 1000;
 

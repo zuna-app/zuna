@@ -121,7 +121,7 @@ item secret = HKDF(author root, "zuna/item-key/v1|kind|group|item")     an Ed255
 - **A message and a reaction each go up with their item key's public half,** which the server keeps beside them (`item_key`), and checks an edit, an author's deletion or a reaction taken back against (`itemSigned`).
 - Item keys can't be told apart or tied to anyone without the author root, so they name nobody. The same message ID sent again is a retry only with the same item key.
 - **A reaction taken back keeps its ID on the server,** without what it carried (`reactions.removed_at`). What a reaction carries is signed by whoever added it, and every member was sent it, so another member could otherwise send the same bytes again under the same ID with an item key of their own: it would show as its author's, who couldn't take it back. A deleted message's row stays for the same reason.
-- **Any of the author's devices can make one.** After the account's keys are replaced, a device tries the root from each key it holds, the older ones included (`itemSecret`, `heldItemSecret`).
+- **Any of the author's devices can make one.** After the account's keys are replaced, a device tries the root from each key it holds, the older ones included, and once their generation closes and they leave the core, the roots the core keeps of them, the last 256, which open nothing else (`itemSecret`, `heldItemSecret`, `olderAuthors`).
 - **It only stands in for the server's own check.** What the apps trust is still the signature inside.
 
 ### A group admin deleting someone else's message stays named

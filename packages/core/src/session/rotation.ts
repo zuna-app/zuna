@@ -4,6 +4,7 @@ import { t } from "../i18n";
 import * as wasm from "@zuna/crypto";
 import { ApiError, decode, encodeBody, type ApiAccount, type ApiUser } from "../api";
 import {
+  authorRoot,
   coreFromJson,
   coreToJson,
   createCertificate,
@@ -48,11 +49,24 @@ import {
   MAX_REMOVAL_ROTATIONS,
   REMOVAL_ROTATION_WINDOW_MS,
   OLDER_HPKE_KEPT,
+  OLDER_AUTHORS_KEPT,
   rotationTiming,
   type RotationIntent,
   signedFromApi,
 } from "./shared";
 import { SessionDirectory } from "./directory";
+
+/** Author roots, each once, oldest first, as many as a core keeps. */
+const keptAuthors = (...lists: Uint8Array[][]): Uint8Array[] => {
+  const seen = new Set<string>();
+  const kept = lists.flat().filter((root) => {
+    const key = toBase64(root);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return kept.slice(-OLDER_AUTHORS_KEPT);
+};
 
 export abstract class SessionRotation extends SessionDirectory {
   // --- Rotating the account's keys ---
@@ -180,6 +194,7 @@ export abstract class SessionRotation extends SessionDirectory {
       rootPublic: core.rootPublic,
       rootSecret: core.rootSecret,
       olderKeys: { ...core.olderKeys, [core.generation]: oldKey },
+      olderAuthors: core.olderAuthors,
       olderHpkeSecrets: [...core.olderHpkeSecrets, core.hpkeSecret].slice(-OLDER_HPKE_KEPT),
       closedBelow: core.closedBelow,
       slots,
@@ -538,7 +553,12 @@ export abstract class SessionRotation extends SessionDirectory {
     if (next.generation !== core.generation || !equalBytes(next.identityPublic, core.identityPublic)) return;
     const head = this.headOf(userId);
     if (head && !equalBytes(slotsHash(next.slots), head.slotsHash)) return;
-    const merged: VaultCore = { ...core, closedBelow: Math.max(core.closedBelow, next.closedBelow), olderKeys: next.olderKeys };
+    const merged: VaultCore = {
+      ...core,
+      closedBelow: Math.max(core.closedBelow, next.closedBelow),
+      olderKeys: next.olderKeys,
+      olderAuthors: keptAuthors(core.olderAuthors, next.olderAuthors),
+    };
     if (JSON.stringify(coreToJson(merged)) === JSON.stringify(coreToJson(core))) return;
     this.account = { ...this.account, core: merged };
     this.saveAccount();
@@ -607,7 +627,13 @@ export abstract class SessionRotation extends SessionDirectory {
         }
         await this.api.resealVault(core.generation, sealed, remove);
       }
-      const closed: VaultCore = { ...core, closedBelow: core.generation, olderKeys: {} };
+      // The older account keys leave, but what was added under them is still its author's to change or delete.
+      const closed: VaultCore = {
+        ...core,
+        closedBelow: core.generation,
+        olderKeys: {},
+        olderAuthors: keptAuthors(core.olderAuthors, Object.values(core.olderKeys).map(authorRoot)),
+      };
       await this.api.closeGeneration(core.generation, sealVaultCore(accountKey, closed, userId));
       if (this.account.core.generation === core.generation) {
         this.account = { ...this.account, core: closed };

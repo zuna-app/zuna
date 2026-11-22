@@ -3,7 +3,7 @@ import { t } from "../i18n";
 
 import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiMessage, type ApiReactionChange, type FileShare, type Seal, type TokenSize } from "../api";
-import { frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
+import { authorRoot, frameSigned, randomId, sealEnvelope, sealSignal, subkey } from "../crypto";
 import { concat, equalBytes, fromBase64, toBase64, toHex, u64Bytes, utf8 } from "../encoding";
 import { linkInText } from "../links";
 import { withoutMetadata, type ByteSource } from "../metadata";
@@ -34,6 +34,10 @@ import {
   assertSendable,
 } from "./shared";
 import { SessionConversations } from "./conversations";
+
+/** The key only its author's devices can make for something they added, from the account key's author root. */
+const itemSecretFrom = (root: Uint8Array, kind: "message" | "reaction", groupId: string, itemId: string): Uint8Array =>
+  wasm.hkdfSha256(root, new Uint8Array(0), utf8(`zuna/item-key/v1|${kind}|${groupId}|${itemId}`), 32);
 
 export abstract class SessionSending extends SessionConversations {
   // --- Sending ---
@@ -298,19 +302,21 @@ export abstract class SessionSending extends SessionConversations {
    * else, so it names nobody.
    */
   protected itemSecret(kind: "message" | "reaction", groupId: string, itemId: string, accountKey = this.account.accountKey): Uint8Array {
-    return wasm.hkdfSha256(subkey(accountKey, "author"), new Uint8Array(0), utf8(`zuna/item-key/v1|${kind}|${groupId}|${itemId}`), 32);
+    return itemSecretFrom(authorRoot(accountKey), kind, groupId, itemId);
   }
 
   /**
    * The item key whose public half the server holds for something, from whichever of this
    * account's keys made it: the account's keys are replaced now and then, and the older ones
-   * are tried too. Null if none of them did, as for something someone else added.
+   * are tried too, or once their generation closed the author roots the core keeps of them.
+   * Null if none of them did, as for something someone else added.
    */
   protected heldItemSecret(kind: "message" | "reaction", groupId: string, itemId: string, shown: Uint8Array | string | null | undefined): Uint8Array | null {
     if (!shown) return null;
     const wanted = typeof shown === "string" ? decode(shown) : shown;
-    for (const key of [this.account.accountKey, ...Object.values(this.account.core.olderKeys)]) {
-      const secret = this.itemSecret(kind, groupId, itemId, key);
+    const { accountKey, core } = this.account;
+    for (const root of [authorRoot(accountKey), ...Object.values(core.olderKeys).map(authorRoot), ...[...core.olderAuthors].reverse()]) {
+      const secret = itemSecretFrom(root, kind, groupId, itemId);
       if (equalBytes(wasm.signingPublic(secret), wanted)) return secret;
     }
     return null;

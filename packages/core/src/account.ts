@@ -337,6 +337,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     rootPublic: identity.publicKey,
     rootSecret: identity.secretKey,
     olderKeys: {},
+    olderAuthors: [],
     olderHpkeSecrets: [],
     closedBelow: 0,
     slots: {},

@@ -382,6 +382,9 @@ describe("item keys", () => {
     await ann.session.rotate();
     await waitFor(() => sessionOf(phone).account.core.generation === sessionOf(ann).account.core.generation, "the phone to follow");
     await waitFor(() => phone.texts(`group:${groupId}`).includes("ann's words"), "the phone to have it");
+    // And once the older key has left the core with its generation closed.
+    await waitFor(() => sessionOf(phone).account.core.closedBelow === sessionOf(phone).account.core.generation, "the older keys to be closed");
+    expect(Object.keys(sessionOf(phone).account.core.olderKeys)).toEqual([]);
     phone.session.editMessage(groupId, id, "ann's words, edited", {}, []);
     await waitFor(() => bob.texts(`group:${groupId}`).includes("ann's words, edited"), "the edit");
     await phone.session.deleteMessage(groupId, id);

@@ -110,7 +110,7 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | **Account key** | Every generation | New random 32 bytes. |
 | **Identity key** | Every generation | A new lasting hybrid key, Ed25519 and ML-DSA-65, announced by a link. The root stays in `users.identity_key`, since every chain starts from it. |
 | **HPKE key** | Every generation | New pair, named in the link. The last 16 secrets stay in the core, because a contact who hasn't heard yet may still seal a grant to an old key. |
-| **Vault core** | Every generation | Sealed under the new account key. Holds the keys above and the older account keys until the generation closes. |
+| **Vault core** | Every generation | Sealed under the new account key. Holds the keys above and the older account keys until the generation closes, and then the author root of each, the last 256, which makes the item keys of what the account added under it and opens nothing. |
 | **The vault's manifest and device names** (`manifest`, `device:`) | Every generation | Sealed again in the same server transaction as the rotation, since a new device believes them. |
 | **Epoch keys in the vault** (`ek:`) | Every generation | Sealed again in the background. They only ever fill gaps (`saveEpochKey` in `session/groups.ts`), so they can wait. |
 | **Device certificates** | Reissued, lazily | Each device publishes a new one after installing the generation, and puts it in its leaves at its next commit. Being carried keeps the old one valid until then. |
@@ -226,7 +226,7 @@ The exact formats are in appendix A. In short:
 - **The link** states the generation, a hash of the previous link, the new identity and HPKE public keys, a commitment to the new account key, a hash of the slots, the devices carried and removed, and who signed. It has three signatures: by the previous identity key (authority), by the new one (possession), and by the signing device (continuity).
 - **The key commitment** is `HKDF(AK_g, "zuna/account-key-commit/v1|user|g")`. XChaCha20-Poly1305 doesn't commit to its key, so this lets every device check it was handed the same key the link names, which stops a rotator or server from giving devices different keys.
 - **The bundle** seals only `AK_g`, 32 bytes. Everything else comes from the core, opened with that key.
-- **The core** holds the head identity and HPKE keys, the root secret, the older account keys and HPKE secrets, the slots' public keys, and the generation closed so far.
+- **The core** holds the head identity and HPKE keys, the root secret, the older account keys and HPKE secrets, the author roots of older account keys whose generation closed, the slots' public keys, and the generation closed so far.
 
 ### 8.2 The order
 
@@ -298,7 +298,7 @@ Vault items gain a `generation` column that the client supplies and the label bi
 - **Sealing again keeps an item's `seq`,** so other devices, which already hold the contents, don't fetch up to 500,000 items again.
 - **A write can't lower an item's generation,** and writes at anything but the current generation are refused.
 - **Pace:** 200 items a request, in the background, under the write limit. The largest vault possible takes 2,500 requests.
-- **Closing:** once nothing older remains, a device publishes a new core, under the same key, saying that generation is closed. From then on clients refuse anything older, and the older account keys leave the core.
+- **Closing:** once nothing older remains, a device publishes a new core, under the same key, saying that generation is closed. From then on clients refuse anything older, and the older account keys leave the core. Each leaves its author root behind (`olderAuthors`, the last 256), which opens nothing and only makes the item keys of what the account added under it, so that its devices can still change or delete that.
 
 What does this buy, given that an old-key holder may have copied the ciphertext already?
 
@@ -504,8 +504,8 @@ Anything else, or one whose key isn't a device's, is refused (`createCertificate
 
 ```
 core       = AEAD(AK_gen, { gen, closed, root pair, identity pair, hpke pair, older account keys,
-                            older hpke secrets, community key, slot public keys,
-                            the manifest's number },
+                            older author roots, older hpke secrets, community key,
+                            slot public keys, the manifest's number },
                   "zuna/vault-core/v2|user|gen")                     gen >= 1
 core       = AEAD(AK_0, the same, "zuna/vault-core/v1")              gen = 0
 vault item = AEAD(AK_gen, data, "zuna/vault-item/v2|gen|id")        gen >= 1
@@ -513,7 +513,7 @@ vault item = AEAD(AK_0,   data, "zuna/vault-item/<id>")             gen = 0
 profile_sig = Sign(IK_gen, "zuna/profile-sig/v2|user|gen|" | profile ciphertext)
 ```
 
-The core has a limit of its own, 64 KiB (`maxVaultCoreBytes`), as its hybrid keys alone come to many kilobytes. Closing a generation removes its account key, and the HPKE secrets that stay cost 32 bytes each.
+The core has a limit of its own, 64 KiB (`maxVaultCoreBytes`), as its hybrid keys alone come to many kilobytes. Closing a generation removes its account key and keeps its author root, 32 bytes, as each HPKE secret that stays costs.
 
 ### Server
 

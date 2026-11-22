@@ -93,6 +93,9 @@ export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "cha
 
 export const subkey = (key: Uint8Array, purpose: KeyPurpose): Uint8Array => wasm.hkdfSha256(key, NO_SALT, label(`zuna/subkey/v1|${purpose}`), 32);
 
+/** What the item keys of everything an account adds under this account key are made from: it opens nothing. */
+export const authorRoot = (accountKey: Uint8Array): Uint8Array => subkey(accountKey, "author");
+
 /** Who a sign-in key is for. It's only any use on that server, for that account. */
 export interface SignInTarget {
   serverUrl: string;
@@ -155,6 +158,11 @@ export interface VaultCore {
   rootSecret: Uint8Array;
   /** Account keys of generations that may still have items in the vault. */
   olderKeys: Record<number, Uint8Array>;
+  /**
+   * The author roots of older account keys, oldest first, kept as their generation closes and the key leaves:
+   * what the account added under one is still changed or deleted with an item key made from it.
+   */
+  olderAuthors: Uint8Array[];
   /** A contact who hasn't heard yet may still seal a grant to one of these. */
   olderHpkeSecrets: Uint8Array[];
   /** Nothing from before this generation is believed any more. */
@@ -179,6 +187,7 @@ export function coreToJson(core: VaultCore) {
     rootPublic: toBase64(core.rootPublic),
     rootSecret: toBase64(core.rootSecret),
     olderKeys: Object.fromEntries(Object.entries(core.olderKeys).map(([generation, key]) => [generation, toBase64(key)])),
+    olderAuthors: core.olderAuthors.map(toBase64),
     olderHpkeSecrets: core.olderHpkeSecrets.map(toBase64),
     closedBelow: core.closedBelow,
     slots: { password: slotToJson(core.slots.password), recovery: slotToJson(core.slots.recovery) },
@@ -202,6 +211,8 @@ export function coreFromJson(json: any): VaultCore {
     rootPublic: fromBase64(json.rootPublic),
     rootSecret: fromBase64(json.rootSecret),
     olderKeys: Object.fromEntries(Object.entries<string>(json.olderKeys).map(([generation, key]) => [generation, fromBase64(key)])),
+    // A core sealed before these were kept has none.
+    olderAuthors: Array.isArray(json.olderAuthors) ? json.olderAuthors.map(fromBase64) : [],
     olderHpkeSecrets: json.olderHpkeSecrets.map(fromBase64),
     closedBelow: json.closedBelow,
     slots,
