@@ -83,6 +83,10 @@ public final class CoreRuntime: @unchecked Sendable {
     private var telegramPushToken: String?
     /// Whether the app is out of sight, for a bridge made while it is.
     private var telegramOutOfSight = false
+    /// Whether this process holds the core's lock, under which a linked Telegram account's database
+    /// is: TDLib runs only while it does (docs/IOS_TELEGRAM_SHARE_PLAN.md). The app does from its
+    /// start, and the share extension only once it says so.
+    private lazy var telegramHeld = !(options.telegram?.waitsForLock ?? false)
     /// The VoIP token for Telegram's calls, while this device takes them, kept until the bridge is made.
     private var telegramVoipToken: String?
     /// Calls' pushes that came before the bridge was made.
@@ -409,6 +413,9 @@ public final class CoreRuntime: @unchecked Sendable {
             made.setPushToken(telegramPushToken)
             made.setVoipToken(telegramVoipToken)
             if telegramOutOfSight { made.sleep() }
+            // Let go of or taken back before there was a bridge.
+            if telegramHeld, configuration.waitsForLock { made.takeBack() }
+            if !telegramHeld, !configuration.waitsForLock { made.letGo(within: 0) { _ in } }
             for push in telegramCallPushes { made.callPushed(push.payload, done: push.done) }
             telegramCallPushes.removeAll()
             telegram = made
@@ -475,6 +482,28 @@ public final class CoreRuntime: @unchecked Sendable {
             } else {
                 telegramCallPushes.append((payload, done))
             }
+        }
+    }
+
+    /// Closes a linked Telegram account's TDLib before this process lets go of the core's lock, as
+    /// its database is under that lock: whether it closed within `limit`. Nothing starts it again
+    /// until `takeBackTelegram`.
+    public func letGoOfTelegram(within limit: TimeInterval = TelegramBridge.letGoWait) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                telegramHeld = false
+                guard let telegram else { return continuation.resume(returning: true) }
+                telegram.letGo(within: limit) { continuation.resume(returning: $0) }
+            }
+        }
+    }
+
+    /// The process holds the core's lock again: TDLib starts, if it's wanted and nothing else holds
+    /// it back, as the app being out of sight does.
+    public func takeBackTelegram() {
+        queue.async { [self] in
+            telegramHeld = true
+            telegram?.takeBack()
         }
     }
 

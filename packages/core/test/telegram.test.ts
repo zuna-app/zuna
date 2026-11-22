@@ -861,6 +861,31 @@ describe("sending from the share sheet (sendNow)", () => {
     await sending;
   });
 
+  it("hands a file over again to an engine started while it was being handed over", async () => {
+    const { engine, session } = await ready();
+    const bytes = Uint8Array.from({ length: 700_000 }, (_, index) => (index * 3) % 251);
+    // TDLib sends a file's message only once it has the file.
+    engine.holdSends = true;
+    engine.holdWrites = true;
+    let done = false;
+    const sending = session.sendWithAttachments(`user:${GRACE}`, [{ blob: new Blob([bytes]), name: "big.bin", mime: "application/octet-stream" }], { text: "" }).then(() => (done = true));
+    await until(() => engine.requests("writeGeneratedFilePart").length === 1, "the first part going");
+    const path = [...engine.generated.keys()].find((name) => name.endsWith("/big.bin"))!;
+    // The app went to sleep: its broker closed TDLib, and what was asked of it goes unanswered.
+    engine.emit({ "@type": "zunaRestarted" });
+    await settle();
+    // Whoever sent it keeps its copy, and nothing told TDLib the file couldn't be made.
+    expect(done).toBe(false);
+    expect(engine.requests("finishFileGeneration")).toHaveLength(0);
+    // The next engine asks for it again as it starts, and is given all of it.
+    engine.holdWrites = false;
+    engine.askForFile(path);
+    await sending;
+    expect(engine.generated.get(path)).toMatchObject({ finished: true, error: null });
+    engine.letSendsThrough();
+    expect(atob(engine.generated.get(path)!.data).length).toBe(bytes.length);
+  });
+
   it("says why it can't, rather than wait, once the engine stopped", async () => {
     const { engine, session } = await ready();
     engine.holdSends = true;

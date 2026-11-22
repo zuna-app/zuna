@@ -24,6 +24,11 @@ public final class LockKeeper {
     /// Called once the lock has gone as the time ran out, so whatever used it
     /// stops, before what kept the process running for it ends.
     public var onLost: (() -> Void)?
+    /// What else is under the lock, closed before it goes as the time runs out: a
+    /// linked Telegram account's TDLib, whose database is in the App Group too
+    /// (docs/IOS_TELEGRAM_SHARE_PLAN.md). It's waited for, so it keeps to a limit
+    /// of its own, well inside what's left of the time.
+    public var closeFirst: (@MainActor () async -> Void)?
 
     public init(lock: CoreLock, as holder: CoreLock.Holder, keepRunning: @escaping KeepRunning, stopRunning: @escaping (Int) -> Void) {
         self.lock = lock
@@ -60,14 +65,23 @@ public final class LockKeeper {
         return true
     }
 
-    /// The time's up, and the system suspends the process once the task ends.
+    /// The time's up, and the system suspends the process once the task ends:
+    /// what else is under the lock is closed, then the lock goes, then the task.
     private func expired(_ turn: Int) {
         guard let running, running.turn == turn else { return }
         self.running = nil
+        guard lock.isHeld, let closeFirst else { return lose(running.task) }
+        Task { @MainActor in
+            await closeFirst()
+            lose(running.task)
+        }
+    }
+
+    private func lose(_ task: Int) {
         let held = lock.isHeld
         lock.release()
         if held { onLost?() }
-        stopRunning(running.task)
+        stopRunning(task)
     }
 
     private func stop() {

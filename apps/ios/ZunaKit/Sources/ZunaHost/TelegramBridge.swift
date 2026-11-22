@@ -73,6 +73,10 @@ public final class TelegramBridge: @unchecked Sendable {
         /// Whether the app's push token is for Apple's sandbox, as a development build's is, which
         /// Telegram has to know to push to it.
         public var pushSandbox = false
+        /// TDLib starts only once the process says it holds the core's lock (`takeBack`), as the
+        /// share extension does from Send until sent: TDLib's database is under that lock
+        /// (docs/IOS_TELEGRAM_SHARE_PLAN.md). The app holds it from its start.
+        public var waitsForLock = false
         /// What the person is told, in the app's language: a key of `packages/i18n/locales` and
         /// what fills it in, as the app's `t` words it.
         public var words: @Sendable (_ key: String, _ values: [String: String]) -> String = { key, _ in key }
@@ -97,6 +101,9 @@ public final class TelegramBridge: @unchecked Sendable {
     /// How long signing out may take at Telegram, and closing TDLib after it.
     static let signOutWait: TimeInterval = 15
     static let closeWait: TimeInterval = 10
+    /// How long closing TDLib may take before the process lets go of the core's lock all the same.
+    /// It took 13 to 34 ms on a Mac, mid-upload included (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+    public static let letGoWait: TimeInterval = 2
 
     static let keyInfo = Data("zuna/telegram/key/v1".utf8)
 
@@ -148,6 +155,12 @@ public final class TelegramBridge: @unchecked Sendable {
     private var linked = false
     /// The app is out of sight: iOS has suspended it, or is about to, and TDLib with it (`sleep`).
     private var asleep = false
+    /// The process doesn't hold the core's lock, under which TDLib's database is: TDLib was closed
+    /// before it went, and nothing is started until it's back (`letGo`, `takeBack`).
+    private var lockGone: Bool
+    /// A run was closed for the lock while it was wanted: the core is told it went (`zunaRestarted`)
+    /// before the next one starts.
+    private var restartOwed = false
     private var tokens = TelegramBridge.burst
     private var filled = Date()
     /// The app's push token from Apple, as hex, which Telegram pushes the account's messages to.
@@ -169,6 +182,7 @@ public final class TelegramBridge: @unchecked Sendable {
         folder = configuration.folder.standardizedFileURL
         self.deviceKey = deviceKey
         self.deliver = deliver
+        lockGone = configuration.waitsForLock
         let marks = StartMarks(file: folder.appendingPathComponent("start-marks.json"))
         self.marks = marks
         configuration.engine.onLastWords { said in marks.lastWords(said) }
@@ -234,7 +248,7 @@ public final class TelegramBridge: @unchecked Sendable {
         queue.sync {
             wanted = true
             self.linked = linked
-            if run != nil || (asleep && !forCall) || stopping > 0 { return nil }
+            if run != nil || lockGone || (asleep && !forCall) || stopping > 0 { return nil }
             return begin(afterWipe: false)
         }
     }
@@ -244,6 +258,53 @@ public final class TelegramBridge: @unchecked Sendable {
     /// that's taken longer for no reason.
     public func sleep() {
         queue.async { [self] in asleep = true }
+    }
+
+    /// The process is about to let go of the core's lock: TDLib is closed first, as its database
+    /// is under that lock, in the App Group, where iOS ends a process it suspends with a lock held
+    /// (docs/IOS_TELEGRAM_SHARE_PLAN.md). The run is taken away before anything is sent, so that
+    /// nothing the closing client says reaches the core, which would take its close for the
+    /// session ended elsewhere. It stays wanted, and nothing starts until `takeBack`. `done` says,
+    /// on the broker's queue, whether TDLib closed within `limit`: one that didn't is given up on
+    /// rather than waited for, and finishes closing when it does.
+    public func letGo(within limit: TimeInterval = TelegramBridge.letGoWait, done: @escaping @Sendable (Bool) -> Void) {
+        queue.async { [self] in
+            lockGone = true
+            guard let closing = run else { return done(stopping == 0) }
+            run = nil
+            restartOwed = restartOwed || wanted
+            stopping += 1
+            let started = Date()
+            Thread.detachNewThread { [self] in
+                closing.client?.send(Self.encode(["@type": "close", "@extra": "zuna:close"]))
+                let closed = closing.closed.wait(timeout: .now() + limit) == .success
+                let took = Int(Date().timeIntervalSince(started) * 1000)
+                queue.async { [self] in
+                    if closing.hasClosed {
+                        stopDone()
+                        logger.notice("TDLib closed for the lock in \(took, privacy: .public) ms")
+                    } else {
+                        closing.lateStop = true
+                        logger.fault("TDLib didn't close in \(took, privacy: .public) ms, and the lock goes all the same")
+                    }
+                    done(closed)
+                }
+            }
+        }
+    }
+
+    /// The process holds the core's lock again: TDLib starts, if it's wanted and nothing else
+    /// holds it back, and the core is told first that the run before it went.
+    public func takeBack() {
+        queue.async { [self] in
+            guard lockGone else { return }
+            lockGone = false
+            if restartOwed {
+                restartOwed = false
+                if wanted { deliver(Self.encode(["@type": "zunaRestarted"])) }
+            }
+            resume()
+        }
     }
 
     /// The app is back on screen, from a suspension that every connection TDLib had may not have
@@ -572,7 +633,7 @@ public final class TelegramBridge: @unchecked Sendable {
 
     /// Starts a client that's owed, once nothing stands in its way.
     private func resume() {
-        guard wanted, run == nil, stopping == 0, !asleep || forCall else { return }
+        guard wanted, run == nil, stopping == 0, !lockGone, !asleep || forCall else { return }
         if let why = begin(afterWipe: false) { _ = refuse(why) }
     }
 

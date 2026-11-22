@@ -462,6 +462,8 @@ final class CoreController {
             return task == .invalid ? nil : task.rawValue
         }, stopRunning: { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) })
         keeper.onLost = { [weak self] in self?.lockLost() }
+        // TDLib's database is under the lock too: closed first, within its own limit.
+        keeper.closeFirst = { [weak self] in _ = await self?.runtime?.letGoOfTelegram() }
         return keeper
     }
 
@@ -479,10 +481,13 @@ final class CoreController {
     }
 
     /// Closes the core's connections and lets go of its data, which nothing in
-    /// the app may write to until it wakes, so the share extension can use it.
+    /// the app may write to until it wakes, so the share extension can use it:
+    /// a linked Telegram account's TDLib, whose database is under the lock too,
+    /// is closed before it goes (docs/IOS_TELEGRAM_SHARE_PLAN.md).
     private func goToSleep() async {
         guard awake else { return }
         try? await connection?.suspend()
+        _ = await runtime?.letGoOfTelegram()
         awake = false
         shareInbox?.listening = false
         lock?.release()
@@ -507,6 +512,9 @@ final class CoreController {
             reloaded = (try? await connection.resume()) ?? false
         }
         shareInbox?.listening = awake
+        // TDLib starts again, if it's wanted, now that its database is the app's, unless the time
+        // ran out meanwhile, when the lock went with TDLib closed first.
+        if lock.isHeld { runtime?.takeBackTelegram() }
         if reloaded { await model?.reloaded() }
     }
 

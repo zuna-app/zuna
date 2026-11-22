@@ -66,6 +66,30 @@ final class LockKeeperTests: XCTestCase {
         keeper.release()
     }
 
+    /// What else is under the lock, a linked Telegram account's TDLib, is closed before the lock goes
+    /// as the time runs out, and the task ends only after both (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+    func testTheTimeRunningOutClosesWhatsUnderTheLockBeforeItGoes() async throws {
+        let system = FakeSystem()
+        let keeper = try makeKeeper(system)
+        var order: [String] = []
+        keeper.closeFirst = {
+            order.append(keeper.isHeld ? "closed, lock held" : "closed, lock gone")
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        keeper.onLost = { order.append(system.held != nil ? "lost, task running" : "lost, task ended") }
+        _ = await keeper.take()
+        system.expire()
+        XCTAssertTrue(keeper.isHeld, "held while what's under it closes")
+        XCTAssertNotNil(system.held)
+        for _ in 0..<100 where system.held != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(order, ["closed, lock held", "lost, task running"])
+        XCTAssertEqual(system.endedHolding, [false])
+        XCTAssertNotNil(try CoreLock(directory: directory).tryTake(as: .share))
+        keeper.release()
+    }
+
     /// The app waits for the share extension as its time runs out, and the extension lets go just
     /// after: the lock isn't taken until the app is kept running again.
     func testATakeWaitingWhenTheTimeRunsOutWaitsToBeKeptRunningAgain() async throws {

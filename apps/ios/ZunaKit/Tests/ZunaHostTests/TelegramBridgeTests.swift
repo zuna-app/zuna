@@ -207,6 +207,83 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertEqual(launch.heard.count("zunaFailed"), 0)
     }
 
+    /// TDLib's database is under the core's lock (docs/IOS_TELEGRAM_SHARE_PLAN.md): closed before the
+    /// process lets go of it, without the core hearing of the close, and started again once it's back.
+    func testLettingGoOfTheLockClosesTDLibUnheardAndTakingItBackStartsAnother() throws {
+        let launch = try Launch(state: "authorizationStateReady")
+        defer { launch.clean() }
+        try launch.makeDatabase()
+        XCTAssertNil(launch.bridge.start(linked: true))
+        launch.heard.wait(for: "authorizationStateReady", times: 1)
+        XCTAssertEqual(letGo(launch.bridge), true)
+        XCTAssertTrue(launch.engine.client(1).isClosed)
+        XCTAssertTrue(launch.engine.client(1).sent.contains { $0["@type"] as? String == "close" })
+        // Its close is nobody's: the core would take it for the session ended from another device.
+        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertEqual(launch.heard.count("authorizationStateClosed"), 0)
+        XCTAssertEqual(launch.heard.count("zunaStopped"), 0)
+        // Nothing starts while the lock is another process's, whatever asks.
+        XCTAssertNil(launch.bridge.start(linked: true))
+        launch.bridge.sleep()
+        launch.bridge.wake()
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launch.engine.made, 1)
+        // Back, the core hears the run before went, and another starts on the same database.
+        launch.bridge.takeBack()
+        launch.heard.wait(for: "zunaRestarted", times: 1)
+        launch.engine.client(2).waitFor("setTdlibParameters")
+        launch.heard.wait(for: "authorizationStateReady", times: 2)
+        XCTAssertEqual(launch.engine.mostOpen, 1)
+        XCTAssertTrue(launch.hasDatabase)
+        // With nothing running, letting go says so at once.
+        XCTAssertEqual(letGo(launch.bridge), true)
+        XCTAssertEqual(letGo(launch.bridge), true)
+        XCTAssertEqual(launch.engine.made, 2)
+    }
+
+    func testATDLibThatDoesntCloseInTimeIsGivenUpOnAndNothingStartsUntilItHas() throws {
+        let launch = try Launch(state: "authorizationStateReady")
+        defer { launch.clean() }
+        try launch.makeDatabase()
+        launch.engine.closeAfter = 0.8
+        XCTAssertNil(launch.bridge.start(linked: true))
+        launch.heard.wait(for: "authorizationStateReady", times: 1)
+        let asked = Date()
+        XCTAssertEqual(letGo(launch.bridge, within: 0.1), false)
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 0.5, "the lock isn't held back for it")
+        // Two clients on one folder fight over its database's lock: the next waits for it to close.
+        launch.bridge.takeBack()
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(launch.engine.made, 1)
+        launch.engine.client(2).waitFor("setTdlibParameters")
+        XCTAssertTrue(launch.engine.client(1).isClosed)
+        XCTAssertEqual(launch.engine.mostOpen, 1)
+        XCTAssertEqual(launch.heard.count("zunaRestarted"), 1)
+        XCTAssertEqual(launch.heard.count("authorizationStateClosed"), 0)
+    }
+
+    /// The share extension's broker: TDLib starts only once the extension holds the core's lock.
+    func testABrokerWaitingForTheLockStartsNothingUntilItsTaken() throws {
+        let launch = try Launch(state: "authorizationStateReady", waitsForLock: true)
+        defer { launch.clean() }
+        try launch.makeDatabase()
+        XCTAssertNil(launch.bridge.start(linked: true))
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertEqual(launch.engine.made, 0)
+        launch.bridge.takeBack()
+        launch.engine.client(1).waitFor("setTdlibParameters")
+        launch.heard.wait(for: "authorizationStateReady", times: 1)
+        XCTAssertEqual(launch.heard.count("zunaRestarted"), 0, "no run went before it")
+    }
+
+    private func letGo(_ bridge: TelegramBridge, within limit: TimeInterval = TelegramBridge.letGoWait) -> Bool? {
+        let closed = Box<Bool?>(nil)
+        let done = expectation(description: "let go")
+        bridge.letGo(within: limit) { closed.value = $0; done.fulfill() }
+        wait(for: [done], timeout: 5)
+        return closed.value
+    }
+
     func testTheVoipTokenGoesEncryptedOnceSignedInAndWhatItsPushesCarryIsKept() throws {
         let launch = try Launch(state: "authorizationStateReady")
         defer { launch.clean() }
@@ -421,7 +498,8 @@ final class TelegramBridgeTests: XCTestCase {
         launch.engine.client(3).waitFor("setTdlibParameters")
         XCTAssertTrue(launch.engine.client(2).isClosed)
         XCTAssertEqual(launch.engine.mostOpen, 1)
-        XCTAssertEqual(launch.heard.count("zunaStopped"), 2)
+        // Told just after the next start is made, on the broker's queue.
+        launch.heard.wait(for: "zunaStopped", times: 2)
     }
 
     func testTwoStartsThatEndedTheAppKeepTheThirdFromBeingMade() throws {
@@ -527,7 +605,7 @@ final class TelegramBridgeTests: XCTestCase {
         let bridge: TelegramBridge
         private let owned: Bool
 
-        init(directory: URL? = nil, refusal: String? = nil, refusesOnlyAnOldDatabase: Bool = false, state: String = "authorizationStateWaitPhoneNumber", silent: Bool = false) throws {
+        init(directory: URL? = nil, refusal: String? = nil, refusesOnlyAnOldDatabase: Bool = false, state: String = "authorizationStateWaitPhoneNumber", silent: Bool = false, waitsForLock: Bool = false) throws {
             if let directory {
                 self.directory = directory
                 owned = false
@@ -543,7 +621,9 @@ final class TelegramBridgeTests: XCTestCase {
             let folder = self.directory.appendingPathComponent("telegram", isDirectory: true)
             if refusesOnlyAnOldDatabase { engine.refusesWhile = { FileManager.default.fileExists(atPath: folder.appendingPathComponent("db/td_test.binlog").path) } }
             let heard = heard
-            bridge = TelegramBridge(configuration: TelegramBridgeTests.configuration(engine, self.directory), dataDirectory: self.directory, deviceKey: Data(repeating: 7, count: 32)) { heard.add($0) }
+            var configuration = TelegramBridgeTests.configuration(engine, self.directory)
+            configuration.waitsForLock = waitsForLock
+            bridge = TelegramBridge(configuration: configuration, dataDirectory: self.directory, deviceKey: Data(repeating: 7, count: 32)) { heard.add($0) }
         }
 
         var folder: URL { directory.appendingPathComponent("telegram", isDirectory: true) }

@@ -782,6 +782,7 @@ export class TelegramSession {
     }
     const reading = this.reading.get(path);
     if (reading) reading.busy = true;
+    let again = false;
     try {
       for (let offset = 0; offset < source.size; offset += UPLOAD_PART) {
         if (this.stopped.delete(generation)) return;
@@ -793,10 +794,14 @@ export class TelegramSession {
       await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: null });
       this.outgoing.delete(path);
     } catch (error) {
-      await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: String(error) } }).catch(() => undefined);
+      // The engine went while it was being handed over, as when the iPhone's app closed TDLib to
+      // sleep: the next one asks for it again as it starts, so whoever sent it keeps its copy.
+      again = error instanceof TelegramError && error.code === 503 && !this.ended && !this.signingOut;
+      if (!again) await this.engine.request({ "@type": "finishFileGeneration", generation_id: generation, error: { "@type": "error", code: 400, message: String(error) } }).catch(() => undefined);
     } finally {
       this.stopped.delete(generation);
-      this.doneReading(path);
+      if (!again) this.doneReading(path);
+      else if (reading) reading.busy = false;
     }
   }
 

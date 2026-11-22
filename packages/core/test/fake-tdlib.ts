@@ -124,6 +124,8 @@ export class FakeTdlib implements TelegramAdapter {
   /** Telegram says nothing of what's sent until `letSendsThrough`. */
   holdSends = false;
   private heldSends: { message: Td; temporary: number }[] = [];
+  /** What's written of a file isn't answered, as by an engine that's going. */
+  holdWrites = false;
   /** The list isn't told of until `tellList`, as while TDLib is still reading it after a start. */
   holdList = false;
   private heldList: (() => void) | null = null;
@@ -278,6 +280,7 @@ export class FakeTdlib implements TelegramAdapter {
         return answer({ "@type": request["@type"] === "searchMessages" ? "foundMessages" : "foundChatMessages", total_count: found.length, messages: found });
       }
       case "writeGeneratedFilePart": {
+        if (this.holdWrites) return;
         const path = this.generations.get(request.generation_id);
         const file = path ? this.generated.get(path) : undefined;
         if (!file || request.offset !== atob(file.data).length) return fail(400, "Wrong offset");
