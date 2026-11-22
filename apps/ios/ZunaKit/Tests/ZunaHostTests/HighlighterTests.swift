@@ -29,11 +29,6 @@ final class HighlighterTests: XCTestCase {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/highlight-golden.json")
         let golden = try JSONDecoder().decode(Golden.self, from: Data(contentsOf: url))
         XCTAssertGreaterThan(golden.samples.count, 10)
-        // A grammar's first line compiles it, which on a slow runner takes longer than
-        // Shiki's limit for a line, and the rest of that line would come out in one color.
-        for sample in golden.samples {
-            _ = await Highlighter.shared.tokens(sample.code, language: sample.language)
-        }
         for sample in golden.samples {
             let lines = await Highlighter.shared.tokens(sample.code, language: sample.language)
             let ours = (lines ?? []).map { line in line.map { [$0.text, $0.color] } }

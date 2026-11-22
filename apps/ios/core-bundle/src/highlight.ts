@@ -99,6 +99,10 @@ const g = globalThis as any;
 const MAX_HIGHLIGHTED_CHARS = 20_000;
 const MAX_HIGHLIGHTED_LINES = 500;
 const MAX_TOKENIZED_LINE = 1_000;
+// Shiki's own limit for one line, past which the rest of it comes out in one color. A language's first
+// lines compile the patterns of its grammar as they go, which on a slow device takes longer than that.
+const TOKENIZE_TIME_LIMIT = 500;
+const MAX_TOKENIZE_PASSES = 10;
 
 let highlighter: Promise<HighlighterCore> | null = null;
 
@@ -125,12 +129,24 @@ g.__zunaHighlight = (code: string, language: string, done: (result: string | nul
       let chars = 0;
       while (count < lines.length && count < MAX_HIGHLIGHTED_LINES && chars + lines[count]!.length <= MAX_HIGHLIGHTED_CHARS) chars += lines[count++]!.length + 1;
       // This runs off the main thread, so there's no need to color a few lines at a time as the desktop does.
-      const { tokens } = instance.codeToTokens(lines.slice(0, count).join("\n"), {
-        lang: name,
-        theme: "github-dark-default",
-        tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
-      });
-      const highlighted = count === 0 ? [] : tokens.map((line) => line.map((token) => [token.content, token.color ?? null]));
+      const tokenize = () =>
+        instance
+          .codeToTokens(lines.slice(0, count).join("\n"), {
+            lang: name,
+            theme: "github-dark-default",
+            tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
+            tokenizeTimeLimit: TOKENIZE_TIME_LIMIT,
+          })
+          .tokens.map((line) => line.map((token) => [token.content, token.color ?? null]));
+      // Only a pass that took as long as the limit can have cut a line short. Colored again, with those
+      // patterns compiled, the line comes out whole; a pass that changes nothing has cut nothing.
+      let highlighted: unknown[] = [];
+      for (let pass = 0; count > 0 && pass < MAX_TOKENIZE_PASSES; pass++) {
+        const started = Date.now();
+        const previous = JSON.stringify(highlighted);
+        highlighted = tokenize();
+        if (Date.now() - started < TOKENIZE_TIME_LIMIT || JSON.stringify(highlighted) === previous) break;
+      }
       const rest = lines.slice(count).map((line) => [[line, null]]);
       done(JSON.stringify([...highlighted, ...rest]), null);
     })
