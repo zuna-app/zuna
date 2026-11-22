@@ -9,7 +9,7 @@
     <a href="https://github.com/zuna-app/zuna/actions/workflows/coverage.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/zuna-app/zuna/coverage.yml?branch=main&label=tests"></a>
     <a href="https://codecov.io/gh/zuna-app/zuna"><img alt="Coverage" src="https://codecov.io/gh/zuna-app/zuna/graph/badge.svg"></a>
     <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/zuna-app/zuna"></a>
-    <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20iOS%20%7C%20web-555">
+    <img alt="Platforms" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20iOS%20%7C%20web-0891b2">
     <a href="docs/POST_QUANTUM.md"><img alt="MLS, post-quantum" src="https://img.shields.io/badge/encryption-MLS%20%2B%20post--quantum-6f42c1"></a>
   </p>
 
