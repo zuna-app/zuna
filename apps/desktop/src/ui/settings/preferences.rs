@@ -49,8 +49,7 @@ impl SettingsView {
         parts
     }
 
-    /// What this device does for every server on it: link previews, files' metadata, the proxy
-    /// and YouTube.
+    /// What this device does for every server on it: link previews, files' metadata and YouTube.
     pub(super) fn device_privacy(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let settings = self.state.read(cx).settings.clone();
@@ -75,20 +74,6 @@ impl SettingsView {
                     state_d.update(cx, |state, cx| state.update_settings(|s| s.remove_metadata = true, cx));
                 }
             })),
-            &theme,
-        ));
-        let proxy = settings.proxy.clone();
-        let state_p = self.state.clone();
-        parts.push(Self::row(
-            t("settings.proxy.title"),
-            Some(&if proxy.on {
-                tr!("settings.privacy.proxyOnHint", address = crate::host::net::proxy().map(|proxy| proxy.address()).unwrap_or_else(|| proxy.host.clone()))
-            } else {
-                t("settings.privacy.proxyOffHint").to_string()
-            }),
-            button("proxy-settings", ButtonKind::Default, ButtonSize::Small, false, cx)
-                .child(if proxy.on { t("settings.privacy.proxyChange") } else { t("settings.privacy.proxySetUp") })
-                .on_click(move |_, _, cx| state_p.update(cx, |state, cx| state.set_overlay(Some(Overlay::Proxy { from_settings: true }), cx))),
             &theme,
         ));
         let play_youtube = settings.play_youtube;
@@ -423,8 +408,14 @@ mod tests {
         assert!(!settings(&app, cx).remove_metadata);
         app.click(cx, "remove-metadata");
         assert!(settings(&app, cx).remove_metadata, "turning it back on asks nothing");
-        app.click(cx, "proxy-settings");
-        assert_eq!(app.read(cx, |state| state.overlay.clone()), Some(Overlay::Proxy { from_settings: true }));
+        // The proxy has a section of its own, with its form in it, which opens as it's set: off.
+        assert!(!app.drawn(cx, "proxy-on"));
+        section(&app, cx, "proxy");
+        assert!(app.drawn(cx, "proxy-on") && !app.drawn(cx, "proxy-check"));
+        app.click(cx, "proxy-on");
+        assert!(app.drawn(cx, "proxy-check") && app.drawn(cx, "proxy-save"));
+        app.click(cx, "proxy-check");
+        assert!(app.read(cx, |state| matches!(state.overlay, Some(Overlay::Settings { .. }))), "checking stays in Settings");
     }
 
     #[gpui::test]

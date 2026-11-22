@@ -151,7 +151,7 @@ fn draws_toasts_and_what_the_core_says(cx: &mut TestAppContext) {
 fn draws_every_section_of_settings_and_of_a_servers(cx: &mut TestAppContext) {
     let app = open(cx, "settings");
     app.update(cx, |state, cx| state.select_server(SERVER, cx));
-    for section in ["profile", "privacy", "security", "data", "connections", "device-privacy", "notifications", "voice", "screen", "appearance", "about"] {
+    for section in ["profile", "privacy", "security", "data", "connections", "device-privacy", "proxy", "notifications", "voice", "screen", "appearance", "about"] {
         app.update(cx, |state, cx| state.set_overlay(Some(Overlay::Settings { section: Some(section.into()) }), cx));
     }
     app.update(cx, |state, cx| state.set_overlay(None, cx));

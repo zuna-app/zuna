@@ -5,6 +5,7 @@ mod plugins;
 mod connections;
 mod profile;
 mod preferences;
+mod proxy;
 mod security;
 mod server_data;
 
@@ -33,9 +34,10 @@ const SERVER_SECTIONS: [Section; 4] = [
 ];
 
 /// The sections that are this device's, for every server on it, under "App".
-const APP_SECTIONS: [Section; 8] = [
+const APP_SECTIONS: [Section; 9] = [
     ("connections", mark("settings.connections.title"), "link"),
     ("device-privacy", mark("settings.sections.devicePrivacy"), "eye-off"),
+    ("proxy", mark("settings.proxy.title"), "globe"),
     ("notifications", mark("settings.sections.notifications"), "bell"),
     ("voice", mark("settings.sections.voice"), "mic"),
     ("screen", mark("settings.sections.screen"), "monitor-up"),
@@ -75,6 +77,8 @@ pub struct SettingsView {
     focus: gpui::FocusHandle,
     voice_page: Option<Entity<super::voice_settings::VoiceSettingsPage>>,
     screen_page: Option<Entity<super::voice_settings::ScreenSettingsPage>>,
+    /// The proxy's form, made the first time its section shows.
+    proxy_form: Option<Entity<super::proxy::ProxyForm>>,
     /// The marketplace's list is open, and what it's searched for.
     browsing: bool,
     plugin_search: Entity<TextInput>,
@@ -149,6 +153,7 @@ impl SettingsView {
             focus,
             voice_page: None,
             screen_page: None,
+            proxy_form: None,
             browsing: false,
             plugin_search,
             confirming_unverified: false,
@@ -449,6 +454,7 @@ impl Render for SettingsView {
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
             "device-privacy" => self.device_privacy(cx),
+            "proxy" => self.proxy_page(cx),
             "notifications" => self.notifications(cx),
             "voice" => {
                 let state = self.state.clone();

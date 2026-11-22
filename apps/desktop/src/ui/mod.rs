@@ -19,6 +19,7 @@ pub mod invites;
 pub mod media_views;
 pub mod picker;
 pub mod plugins;
+mod proxy;
 pub mod screen_picker;
 pub mod selection;
 pub mod scrollbar;

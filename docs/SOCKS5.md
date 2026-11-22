@@ -84,7 +84,7 @@ Everything goes through undici: its requests, its sealed ones on an agent of the
 ## The setting
 
 - **Four fields:** address, port, and optionally a username and a password. The address may be a name or an IP address, on this machine, the local network or the internet.
-- **Where it is:** Settings, Privacy, on the desktop and the iPhone, and a link on the first screen, before any server is joined.
+- **Where it is:** a section of its own in Settings on the desktop, Proxy, and Settings, Privacy, on the iPhone, and a link on the first screen, before any server is joined.
 - **Where it's kept:** outside any account, as it's needed before there is one. The password is sealed as the device key is, in the system's keychain or its like (`apps/desktop/src/host/device_key.rs`), and the rest is in `settings.json`. On the iPhone the password is in the keychain group the extensions share, and the rest in the app group, so the notification and share extensions use the same proxy.
 - **A Check button,** which signs in to the proxy, reaches each server joined through it, and says how long it took and whether the proxy carries UDP. Where it doesn't, it says that calls will go over TCP and may sound worse.
 - **Changing it** closes every connection and opens them again the new way. A call in progress ends.

@@ -110,7 +110,7 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
         if proxy.as_str() == Some("show") {
             cx.update(|cx| {
                 if let Some(store) = cx.try_global::<crate::state::Store>() {
-                    store.0.clone().update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy { from_settings: false }), cx));
+                    store.0.clone().update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy), cx));
                 }
             });
             return json!({ "ok": true });

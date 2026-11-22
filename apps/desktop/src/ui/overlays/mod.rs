@@ -48,7 +48,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::InstallUpdate => cx.new(|cx| Dialog::new(state, DialogKind::InstallUpdate, window, cx)).into(),
         Overlay::WatchConsent { then_link } => cx.new(|cx| Dialog::new(state, DialogKind::WatchConsent { then_link }, window, cx)).into(),
         Overlay::WatchLink => cx.new(|cx| Dialog::new(state, DialogKind::WatchLink, window, cx)).into(),
-        Overlay::Proxy { from_settings } => cx.new(|cx| Dialog::new(state, DialogKind::Proxy { from_settings }, window, cx)).into(),
+        Overlay::Proxy => cx.new(|cx| Dialog::new(state, DialogKind::Proxy, window, cx)).into(),
         Overlay::Telegram => cx.new(|cx| Dialog::new(state, DialogKind::Telegram, window, cx)).into(),
         Overlay::TelegramJoin => cx.new(|cx| Dialog::new(state, DialogKind::TelegramJoin, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
@@ -138,7 +138,7 @@ enum DialogKind {
     DeleteChannel { channel_id: String, name: String },
     WatchConsent { then_link: bool },
     WatchLink,
-    Proxy { from_settings: bool },
+    Proxy,
     Telegram,
     TelegramJoin,
 }
@@ -205,7 +205,7 @@ pub struct Dialog {
     location: Option<Result<(f64, f64, Option<f64>), String>>,
     /// Why a link to watch together wasn't put on.
     link_error: Option<String>,
-    proxy_form: Option<proxy::ProxyForm>,
+    proxy_form: Option<Entity<super::proxy::ProxyForm>>,
     telegram_form: Option<telegram::TelegramForm>,
     /// Holds focus where the dialog has no field to, so Escape closes it.
     focus: gpui::FocusHandle,
@@ -290,7 +290,7 @@ impl Dialog {
             name.update(cx, |input, cx| input.set_placeholder("https://www.youtube.com/watch?v=…", cx));
             name.focus_handle(cx).focus(window, cx);
         }
-        let proxy_form = matches!(kind, DialogKind::Proxy { .. }).then(|| proxy::ProxyForm::new(&state, window, &mut subscriptions, cx));
+        let proxy_form = matches!(kind, DialogKind::Proxy).then(|| Dialog::proxy_form(&state, window, &mut subscriptions, cx));
         let telegram_form = matches!(kind, DialogKind::Telegram).then(|| telegram::TelegramForm::new(state.read(cx).telegram_link.is_some(), window, &mut subscriptions, cx));
         if matches!(kind, DialogKind::AddMembers(_)) {
             people_search.focus_handle(cx).focus(window, cx);
@@ -346,7 +346,6 @@ impl Dialog {
             return cx.notify();
         }
         let back = match &self.kind {
-            DialogKind::Proxy { from_settings: true } => Some(Overlay::Settings { section: Some("device-privacy".into()) }),
             DialogKind::LeaveServer { from_section: Some(section), .. } => Some(Overlay::Settings { section: Some(section.clone()) }),
             _ => None,
         };
@@ -653,7 +652,7 @@ impl Render for Dialog {
                 self.watch_consent(then_link, cx)
             }
             DialogKind::WatchLink => self.watch_link(cx),
-            DialogKind::Proxy { .. } => self.proxy(cx),
+            DialogKind::Proxy => self.proxy(cx),
             DialogKind::Telegram => self.telegram(window, cx),
             DialogKind::TelegramJoin => self.telegram_join(cx),
             DialogKind::ShareLocation(key) => {

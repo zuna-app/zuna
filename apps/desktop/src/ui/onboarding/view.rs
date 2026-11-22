@@ -158,7 +158,7 @@ impl Onboarding {
                         .text_color(theme.text2)
                         .cursor_pointer()
                         .hover(move |style| style.text_color(theme.text1))
-                        .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy { from_settings: false }), cx)))
+                        .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Proxy), cx)))
                         .child(icon("shield", 14., theme.text2))
                         .child(if on { t("onboarding.welcome.proxyOn") } else { t("onboarding.welcome.proxy") })
                 })

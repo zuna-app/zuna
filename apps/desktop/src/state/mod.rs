@@ -170,9 +170,9 @@ pub enum Overlay {
     WatchConsent { then_link: bool },
     /// A YouTube link to put on for everyone in the room.
     WatchLink,
-    /// The SOCKS5 proxy everything this device sends goes through, from Settings, which it
-    /// goes back to, or from the first screen.
-    Proxy { from_settings: bool },
+    /// The SOCKS5 proxy everything this device sends goes through, from the first screen, as
+    /// Settings' Proxy section sets it once there.
+    Proxy,
     /// A plugin's dialog, in a frame the app draws, by the number the plugins know it by.
     Plugin(u32),
     /// Linking a Telegram account: what it is, then a QR code or a phone number.
