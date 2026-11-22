@@ -468,10 +468,15 @@ describe("a leaf's certificate", () => {
     let held = true;
     // The server says nothing of the rotation to alice, until the tree does.
     session.followChain = async (userId: string) => (held && userId === dave.userId ? undefined : realFollow(userId));
+    // And dave's leaf is renewed only as he sends. His app's own sync after the rotation, which a slow
+    // machine may come to while alice still isn't told, would show her the tree then, and nothing again.
+    const realRenew = sessionOf(dave).rotateIfOld;
+    sessionOf(dave).rotateIfOld = async () => undefined;
     await dave.session.rotate();
     await sleep(150);
     expect(session.headGeneration(dave.userId)).toBe(0);
     held = false;
+    sessionOf(dave).rotateIfOld = realRenew;
     dave.session.sendMessage(`group:${groupId}`, { text: "look at my leaf" });
     await waitFor(() => session.headGeneration(dave.userId) === 1, "the tree to give it away");
     session.followChain = realFollow;
