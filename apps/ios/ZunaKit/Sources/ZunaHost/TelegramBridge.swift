@@ -61,8 +61,9 @@ public final class TelegramBridge: @unchecked Sendable {
         public var credentials: Credentials
         public var engine: any TelegramEngine
         /// TDLib's folder, its database in `db` and its files in `files`, which the broker makes:
-        /// in the app's own container, where a lock may be held while the app is suspended, never
-        /// in the app group, which the extensions read and where it may not.
+        /// in the App Group, under the core's lock, so that the app and the share extension can
+        /// each open it while they hold that lock. iOS ends a process it suspends with a lock held
+        /// there, so TDLib is closed before the lock goes (`letGo`, docs/IOS_TELEGRAM_SHARE_PLAN.md).
         public var folder: URL
         /// What Telegram is told this is: the app's version, the system's name, and an iPhone or an iPad.
         public var version: String

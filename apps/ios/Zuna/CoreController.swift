@@ -183,7 +183,8 @@ final class CoreController {
         }
         // The chat list has a tab for bots, where one nobody has written to yet is found.
         options.listsBots = true
-        // A Telegram account linked on this device, its TDLib in the app's own process (docs/TELEGRAM_PLAN.md).
+        // A Telegram account linked on this device, its TDLib in the process that holds the core's lock
+        // (docs/TELEGRAM_PLAN.md, docs/IOS_TELEGRAM_SHARE_PLAN.md).
         options.telegram = TelegramSetup.configuration()
         options.telegramCalls = options.telegram != nil
         // Telegram is given this app's push token (`setTelegramPushToken`), so what came while the app was
@@ -202,6 +203,8 @@ final class CoreController {
         let lock = try self.lock ?? keeper(of: CoreLock(directory: directory))
         self.lock = lock
         _ = await lock.take()
+        // With the lock held and before TDLib starts, its folder comes from where it was until 2026-11-22.
+        if options.telegram != nil { TelegramSetup.moveFolder() }
         do {
             try await runtime.start()
         } catch {

@@ -25,13 +25,11 @@ enum TelegramSetup {
         #endif
         guard let credentials = TelegramBridge.Credentials(apiId: info["ZunaTelegramApiId"] as? String ?? "", apiHash: info["ZunaTelegramApiHash"] as? String ?? "", testDc: testDc) else { return nil }
         let pad = UIDevice.current.userInterfaceIdiom == .pad
-        // In the app's own container, never the app group: iOS ends an app suspended with a lock
-        // held anywhere but there, and TDLib holds its database's while it runs.
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard let folder = folder() else { return nil }
         var configuration = TelegramBridge.Configuration(
             credentials: credentials,
             engine: TDLibEngine.shared,
-            folder: support.appendingPathComponent("telegram", isDirectory: true),
+            folder: folder,
             version: info["CFBundleShortVersionString"] as? String ?? "0",
             system: pad ? "iPadOS" : "iOS",
             device: pad ? "iPad" : "iPhone"
@@ -45,6 +43,38 @@ enum TelegramSetup {
         #else
         return nil
         #endif
+    }
+
+    /// TDLib's folder: beside the core's data in the App Group, under the core's lock, so that
+    /// whichever process holds the lock can open it, the app or the share extension
+    /// (docs/IOS_TELEGRAM_SHARE_PLAN.md). Each closes TDLib before it lets go of the lock, as iOS
+    /// ends a process it suspends with a lock held there, and TDLib holds its database's.
+    static func folder() -> URL? {
+        try? SharedStorage.dataDirectory().appendingPathComponent("telegram", isDirectory: true)
+    }
+
+    /// Where it was until 2026-11-22: the app's own container, which no extension can open.
+    private static var formerFolder: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("telegram", isDirectory: true)
+    }
+
+    /// Moves TDLib's folder from the app's own container into the App Group, once, so that an account
+    /// linked before keeps its database and isn't linked again. Only by the app, with the core's lock
+    /// held and before TDLib first starts: a rename, as both are on one volume. With both there, the
+    /// App Group's is the one TDLib last ran on, and the other goes.
+    static func moveFolder() {
+        let files = FileManager.default
+        let former = formerFolder
+        guard files.fileExists(atPath: former.path), let folder = folder() else { return }
+        if files.fileExists(atPath: folder.path) {
+            try? files.removeItem(at: former)
+            return
+        }
+        do {
+            try files.moveItem(at: former, to: folder)
+        } catch {
+            Logger(subsystem: "chat.zuna", category: "telegram").error("TDLib's folder couldn't be moved into the app group: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 
