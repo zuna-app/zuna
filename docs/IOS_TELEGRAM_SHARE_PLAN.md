@@ -29,7 +29,12 @@ Asked for on 2026-11-22:
 - **A phone with too little memory says so** before anything is sent, rather than end in the middle.
 - **The 408 a shared video got on 2026-11-22** is its own fault, of a server's proxy, and is looked at after this.
 
-What this plan assumes until the owner says otherwise is under "Questions for the owner".
+Answered the same day, once the plan was first written:
+
+- **TDLib's folder is moved once,** and nobody links again. The owner left it to whichever is easier, and the move is: the folder left in the app's container has to be dealt with either way, and moving it spares every phone, and the test accounts, a new link.
+- **The names of the account's chats may be kept in the App Group,** sealed, for the sheet's list.
+- **No older iPhone is at hand.** What one gives the extension stays unknown, and the memory asked for at Send is what protects such a phone.
+- **Nightlies needn't work with one another.** Nothing is kept for an older nightly's sake: what a step writes to the App Group may change with the next. And no step waits a set time for the one before it. Each is checked on the owner's phone the day its nightly is installed.
 
 ## What was measured
 
@@ -56,7 +61,7 @@ In one of the slow ones TDLib's own log showed `close` reaching it 8.35 s after 
 
 **Not measured:**
 
-- **The limit on an older iPhone.** People report 120 MB for share extensions, on phones such as an iPhone 11, and Apple documents none. At 120 MB the extension's 70 and TDLib's share would not fit by much, or at all.
+- **The limit on an older iPhone.** None was at hand to read it from. People report 120 MB for share extensions, on phones such as an iPhone 11, and Apple documents none. At 120 MB the extension's 70 and TDLib's share would not fit by much, or at all.
 - **TDLib's own memory with a real account.** Over 35 MB as it starts, as that's the limit the helper ended at. 20 to 24 MB on a test account with one chat.
 - **Closing on a phone,** which no build does yet.
 - **Whether TDLib leaves a file of its folder open after it closed,** which iOS would end a suspended process for as for a lock (`CoreLock`).
@@ -115,7 +120,7 @@ Today nothing is told to TDLib as the app leaves the screen, and iOS suspends it
 - **The chats come from a sealed copy.** The app writes the Telegram account's chats that can be written in, in its list's order, to a file in the App Group whenever they change, sealed as `ShareMailbox` seals what it writes, and erases it when the account is unlinked. Names, kinds and what a picture is found by, and nothing that was said: no line of the latest message, which would be behind anyway. Pictures are the small ones the app keeps for notifications (`TelegramPictures`), for the top hundred chats, and initials for the rest.
 - **Telegram shows as one more server** in the sheet's chooser, with its own icon, and is where the sheet opens if it was open last in the app. A chat picked from the share sheet's row of people is found by the same name notifications gave it, `telegram/<key>`.
 - **At Send, for each Telegram chat picked:** what the picker held is let go of, the memory left is asked for (`os_proc_available_memory`), TDLib is woken, and the core's `sendNow` sends and waits. Zuna's chats in the same share go first, as they need none of it. TDLib is closed, as the app closes it, before the core is put away and the lock goes.
-- **Too little memory is said before anything starts:** "There isn't enough memory to send to Telegram from here. Open Zuna and send it there." The line it's held to comes from step 5's measurements, and starts at 80 MB left.
+- **Too little memory is said before anything starts:** "There isn't enough memory to send to Telegram from here. Open Zuna and send it there." The line it's held to comes from step 5's measurements, and starts at 80 MB left. What the extension has left is logged as TDLib starts there and again once the share is sent, at a level a phone's log keeps, so a tester's log tells what an older phone gives it.
 - **The app that's sharing leaving the screen** (`hostLeft`) is handled as now, with TDLib closed before the lock goes as the time runs out.
 - **No bar for how far a file has gone,** as the Telegram session tells of none. The sheet shows it's sending.
 - **App lock, the proxy and what the App Store's rules withhold** apply as in the app: the extension asks for App lock first as now, the door takes the proxy `ProxyStore` applies, and the copy holds only chats the app's list shows.
@@ -139,8 +144,8 @@ Each step leaves the app as it was for anyone using it, so a nightly cut for som
 
 1. **The core's `sendNow` for Telegram.** Shown by the core's tests on the fake engine. Nobody sees it.
 2. **TDLib as a framework,** linked by the app alone. Shown by Telegram working as before in the simulator and on a phone, and the download's size against a build that links it into the app.
-3. **The app closes TDLib before it sleeps and starts it as it wakes,** with the folder still in the app's own container, where a close that came late ends nothing. Shown by the bridge's and the keeper's tests, and on a phone by the log: every close's time, over a few days of a nightly, and the account back online no later than now.
-4. **The folder moves to the App Group,** with the one move from the app's container. From here a late close can end the app. Shown on a phone by its log over a few days of a nightly: no `0xDEAD10CC`, no "suspended with locked system files".
+3. **The app closes TDLib before it sleeps and starts it as it wakes,** with the folder still in the app's own container, where a close that came late ends nothing. Shown by the bridge's and the keeper's tests, and on the owner's phone the day its nightly is installed: the app is driven through sleeps and wakes over USB, as for the measurements of 2026-11-22, with a file being sent in some of them, and the phone's log gives every close's time and when the account was back online, which should be no later than now.
+4. **The folder moves to the App Group,** with the one move from the app's container. From here a late close can end the app. Shown the same way, the day its nightly is installed, by a log with no `0xDEAD10CC` and no "suspended with locked system files". Step 5's check reads the log since then for the same.
 5. **The extension sends,** and Telegram comes back to the sheet, through the app and through the extension's own core in one commit: the sealed copy, TDLib in the extension, the memory it asks for, its own marks, no registering, the texts in every language. Shown on a phone: the limit and what the extension uses with TDLib running, photos and a large video to Saved Messages and to a group, a chat picked from the row of people, leaving the sharing app while it sends, and opening Zuna while it sends.
 
 ## How it's tested
@@ -148,7 +153,7 @@ Each step leaves the app as it was for anyone using it, so a nightly cut for som
 - **The core,** on the fake engine (`packages/core/test/telegram.test.ts`): `sendNow` back once Telegram has the message, throwing what Telegram refused, giving up after its time, a group not listed yet, and a send that an engine started again in the middle finishes.
 - **The bridge and the keeper,** on a Mac with the fake engine (`TelegramBridgeTests`, `LockKeeperTests`): a close for sleep reaches the core as nothing, a wake as `zunaRestarted` and a start, a client that doesn't close is given up on in time, a bridge told not to register sends no `registerDevice`, the extension's marks leave the app's alone, and the keeper's time running out closes before it releases and ends its task after.
 - **The simulator,** with the test account linked: after a close for sleep `lsof` shows nothing of the folder open, the move from the app's container, and a share to Saved Messages with the app asleep. `ShareTests` stays on a build with no Telegram, as the e2e build has none.
-- **A phone, for what only a phone shows:** the extension's limit and memory with TDLib in it, that iOS ends nothing at suspension, how long a close takes with a real account, and, if one's at hand, the limit on an older iPhone.
+- **A phone, for what only a phone shows:** the extension's memory with TDLib in it, that iOS ends nothing at suspension, and how long a close takes with a real account. Only the owner's iPhone 17 Pro Max is at hand, so what an older one gives the extension comes from a tester's log, if one sends it.
 
 ## What changes with it
 
@@ -163,7 +168,7 @@ Each step leaves the app as it was for anyone using it, so a nightly cut for som
 ## Risks
 
 - **A close that comes late ends the app at suspension.** Step 3 measures it where that costs nothing, before step 4 makes it count. A phone's log names it when it happens.
-- **An older iPhone may give the extension too little memory.** It then refuses a share to Telegram with its reason, and Zuna's own chats still go.
+- **An older iPhone may give the extension too little memory,** and which do isn't known. It then refuses a share to Telegram with its reason, and Zuna's own chats still go.
 - **While the extension sends, the app waits for the lock,** as it does today for a share to a Zuna chat, and now Telegram waits with it: Zuna opened then shows nothing new until the share is done, and a Telegram call's push rings at once and connects only after.
 - **An extension iOS ends in the middle leaves a message not sent** in the Telegram chat.
 - **TDLib ending its process on purpose ends the sheet.** The extension's marks keep it from doing so at every share.
@@ -182,14 +187,11 @@ Each step leaves the app as it was for anyone using it, so a nightly cut for som
 
 ## Questions for the owner
 
-1. **Moving the folder once, or linking again?** `CLAUDE.md` says no moves of saved data until the first stable release, and 0.1.0 and 0.2.0 have been cut since. The plan assumes the move.
-2. **Is there an older iPhone to read the limit from?** One line of its log settles which phones can send to Telegram from the sheet. Without one, the memory asked for at Send is the only guard.
-3. **May the names of the account's chats be kept in the App Group,** sealed, for the sheet's list? TDLib's database, which holds them too, will be there as well.
-4. **How long does a nightly with step 3, and then step 4, run before the next step?** The plan assumes a few days each, read from the owner's phone.
+None open. The four asked with the first draft were answered on 2026-11-22, and are under "Decisions".
 
 ## Where it stands
 
-Written on 2026-11-22. Measured: the table above. Built: nothing.
+Written on 2026-11-22, and changed the same day for the owner's answers. Measured: the tables above. Built: nothing.
 
 ## What was read
 
