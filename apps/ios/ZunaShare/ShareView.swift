@@ -48,7 +48,7 @@ struct ShareView: View {
                 Button {
                     model.choosingServer = true
                 } label: {
-                    AvatarView(name: server.name, seed: server.url, source: .serverAt(url: server.url, hasIcon: server.hasIcon), size: 36, rounded: true)
+                    ShareServerIcon(server: server, size: 36)
                 }
                 .buttonStyle(.plain)
                 .allowsHitTesting(manyServers)
@@ -240,7 +240,11 @@ struct ShareView: View {
         case .voiceChannel:
             symbol("speaker.wave.2.fill", size: 20)
         case .person, .group:
-            AvatarView(name: target.title, seed: target.seed, source: target.avatar.map { .avatar($0, serverId: target.serverId) } ?? .none, size: 52)
+            if target.serverId == ServerEntry.telegram {
+                TelegramChatPicture(target: target, size: 52)
+            } else {
+                AvatarView(name: target.title, seed: target.seed, source: target.avatar.map { .avatar($0, serverId: target.serverId) } ?? .none, size: 52)
+            }
         }
     }
 
@@ -369,7 +373,7 @@ private struct ServerChoice: View {
                     model.choose(server.id)
                 } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: server.name, seed: server.url, source: .serverAt(url: server.url, hasIcon: server.hasIcon), size: 44, rounded: true)
+                        ShareServerIcon(server: server, size: 44)
                         Text(server.name)
                             .font(.body.weight(.semibold))
                             .foregroundStyle(Theme.text1)
@@ -405,5 +409,45 @@ private struct ServerChoice: View {
         .navigationTitle(t("share.servers"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg1, for: .navigationBar)
+    }
+}
+
+/// A server's picture, or the linked Telegram account's drawing, as the app's list has them.
+private struct ShareServerIcon: View {
+    let server: ShareServer
+    let size: CGFloat
+
+    var body: some View {
+        if server.isTelegram {
+            TelegramIcon(size: size)
+        } else {
+            AvatarView(name: server.name, seed: server.url, source: .serverAt(url: server.url, hasIcon: server.hasIcon), size: size, rounded: true)
+        }
+    }
+}
+
+/// A Telegram chat's picture as the app keeps it for notifications (`TelegramPictures`), for the
+/// hundred chats at the top of its list, or its initials: TDLib doesn't run here until Send.
+private struct TelegramChatPicture: View {
+    let target: ShareTarget
+    let size: CGFloat
+    @State private var picture: UIImage?
+
+    var body: some View {
+        Group {
+            if let picture {
+                Image(uiImage: picture)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                AvatarView(name: target.title, seed: target.seed, size: size)
+            }
+        }
+        .task(id: target.id) {
+            let chatId = target.key.split(separator: ":").last.map(String.init) ?? target.key
+            picture = await Task.detached { TelegramPictures.picture(chatId).flatMap(UIImage.init(data:)) }.value
+        }
     }
 }

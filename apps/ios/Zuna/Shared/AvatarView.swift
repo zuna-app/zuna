@@ -43,6 +43,11 @@ final class ImageStore {
         cache.object(forKey: key as NSString)
     }
 
+    /// Lets go of every picture kept, as the share extension does before it starts TDLib.
+    func forgetPictures() {
+        cache.removeAllObjects()
+    }
+
     /// A person's or group's avatar, decrypted by the core.
     func avatar(_ avatar: AvatarRef, serverId: String, size: CGFloat) async -> UIImage? {
         await load(avatar.cacheId, size: size) { [core] in

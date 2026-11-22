@@ -67,6 +67,8 @@ extension AppModel {
             // Unlinked from here, or its session ended from another device. A link left half done says nothing.
             guard telegram != nil else { return }
             removeServer(ServerEntry.telegram)
+            // Nor does the share extension list its chats any more.
+            ShareMailbox.forgetTelegramTargets()
             linkingTelegram = false
             telegramLink = nil
             if !signedOut {
@@ -108,6 +110,7 @@ extension AppModel {
         do {
             let unlinked = try await core.unlinkTelegram()
             if telegram != nil { removeServer(ServerEntry.telegram) }
+            ShareMailbox.forgetTelegramTargets()
             telegramLink = nil
             toast(unlinked.signedOut ? t("telegram.unlink.done") : t("telegram.unlink.doneHere"))
         } catch {

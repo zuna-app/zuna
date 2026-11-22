@@ -58,6 +58,9 @@ public final class CoreRuntime: @unchecked Sendable {
         /// it's away (`setTelegramPushToken`): what the engine hears of late, as it catches up, the core
         /// then notifies of nowhere, as the push told of it, or Telegram left it untold as read elsewhere.
         public var telegramPushed = false
+        /// The engine runs only to send what's shared, as in the share extension: the core reads
+        /// none of the account's chats once it's signed in (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+        public var telegramSendsOnly = false
 
         public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -86,7 +89,7 @@ public final class CoreRuntime: @unchecked Sendable {
     /// Whether this process holds the core's lock, under which a linked Telegram account's database
     /// is: TDLib runs only while it does (docs/IOS_TELEGRAM_SHARE_PLAN.md). The app does from its
     /// start, and the share extension only once it says so.
-    private lazy var telegramHeld = !(options.telegram?.waitsForLock ?? false)
+    private lazy var telegramHeld = !(options.telegram?.inShareExtension ?? false)
     /// The VoIP token for Telegram's calls, while this device takes them, kept until the bridge is made.
     private var telegramVoipToken: String?
     /// Calls' pushes that came before the bridge was made.
@@ -344,6 +347,9 @@ public final class CoreRuntime: @unchecked Sendable {
         if options.telegramCalls {
             host.setObject(true, forKeyedSubscript: "telegramCalls" as NSString)
         }
+        if options.telegramSendsOnly {
+            host.setObject(true, forKeyedSubscript: "telegramSendsOnly" as NSString)
+        }
         if options.telegramPushed {
             host.setObject(true, forKeyedSubscript: "telegramPushed" as NSString)
         }
@@ -414,8 +420,8 @@ public final class CoreRuntime: @unchecked Sendable {
             made.setVoipToken(telegramVoipToken)
             if telegramOutOfSight { made.sleep() }
             // Let go of or taken back before there was a bridge.
-            if telegramHeld, configuration.waitsForLock { made.takeBack() }
-            if !telegramHeld, !configuration.waitsForLock { made.letGo(within: 0) { _ in } }
+            if telegramHeld, configuration.inShareExtension { made.takeBack() }
+            if !telegramHeld, !configuration.inShareExtension { made.letGo(within: 0) { _ in } }
             for push in telegramCallPushes { made.callPushed(push.payload, done: push.done) }
             telegramCallPushes.removeAll()
             telegram = made
@@ -505,6 +511,12 @@ public final class CoreRuntime: @unchecked Sendable {
             telegramHeld = true
             telegram?.takeBack()
         }
+    }
+
+    /// Something the share extension handed the app goes to a Telegram chat: TDLib starts for it,
+    /// even out of sight, as the share's background task keeps the app running.
+    public func startTelegramForShare() {
+        queue.async { [self] in telegram?.startForShare() }
     }
 
     /// The app left the screen, or is back on it: iOS suspends a linked Telegram account's TDLib

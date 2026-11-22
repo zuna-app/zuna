@@ -12,14 +12,23 @@ import TDLib
 /// Telegram's api_id, which links it (`ZUNA_TELEGRAM`, apps/ios/telegram.yml). Without one the app
 /// has no TDLib and no Telegram.
 enum TelegramSetup {
-    /// The api_id and api_hash come from the app's Info.plist (`TELEGRAM_API_ID` and
-    /// `TELEGRAM_API_HASH`, apps/ios/project.yml). A development build uses Telegram's test servers,
-    /// unless launched with `-ZunaTelegramTestDC NO`.
-    @MainActor static func configuration() -> TelegramBridge.Configuration? {
+    /// The api_id and api_hash come from the bundle's Info.plist (`TELEGRAM_API_ID` and
+    /// `TELEGRAM_API_HASH`, apps/ios/project.yml), the app's or the share extension's. A development
+    /// build uses Telegram's test servers, unless the app was launched with `-ZunaTelegramTestDC NO`:
+    /// the app says which beside TDLib's folder, for the share extension, which no launch argument
+    /// reaches, to open the same database (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+    @MainActor static func configuration(inShareExtension: Bool = false) -> TelegramBridge.Configuration? {
         #if ZUNA_TELEGRAM
         let info = Bundle.main.infoDictionary ?? [:]
         #if DEBUG
-        let testDc = UserDefaults.standard.object(forKey: "ZunaTelegramTestDC") as? Bool ?? true
+        let marker = (try? SharedStorage.dataDirectory())?.appendingPathComponent("telegram-test-dc")
+        let testDc: Bool
+        if inShareExtension {
+            testDc = marker.map { (try? String(contentsOf: $0, encoding: .utf8)) != "NO" } ?? true
+        } else {
+            testDc = UserDefaults.standard.object(forKey: "ZunaTelegramTestDC") as? Bool ?? true
+            if let marker { try? (testDc ? "YES" : "NO").write(to: marker, atomically: true, encoding: .utf8) }
+        }
         #else
         let testDc = false
         #endif
@@ -35,6 +44,7 @@ enum TelegramSetup {
             device: pad ? "iPad" : "iPhone"
         )
         configuration.words = { key, values in t(key, values) }
+        configuration.inShareExtension = inShareExtension
         // A development build's push token is for Apple's sandbox, as its entitlement says; TestFlight's and the App Store's aren't.
         #if DEBUG
         configuration.pushSandbox = true

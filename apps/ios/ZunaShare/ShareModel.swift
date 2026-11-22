@@ -240,11 +240,28 @@ final class ShareModel {
         try await handToApp(request, folder: folder)
     }
 
+    /// Zuna's chats first, then the linked Telegram account's, for which TDLib runs here from now
+    /// until they're sent, with the memory it needs, and closes again (docs/IOS_TELEGRAM_SHARE_PLAN.md).
     private func sendHere(_ request: ShareRequest, core: ShareCore) async throws {
         core.onProgress = { [weak self] fraction in self?.progress = fraction }
         defer { core.onProgress = nil }
-        try await ShareSender.send(request, through: core.connection)
+        var failed: [String] = []
+        let zuna = request.onTelegram(false)
+        if !zuna.targets.isEmpty {
+            do { try await ShareSender.send(zuna, through: core.connection) } catch { failed.append("\(error)") }
+        }
+        let telegram = request.onTelegram(true)
+        if !telegram.targets.isEmpty {
+            // What the picker kept goes first: TDLib needs the memory.
+            images?.forgetPictures()
+            do {
+                try await core.withTelegram { try await ShareSender.send(telegram, through: core.connection) }
+            } catch {
+                failed.append("\(error)")
+            }
+        }
         await ShareSender.suggest(request, through: core.connection)
+        if !failed.isEmpty { throw ShareFailure(message: failed.joined(separator: "\n")) }
     }
 
     /// The app is awake: it sends, and says how that went. If it goes to sleep
@@ -306,8 +323,11 @@ final class ShareModel {
         case .sending:
             let done = DispatchSemaphore(value: 0)
             sendFinished = done
+            let runtime = core?.runtime
             ProcessInfo.processInfo.performExpiringActivity(withReason: "Send what was shared") { [lock] expired in
                 if expired {
+                    // TDLib's database is under the lock too, in the App Group: closed before it goes.
+                    if let runtime { ShareCore.letGoOfTelegramNow(runtime) }
                     lock?.release()
                     done.signal()
                 } else {

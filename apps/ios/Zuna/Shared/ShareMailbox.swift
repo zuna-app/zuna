@@ -67,6 +67,22 @@ struct ShareServer: Codable, Identifiable, Sendable {
         }
         self.targets = entry.signedOut == nil ? targets : []
     }
+
+    /// The linked Telegram account's, as the share extension keeps it while the app sleeps: with
+    /// nothing that was said in its chats, and no picture the core would have to fetch, as TDLib
+    /// isn't running there until Send (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+    func keptForTheSheet() -> ShareServer {
+        var kept = self
+        kept.targets = targets.map { target in
+            var target = target
+            target.subtitle = ""
+            target.avatar = nil
+            return target
+        }
+        return kept
+    }
+
+    var isTelegram: Bool { id == ServerEntry.telegram }
 }
 
 /// What's being shared, and to which chats. The files are in the request's folder.
@@ -74,6 +90,11 @@ struct ShareRequest: Codable, Sendable {
     var targets: [ShareTarget]
     var text: String
     var files: [OutgoingFile]
+
+    /// The same, to the chats on Zuna's servers, or to the linked Telegram account's.
+    func onTelegram(_ telegram: Bool) -> ShareRequest {
+        ShareRequest(targets: targets.filter { ($0.serverId == ServerEntry.telegram) == telegram }, text: text, files: files)
+    }
 }
 
 /// How a request handed to the app went.
@@ -109,6 +130,18 @@ enum ShareMailbox {
 
     static var targetsFile: URL {
         get throws { try folder().appendingPathComponent("targets") }
+    }
+
+    /// The linked Telegram account's chats as the app last listed them, sealed, for the share
+    /// extension while the app sleeps (`ShareServer.keptForTheSheet`). Written as the app goes to
+    /// sleep, and gone with the account.
+    static var telegramTargetsFile: URL {
+        get throws { try folder().appendingPathComponent("telegram-targets") }
+    }
+
+    static func forgetTelegramTargets() {
+        guard let file = try? telegramTargetsFile else { return }
+        try? FileManager.default.removeItem(at: file)
     }
 
     /// A new folder for one share's files and request.
@@ -188,7 +221,8 @@ enum ShareSender {
             Array(request.files[$0..<min($0 + OutgoingFiles.limit, request.files.count)])
         }
         var failed: [String] = []
-        for target in request.targets {
+        // Zuna's chats first, as the linked Telegram account's may wait for its engine to start.
+        for target in request.onTelegram(false).targets + request.onTelegram(true).targets {
             let session = core.session(target.serverId)
             do {
                 if batches.isEmpty, !text.isEmpty {

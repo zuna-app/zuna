@@ -12,6 +12,8 @@ declare const __zunaHost: {
   telegramRestricted?: boolean;
   /** True where Telegram pushes the app a linked account's messages while it's away, which the iPhone's has it do. What the engine hears of late, as it catches up, then notifies nowhere: the push told of it. The native desktop app, which nothing pushes, notifies of what's still unread once the engine has caught up. */
   telegramPushed?: boolean;
+  /** True in the share extension, whose Telegram engine runs only to send what's shared: the account's chats aren't read (docs/IOS_TELEGRAM_SHARE_PLAN.md). */
+  telegramSendsOnly?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;

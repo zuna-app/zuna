@@ -262,18 +262,52 @@ final class TelegramBridgeTests: XCTestCase {
         XCTAssertEqual(launch.heard.count("authorizationStateClosed"), 0)
     }
 
-    /// The share extension's broker: TDLib starts only once the extension holds the core's lock.
-    func testABrokerWaitingForTheLockStartsNothingUntilItsTaken() throws {
-        let launch = try Launch(state: "authorizationStateReady", waitsForLock: true)
+    /// The share extension's broker: TDLib starts only once the extension holds the core's lock, and
+    /// registers nothing with Telegram, whose tokens are the app's.
+    func testTheShareExtensionsBrokerStartsOnlyWithTheLockAndRegistersNothing() throws {
+        let launch = try Launch(state: "authorizationStateReady", inShareExtension: true)
         defer { launch.clean() }
         try launch.makeDatabase()
+        launch.bridge.setPushToken("ab12")
+        launch.bridge.setVoipToken(nil)
         XCTAssertNil(launch.bridge.start(linked: true))
         Thread.sleep(forTimeInterval: 0.2)
         XCTAssertEqual(launch.engine.made, 0)
         launch.bridge.takeBack()
         launch.engine.client(1).waitFor("setTdlibParameters")
         launch.heard.wait(for: "authorizationStateReady", times: 1)
+        Thread.sleep(forTimeInterval: 0.1)
         XCTAssertEqual(launch.heard.count("zunaRestarted"), 0, "no run went before it")
+        XCTAssertFalse(launch.engine.client(1).sent.contains { $0["@type"] as? String == "registerDevice" }, "the app's tokens would be taken back")
+    }
+
+    /// The app and the share extension each keep the marks their starts leave: neither's two ended
+    /// starts keep the other's TDLib from starting.
+    func testTheAppsAndTheExtensionsMarksAreEachTheirOwn() throws {
+        let directory = try temporary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("telegram", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("db"), withIntermediateDirectories: true)
+        try Data("binlog".utf8).write(to: folder.appendingPathComponent("db/td_test.binlog"))
+        StartMarks(file: folder.appendingPathComponent("start-marks.json")).leave(2, said: nil)
+        let share = try Launch(directory: directory, state: "authorizationStateReady", inShareExtension: true)
+        XCTAssertNil(share.bridge.start(linked: true))
+        share.bridge.takeBack()
+        share.heard.wait(for: "authorizationStateReady", times: 1)
+        XCTAssertEqual(letGo(share.bridge), true)
+
+        StartMarks(file: folder.appendingPathComponent("start-marks.json")).forget()
+        StartMarks(file: folder.appendingPathComponent("share-start-marks.json")).leave(2, said: nil)
+        let app = try Launch(directory: directory, state: "authorizationStateReady")
+        XCTAssertNil(app.bridge.start(linked: true))
+        app.heard.wait(for: "authorizationStateReady", times: 1)
+        // The extension's own two say so, and it starts nothing.
+        let again = try Launch(directory: directory, state: "authorizationStateReady", inShareExtension: true)
+        _ = again.bridge.start(linked: true)
+        again.bridge.takeBack()
+        again.heard.wait(for: "zunaFailed", times: 1)
+        XCTAssertTrue(again.heard.first("zunaFailed")?.contains("telegram.engine.endedTheShareSheet") == true)
+        XCTAssertEqual(again.engine.made, 0)
     }
 
     private func letGo(_ bridge: TelegramBridge, within limit: TimeInterval = TelegramBridge.letGoWait) -> Bool? {
@@ -605,7 +639,7 @@ final class TelegramBridgeTests: XCTestCase {
         let bridge: TelegramBridge
         private let owned: Bool
 
-        init(directory: URL? = nil, refusal: String? = nil, refusesOnlyAnOldDatabase: Bool = false, state: String = "authorizationStateWaitPhoneNumber", silent: Bool = false, waitsForLock: Bool = false) throws {
+        init(directory: URL? = nil, refusal: String? = nil, refusesOnlyAnOldDatabase: Bool = false, state: String = "authorizationStateWaitPhoneNumber", silent: Bool = false, inShareExtension: Bool = false) throws {
             if let directory {
                 self.directory = directory
                 owned = false
@@ -622,7 +656,7 @@ final class TelegramBridgeTests: XCTestCase {
             if refusesOnlyAnOldDatabase { engine.refusesWhile = { FileManager.default.fileExists(atPath: folder.appendingPathComponent("db/td_test.binlog").path) } }
             let heard = heard
             var configuration = TelegramBridgeTests.configuration(engine, self.directory)
-            configuration.waitsForLock = waitsForLock
+            configuration.inShareExtension = inShareExtension
             bridge = TelegramBridge(configuration: configuration, dataDirectory: self.directory, deviceKey: Data(repeating: 7, count: 32)) { heard.add($0) }
         }
 

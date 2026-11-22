@@ -33,7 +33,7 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
   }
 }
 
-async function linkedClient(options: { authorized?: boolean; password?: string; restricted?: boolean; calls?: boolean; pushed?: boolean; engine?: FakeTdlib } = {}) {
+async function linkedClient(options: { authorized?: boolean; password?: string; restricted?: boolean; calls?: boolean; pushed?: boolean; sendsOnly?: boolean; engine?: FakeTdlib } = {}) {
   const engine = options.engine ?? new FakeTdlib();
   engine.authorized = options.authorized ?? false;
   engine.password = options.password ?? null;
@@ -48,6 +48,7 @@ async function linkedClient(options: { authorized?: boolean; password?: string; 
     telegramRestricted: options.restricted,
     telegramCalls: options.calls,
     telegramPushed: options.pushed,
+    telegramSendsOnly: options.sendsOnly,
   });
   await client.open();
   const link = () => [...events].reverse().find((event): event is Extract<CoreEvent, { type: "telegram" }> => event.type === "telegram")?.link;
@@ -849,11 +850,24 @@ describe("sending from the share sheet (sendNow)", () => {
     await until(() => session.getConversations().length === 3, "the list");
   });
 
+  it("reads none of the account's chats where it only sends, as the share extension does", async () => {
+    const { engine, client } = await linkedClient({ authorized: true, sendsOnly: true });
+    client.linkTelegram();
+    const session = client.telegramSession;
+    await session.sendNow(`group:${GROUP}`, [], { text: "to a group" });
+    await session.sendNow(`user:${GRACE}`, [], { text: "to a person" });
+    await settle();
+    expect(engine.requests("loadChats")).toHaveLength(0);
+    expect(engine.requests("getMe")).toHaveLength(1);
+    expect(engine.requests("sendMessage").map((request) => request.chat_id)).toEqual([GROUP, GRACE]);
+  });
+
   it("finishes a send that went on across the engine starting again", async () => {
     const { engine, session } = await ready();
     engine.holdSends = true;
     const sending = session.sendNow(`user:${GRACE}`, [picture()], { text: "" }, { keepMetadata: true });
-    await until(() => engine.requests("sendMessage").length === 1, "the message going");
+    // TDLib has the message and its file, and Telegram hasn't said it has them yet.
+    await until(() => [...engine.generated.values()].some((file) => file.finished), "the file handed over");
     // The app went to sleep and woke: its broker closed TDLib and started it again.
     engine.emit({ "@type": "zunaRestarted" });
     engine.emit({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });

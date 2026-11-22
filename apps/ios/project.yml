@@ -254,8 +254,11 @@ targets:
       - path: Zuna/Shared/ShareMailbox.swift
       - path: Zuna/Shared/ShareSuggestions.swift
       - path: Zuna/Shared/SharedStorage.swift
+      - path: Zuna/Shared/TelegramPictures.swift
       - path: Zuna/Shared/VideoStream.swift
       - path: Zuna/State/AppSettings.swift
+      - path: Zuna/Telegram/TDLibEngine.swift
+      - path: Zuna/Telegram/TelegramIcon.swift
       - path: Zuna/Theme/Theme.swift
     dependencies:
       - package: ZunaKit
@@ -282,6 +285,10 @@ targets:
               NSIncludesSubdomains: true
               NSExceptionAllowsInsecureHTTPLoads: true
         UIUserInterfaceStyle: Dark
+        # Telegram's api_id and api_hash, as the app's (Zuna's info above): the extension sends to a
+        # linked account's chats itself while the app sleeps (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+        ZunaTelegramApiId: $(TELEGRAM_API_ID)
+        ZunaTelegramApiHash: $(TELEGRAM_API_HASH)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController

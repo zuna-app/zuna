@@ -247,6 +247,11 @@ export interface TelegramSessionOptions {
    */
   pushed?: boolean;
   /**
+   * The engine runs only to send what's shared, as in the iPhone's share extension: the account's
+   * chats aren't read once it's signed in, as `sendNow` needs none of them and the memory is short.
+   */
+  sendsOnly?: boolean;
+  /**
    * The app is held to an app store's rules, as the iPhone's is to Apple's: whatever TDLib marks
    * restricted is withheld (`restrictionOf`), and what it marks 18+ too, unless the account lets
    * it through. A chat whose user or supergroup is marked isn't listed and can't be opened, a
@@ -598,6 +603,7 @@ export class TelegramSession {
       if (this.selfId) this.note(me.profile_photo, { "@type": "getUser", user_id: this.selfId });
       this.queueUsers();
       if (this.active) this.sayOnline();
+      if (this.options.sendsOnly) return;
       // The list comes as updates, a page at a time, until Telegram says there's no more, and the
       // archive after it, which the app shows as its hidden chats.
       for (const listKind of ["chatListMain", "chatListArchive"]) {

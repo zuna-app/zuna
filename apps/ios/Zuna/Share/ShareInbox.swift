@@ -14,6 +14,9 @@ final class ShareInbox {
     private var sending = 0
     /// Called once the last request handed over has gone, so the app can go to sleep.
     var onIdle: (() -> Void)?
+    /// Starts the linked Telegram account's TDLib for a request to one of its chats, even with the
+    /// app out of sight, as the request's background task keeps it running.
+    var startTelegram: (() -> Void)?
 
     init(model: AppModel, core: CoreConnection, deviceKey: Data) {
         self.model = model
@@ -43,9 +46,7 @@ final class ShareInbox {
 
     private func answerTargets() {
         guard listening else { return }
-        // Not the linked Telegram account's chats, which nothing shared can go to yet, and which the
-        // extension's own core never lists (docs/TELEGRAM_PLAN.md, "Left for later there").
-        let servers = model.order.compactMap { model.servers[$0] }.filter { !$0.entry.isTelegram }.map { server in
+        let servers = model.order.compactMap { model.servers[$0] }.map { server in
             ShareServer(entry: server.entry, selfId: server.me?.userId, users: server.users, conversations: server.conversations, channels: server.channels, hidden: server.prefs.hidden)
         }
         do {
@@ -54,6 +55,16 @@ final class ShareInbox {
         } catch {
             // The extension stops waiting and says Zuna didn't answer.
         }
+    }
+
+    /// Keeps the linked Telegram account's chats where the share extension finds them while the app
+    /// sleeps (docs/IOS_TELEGRAM_SHARE_PLAN.md), as the app goes to sleep, or erases them with the
+    /// account: sealed, without what was said in them.
+    func keepTelegramTargets() {
+        guard let server = model.servers[ServerEntry.telegram] else { return ShareMailbox.forgetTelegramTargets() }
+        let kept = ShareServer(entry: server.entry, selfId: server.me?.userId, users: server.users, conversations: server.conversations, channels: [], hidden: server.prefs.hidden).keptForTheSheet()
+        guard let file = try? ShareMailbox.telegramTargetsFile else { return }
+        try? ShareMailbox.write(kept, to: file, deviceKey: deviceKey)
     }
 
     private func takeRequests() {
@@ -69,6 +80,7 @@ final class ShareInbox {
             }
             sending += 1
             let task = UIApplication.shared.beginBackgroundTask(withName: "Send what was shared")
+            if request.targets.contains(where: { $0.serverId == ServerEntry.telegram }) { startTelegram?() }
             Task {
                 var result = ShareResult()
                 do {

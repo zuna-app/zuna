@@ -42,3 +42,13 @@ targets:
       base:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) ZUNA_TELEGRAM
         SWIFT_INCLUDE_PATHS: $(inherited) $(SRCROOT)/TDLib
+  # The share extension sends to the account's chats from Send until sent, with the core's lock held
+  # (docs/IOS_TELEGRAM_SHARE_PLAN.md), on the framework the app embeds.
+  ZunaShare:
+    dependencies:
+      - target: ZunaTD
+        embed: false
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) ZUNA_TELEGRAM
+        SWIFT_INCLUDE_PATHS: $(inherited) $(SRCROOT)/TDLib

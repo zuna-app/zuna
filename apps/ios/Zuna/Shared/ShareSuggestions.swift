@@ -12,7 +12,8 @@ enum ShareSuggestions {
     @MainActor static func sent(to key: String, on serverId: String, title: String, avatar: AvatarRef?, through core: CoreConnection) async {
         guard NotificationSettings.load().preview != .none else { return }
         let id = "\(serverId)/\(key)"
-        let image = await picture(avatar, serverId: serverId, through: core)
+        // A Telegram chat's picture is the one its notifications show, as TDLib may not be running to give it.
+        let image = serverId == ServerEntry.telegram ? telegramPicture(key) : await picture(avatar, serverId: serverId, through: core)
         let intent: INSendMessageIntent
         if key.hasPrefix("user:") {
             let person = INPerson(
@@ -32,6 +33,13 @@ enum ShareSuggestions {
         interaction.direction = .outgoing
         interaction.groupIdentifier = id
         try? await interaction.donate()
+    }
+
+    /// A Telegram chat's picture as the app keeps it for notifications (`TelegramPictures`), by its
+    /// key: `user:<id>` or `group:<id>`, where the ID is TDLib's chat's.
+    private static func telegramPicture(_ key: String) -> INImage? {
+        guard let chatId = key.split(separator: ":").last.map(String.init), let data = TelegramPictures.picture(chatId) else { return nil }
+        return INImage(imageData: data)
     }
 
     /// Each picture made small, by its file, so that sending to a chat again doesn't

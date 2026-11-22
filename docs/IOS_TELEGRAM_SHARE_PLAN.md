@@ -1,6 +1,6 @@
 # Sharing into Telegram chats from the iPhone's share sheet: plan
 
-Someone with a linked Telegram account ([TELEGRAM_PLAN.md](TELEGRAM_PLAN.md)) shares a picture, a video, a file, a link or text from another app into one of that account's chats, through Zuna in the system's share sheet, and it's sent before the sheet closes, as to a Zuna chat. On the iPhone and iPad, the only apps with a share sheet. This page is why it's off today, what was measured on 2026-11-22, what was decided, the design, and the order to build it in. Nothing of it is built.
+Someone with a linked Telegram account ([TELEGRAM_PLAN.md](TELEGRAM_PLAN.md)) shares a picture, a video, a file, a link or text from another app into one of that account's chats, through Zuna in the system's share sheet, and it's sent before the sheet closes, as to a Zuna chat. On the iPhone and iPad, the only apps with a share sheet. This page is why it was off, what was measured on 2026-11-22, what was decided, the design, and the order it was built in, on the same day ("Where it stands").
 
 ```
 CoreLock, in the App Group       one process holds it at a time
@@ -131,6 +131,7 @@ Today nothing is told to TDLib as the app leaves the screen, and iOS suspends it
 - **In `TELEGRAM_METHODS`** (`rpc.ts`), and `"never"` in `TELEGRAM` (`packages/plugin-sdk/src/surface.ts`). `ZunaModels/CoreAPI.swift` has `sendNow` already.
 - **A message whose file nobody has any more** is one TDLib asks for and is told isn't being sent (`generate`), so it fails and shows as not sent, where it can be deleted. That's what an extension ended in the middle leaves.
 - **Nothing new for the broker's list.** `close` is the broker's own.
+- **The extension's core reads none of the account's chats** once it's signed in (`telegramSendsOnly`, `sendsOnly` on the session): the app reads them in pages, up to five thousand, which the extension would pay for in memory for nothing, as `sendNow` finds the one it sends to by itself. Added while building it.
 
 ### Through the app, while it's awake
 
@@ -191,7 +192,15 @@ None open. The four asked with the first draft were answered on 2026-11-22, and 
 
 ## Where it stands
 
-Written on 2026-11-22, and changed the same day for the owner's answers. Measured: the tables above. Built: nothing.
+Written on 2026-11-22, and changed the same day for the owner's answers. Built the same day, all five steps, and checked as far as a Mac and the simulator can:
+
+- **Step 1,** `TelegramSession.sendNow`: the core's tests on the fake engine, for a message back once Telegram has it, what Telegram refused, giving up after its time, a group not listed yet, a send across the engine starting again, and an engine that stopped.
+- **Step 2,** `ZunaTD`: 41.9 MB in a Release build for phones, 13.4 MB of it the symbol table an archive strips, so linked into each binary instead the extension would carry about 28 MB more. Its privacy manifest declares its files' times and the free space, from what it links (`nm -u`). In the iOS 26 simulator TDLib from it reached Telegram's test servers through the door.
+- **Step 3,** closed before the app sleeps: the bridge's and the keeper's tests, and in the simulator a close of 23 ms, none of TDLib's files open after it, and TDLib online again a second after the app was back. A file being handed to TDLib as it closes is handed over again to the next one, which the plan hadn't seen: the core gave it up before, and the app would have taken its copy away.
+- **Step 4,** the folder in the App Group: the move on the first launch, TDLib on its database there, and a close of 32 ms as the app slept, with none of its files left open.
+- **Step 5,** the extension: built, linking `ZunaTD` from the app, the bridge's tests for a broker that waits for the lock, registers nothing and keeps its own marks, and the core's for sending without reading the list. `ShareTests` on a build without Telegram.
+
+**Not run yet:** a share to a Telegram chat, in the simulator, where the test account is no longer linked, or on a phone; any of it on a phone, where the step 3 and 4 checks above are still to be made on the owner's iPhone the day a nightly with them is installed; and the extension's memory with TDLib in it.
 
 ## What was read
 

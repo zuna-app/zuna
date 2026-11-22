@@ -343,9 +343,9 @@ What was considered and left:
 - **The App Store's description says** that Zuna can use Telegram's API and isn't Telegram's, as the terms ask.
 - **Swift can't be compiled without a Mac,** so a commit made without one says so.
 
-### Left for later there
+### Sharing into a Telegram chat
 
-- **Sharing into a Telegram chat from another app.** The share extension runs a core of its own, and can't open the engine's database, which is in the app's own container. [IOS_TELEGRAM_SHARE_PLAN.md](IOS_TELEGRAM_SHARE_PLAN.md) is the plan for it, with what was measured on 2026-11-22: the database in the App Group under the core's lock, closed before the app sleeps, and TDLib in the extension from Send until sent.
+From another app's share sheet, sent before it closes, as to a Zuna chat, since 2026-11-22 ([IOS_TELEGRAM_SHARE_PLAN.md](IOS_TELEGRAM_SHARE_PLAN.md)). While the app is awake it sends what the share extension hands it, starting TDLib for it out of sight if it must (`ShareInbox`, `TelegramBridge.startForShare`). While it sleeps the extension sends it itself: TDLib's database is in the App Group, under the core's lock, which the extension then holds, and its broker starts TDLib only from Send until sent, registers nothing with Telegram and keeps marks of its own (`inShareExtension`), with 80 MB of memory left at least (`ShareCore.withTelegram`). It lists the account's chats from a sealed copy the app writes as it goes to sleep, without what was said in them (`ShareInbox.keepTelegramTargets`).
 
 ## The api_id
 

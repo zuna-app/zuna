@@ -279,6 +279,7 @@ final class CoreController {
         shareInbox.onIdle = { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
         }
+        shareInbox.startTelegram = { [weak runtime] in runtime?.startTelegramForShare() }
         shareInbox.listening = awake
         self.shareInbox = shareInbox
         reportActivity()
@@ -477,6 +478,7 @@ final class CoreController {
         suspendTask?.cancel()
         suspendTask = nil
         guard awake else { return }
+        shareInbox?.keepTelegramTargets()
         let connection = connection
         Task { try? await connection?.suspend() }
         awake = false
@@ -489,6 +491,8 @@ final class CoreController {
     /// is closed before it goes (docs/IOS_TELEGRAM_SHARE_PLAN.md).
     private func goToSleep() async {
         guard awake else { return }
+        // What the share extension lists of the Telegram account's chats while the app sleeps.
+        shareInbox?.keepTelegramTargets()
         try? await connection?.suspend()
         _ = await runtime?.letGoOfTelegram()
         awake = false

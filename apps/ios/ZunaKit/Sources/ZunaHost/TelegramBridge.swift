@@ -74,10 +74,13 @@ public final class TelegramBridge: @unchecked Sendable {
         /// Whether the app's push token is for Apple's sandbox, as a development build's is, which
         /// Telegram has to know to push to it.
         public var pushSandbox = false
-        /// TDLib starts only once the process says it holds the core's lock (`takeBack`), as the
-        /// share extension does from Send until sent: TDLib's database is under that lock
-        /// (docs/IOS_TELEGRAM_SHARE_PLAN.md). The app holds it from its start.
-        public var waitsForLock = false
+        /// The share extension's broker (docs/IOS_TELEGRAM_SHARE_PLAN.md). TDLib starts only once the
+        /// extension says it holds the core's lock (`takeBack`), from Send until sent, as TDLib's
+        /// database is under that lock, which the app holds from its start. It registers nothing
+        /// with Telegram, as its tokens are the app's, which a registration without them would
+        /// take back. And it keeps marks of its own, so that an extension iOS ended as TDLib
+        /// started can't stop the app's TDLib from starting, nor the app's the extension's.
+        public var inShareExtension = false
         /// What the person is told, in the app's language: a key of `packages/i18n/locales` and
         /// what fills it in, as the app's `t` words it.
         public var words: @Sendable (_ key: String, _ values: [String: String]) -> String = { key, _ in key }
@@ -172,6 +175,9 @@ public final class TelegramBridge: @unchecked Sendable {
     /// A call's push woke the app: TDLib starts out of sight for it, as the call the system holds
     /// keeps the app running.
     private var forCall = false
+    /// The share extension handed the app something to send to a Telegram chat while it's out of
+    /// sight: TDLib starts for it, as the share's background task keeps the app running.
+    private var forShare = false
     /// Pushes for calls waiting for TDLib to be signed in, each with who's told whether it was a call.
     private var callPushes: [(payload: String, done: @Sendable (Bool) -> Void)] = []
     private var nextCallPush = 0
@@ -183,8 +189,8 @@ public final class TelegramBridge: @unchecked Sendable {
         folder = configuration.folder.standardizedFileURL
         self.deviceKey = deviceKey
         self.deliver = deliver
-        lockGone = configuration.waitsForLock
-        let marks = StartMarks(file: folder.appendingPathComponent("start-marks.json"))
+        lockGone = configuration.inShareExtension
+        let marks = StartMarks(file: folder.appendingPathComponent(configuration.inShareExtension ? "share-start-marks.json" : "start-marks.json"))
         self.marks = marks
         configuration.engine.onLastWords { said in marks.lastWords(said) }
     }
@@ -249,7 +255,7 @@ public final class TelegramBridge: @unchecked Sendable {
         queue.sync {
             wanted = true
             self.linked = linked
-            if run != nil || lockGone || (asleep && !forCall) || stopping > 0 { return nil }
+            if run != nil || lockGone || (asleep && !forCall && !forShare) || stopping > 0 { return nil }
             return begin(afterWipe: false)
         }
     }
@@ -318,6 +324,7 @@ public final class TelegramBridge: @unchecked Sendable {
             guard asleep else { return }
             asleep = false
             forCall = false
+            forShare = false
             if let run {
                 run.door.look { [weak self, run] in
                     guard let self else { return }
@@ -488,6 +495,15 @@ public final class TelegramBridge: @unchecked Sendable {
         return "\(read["id"] ?? "")" == kept.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Something the share extension handed over goes to a Telegram chat: TDLib starts, out of sight
+    /// if it must, while the share's background task keeps the app running.
+    public func startForShare() {
+        queue.async { [self] in
+            forShare = true
+            resume()
+        }
+    }
+
     /// A call's push came: TDLib starts, out of sight if it must, and is asked what it was
     /// (`processPushNotification`). `done` is told whether it was a call: TDLib answers a call's
     /// with error 406, as it leaves calls to come as `updateCall`, and anything else means it wasn't.
@@ -510,6 +526,8 @@ public final class TelegramBridge: @unchecked Sendable {
     }
 
     private func register(_ run: Run) {
+        // The share extension's tokens are the app's: registering without them would take them back.
+        guard !configuration.inShareExtension else { return }
         registerVoip(run)
         askAboutPushes(run)
         guard let token = pushToken, !token.isEmpty, let client = run.client else { return }
@@ -565,6 +583,7 @@ public final class TelegramBridge: @unchecked Sendable {
         let left = marks.read()
         if left.starts >= Self.mostMarks {
             logger.error("TDLib's last \(left.starts) starts ended the app, so it isn't started again. It last said: \(left.said ?? "nothing", privacy: .public)")
+            if configuration.inShareExtension { return refuse(say(mark("telegram.engine.endedTheShareSheet"))) }
             if let said = left.said {
                 return refuse(say(mark("telegram.engine.endedTheAppSaying"), ["said": String(said.prefix(80))]))
             }
@@ -634,7 +653,7 @@ public final class TelegramBridge: @unchecked Sendable {
 
     /// Starts a client that's owed, once nothing stands in its way.
     private func resume() {
-        guard wanted, run == nil, stopping == 0, !lockGone, !asleep || forCall else { return }
+        guard wanted, run == nil, stopping == 0, !lockGone, !asleep || forCall || forShare else { return }
         if let why = begin(afterWipe: false) { _ = refuse(why) }
     }
 

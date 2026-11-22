@@ -116,6 +116,12 @@ export interface ZunaClientOptions {
    * (`pushed` on TelegramSession).
    */
   telegramPushed?: boolean;
+  /**
+   * The engine runs here only to send what's shared, as in the iPhone's share extension
+   * (docs/IOS_TELEGRAM_SHARE_PLAN.md): the account's chats aren't read once it's signed in, which
+   * would cost the memory it has little of (`sendsOnly` on TelegramSession).
+   */
+  telegramSendsOnly?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -499,6 +505,7 @@ export class ZunaClient {
       calls: this.options.telegramCalls === true,
       restricted: this.options.telegramRestricted === true,
       pushed: this.options.telegramPushed === true,
+      sendsOnly: this.options.telegramSendsOnly === true,
       files: this.options.files,
       onEvent: (event) => {
         if (this.telegram === session) this.options.onEvent(event);
