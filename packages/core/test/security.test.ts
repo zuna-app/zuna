@@ -11,7 +11,7 @@ import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate";
 import { channelProof, sealChannelDetails } from "../src/channels";
-import { TestApp, sleep, waitFor, sendKeyOf } from "./helpers";
+import { TestApp, atOneEpoch, sleep, waitFor, sendKeyOf } from "./helpers";
 import { server, alice, open, person, apiOf, groupWith, securityEvents, sentAndSeen, ghostClient, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
@@ -38,6 +38,9 @@ describe("a server joining a group as someone's device (Z-01)", () => {
 
     await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /pretending to be/.test(event.message)), "alice to be warned");
     expect(alice.session.safetyCheck(dave.userId)).toBeTruthy();
+    // The server says the commit is from dave's device, which never made it, so his app joins again,
+    // and holds no key for an epoch from before that join is in.
+    await waitFor(() => atOneEpoch(groupId, alice, dave), "dave to be back in");
 
     // It's gone from the tree before anything else is encrypted, whoever does it.
     alice.session.sendMessage(`group:${groupId}`, { text: "secret written after the ghost joined" });
