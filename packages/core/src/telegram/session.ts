@@ -339,6 +339,12 @@ export class TelegramSession {
   private waitingFor = new Map<string, (why: string | null) => void>();
   /** `sendNow`s waiting for the account to be signed in. */
   private waitingReady: { done: () => void; failed: (error: Error) => void }[] = [];
+  /**
+   * The engine running now has said the account is signed in. Not the same as the link's step,
+   * which stays ready across an engine started again (`zunaRestarted`), as the iPhone's app
+   * closes TDLib each time it sleeps: what's asked before the new one has read its database waits.
+   */
+  private signedIn = false;
   /** The account's one call at a time (calls/call.ts). */
   private readonly calls: TelegramCalls;
 
@@ -361,6 +367,7 @@ export class TelegramSession {
   start(): void {
     this.ended = false;
     this.stalled = false;
+    this.signedIn = false;
     const why = this.engine.start(!this.linking);
     if (why) {
       this.stalled = true;
@@ -574,6 +581,7 @@ export class TelegramSession {
       case "authorizationStateWaitPremiumPurchase":
         return this.setLink({ step: "failed", reason: t("telegram.needsPremium") });
       case "authorizationStateReady":
+        this.signedIn = true;
         if (this.linking) {
           this.linking = false;
           this.options.onLinked();
@@ -881,6 +889,7 @@ export class TelegramSession {
         return;
       }
       case "zunaFailed":
+        this.signedIn = false;
         this.calls.reset();
         this.engine.failAll(new TelegramError(t("telegram.telegramStopped"), 503));
         this.stalled = true;
@@ -891,6 +900,7 @@ export class TelegramSession {
       case "zunaRestarted":
         // A new engine, which says where it stands as it starts: until then it's connecting, and
         // what the one before it said of its connection is nobody's.
+        this.signedIn = false;
         this.calls.reset();
         this.engine.failAll(new TelegramError(t("telegram.telegramRestarted"), 503));
         this.stalled = false;
@@ -1639,7 +1649,7 @@ export class TelegramSession {
 
   /** Waits for the account to be signed in, as an engine that just started says once it's read its database. */
   private untilReady(): Promise<void> {
-    if (this.link.step === "ready") return Promise.resolve();
+    if (this.link.step === "ready" && this.signedIn) return Promise.resolve();
     if (this.link.step === "failed") return Promise.reject(new Error(this.link.reason));
     return new Promise((resolve, reject) => {
       const waiting = {

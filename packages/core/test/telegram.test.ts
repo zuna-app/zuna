@@ -900,6 +900,21 @@ describe("sending from the share sheet (sendNow)", () => {
     expect(atob(engine.generated.get(path)!.data).length).toBe(bytes.length);
   });
 
+  it("waits for an engine started again to be signed in before it asks anything of it", async () => {
+    const { engine, session } = await ready();
+    // The app slept and woke: a new TDLib, which hasn't read its database yet.
+    engine.emit({ "@type": "zunaRestarted" });
+    const sent = engine.requests("sendMessage").length;
+    let done = false;
+    const sending = session.sendNow(`user:${GRACE}`, [], { text: "after waking" }).then(() => (done = true));
+    await settle();
+    expect(engine.requests("sendMessage")).toHaveLength(sent);
+    expect(done).toBe(false);
+    engine.auth("authorizationStateReady");
+    await sending;
+    expect(engine.requests("sendMessage")).toHaveLength(sent + 1);
+  });
+
   it("says why it can't, rather than wait, once the engine stopped", async () => {
     const { engine, session } = await ready();
     engine.holdSends = true;

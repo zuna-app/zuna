@@ -277,6 +277,8 @@ public final class TelegramBridge: @unchecked Sendable {
     public func letGo(within limit: TimeInterval = TelegramBridge.letGoWait, done: @escaping @Sendable (Bool) -> Void) {
         queue.async { [self] in
             lockGone = true
+            // A share it was started for is over, or ends here.
+            forShare = false
             guard let closing = run else { return done(stopping == 0) }
             run = nil
             restartOwed = restartOwed || wanted
