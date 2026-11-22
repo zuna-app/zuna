@@ -2,7 +2,7 @@ import { mark, t } from "../i18n";
 // What every part of ServerSession shares: its timings and limits, the shapes of what it
 // keeps, and helpers that need nothing of it.
 
-import { decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiReactionChange, type ApiSound, type TokenSize } from "../api";
+import { ApiError, decode, type ApiChannel, type ApiLink, type ApiMessage, type ApiReactionChange, type ApiSound, type TokenSize } from "../api";
 import { coreToJson } from "../crypto";
 import { planToJson, type SignedLink } from "../generations";
 import { utf8 } from "../encoding";
@@ -19,6 +19,12 @@ export const PREVIEW_WAIT_MS = 4000;
 /** How long `sendNow` waits for a message to go once its files are up. */
 export const SEND_NOW_WAIT_MS = 60_000;
 export const UPLOAD_CONCURRENCY = 3;
+/**
+ * How long to wait before trying a chunk of a file again, once for each try after the first: a
+ * connection that stalls on the way, as an iPhone's HTTP/3 to Cloudflare did on 2026-11-22,
+ * fails one chunk with a timeout or a 408, and a later try goes on a new connection.
+ */
+export const CHUNK_RETRY_MS = [1000, 4000];
 /** How many groups catch up at once after a reconnect. */
 export const SYNC_CONCURRENCY = 4;
 /** How many vault items are asked for at a time. */
@@ -413,6 +419,18 @@ export function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody):
  * after it was sent. The earlier of the server's time and the sender's own counts,
  * so neither can make it last longer than it says.
  */
+/** Runs `attempt`, and again after each wait in `waits` while it fails with what might succeed later (`ApiError.retryable`). */
+export async function retried<T>(attempt: () => Promise<T>, waits: readonly number[] = CHUNK_RETRY_MS): Promise<T> {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!(error instanceof ApiError) || !error.retryable || tries >= waits.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, waits[tries]));
+    }
+  }
+}
+
 /** Runs `task` over `items`, at most `limit` at a time, and starts no more once one has failed, whose error it then throws. */
 export async function eachLimited<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
   let next = 0;

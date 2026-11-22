@@ -30,6 +30,7 @@ import {
   TOKEN_SMALL_BYTES,
   tokenTiming,
   eachLimited,
+  retried,
   assertSendable,
 } from "./shared";
 import { SessionConversations } from "./conversations";
@@ -878,7 +879,8 @@ export abstract class SessionSending extends SessionConversations {
       const start = index * CHUNK_SIZE;
       const plain = await source.read(start, Math.min(start + CHUNK_SIZE, size));
       const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
-      await this.api.uploadChunk(created.id, index, sealed);
+      // The server takes a chunk again in place of what came of it before.
+      await retried(() => this.api.uploadChunk(created.id, index, sealed));
       loaded += plain.length;
       onProgress?.(loaded, size);
     });
@@ -909,7 +911,7 @@ export abstract class SessionSending extends SessionConversations {
   }
 
   protected async openChunk(ref: { fileId: string; key: string; prefix: string; chunks: number }, index: number): Promise<Uint8Array> {
-    const sealed = await this.api.downloadChunk(ref.fileId, index);
+    const sealed = await retried(() => this.api.downloadChunk(ref.fileId, index));
     // The server's limit plus a little: this is all held in memory.
     if (sealed.length > CHUNK_SIZE + 256) throw new Error(t("errors.thisFileIsDamagedOr"));
     return wasm.streamOpen(fromBase64(ref.key), fromBase64(ref.prefix), index, index === ref.chunks - 1, sealed);

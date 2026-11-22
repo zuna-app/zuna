@@ -9,11 +9,11 @@ import Network
 final class NetworkBridge: NSObject, @unchecked Sendable {
     private let queue: DispatchQueue
     private let deliver: (_ function: String, _ arguments: [Any]) -> Void
-    private lazy var session = makeSession()
+    private(set) lazy var session = makeSession()
     /// What adds to a conversation without saying who's sending goes on connections of its
     /// own, with TLS sessions of its own: an ephemeral session shares neither with another.
     /// Under a proxy both leave it from the same address, as docs/SOCKS5.md says.
-    private lazy var sealedSession = makeSession()
+    private(set) lazy var sealedSession = makeSession()
 
     private func makeSession() -> ProxiedSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -111,8 +111,12 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         } else if body.isString {
             request.httpBody = body.toString().data(using: .utf8)
         }
-        let task = (sealed ? sealedSession : session).session.dataTask(with: request) { [weak self] data, response, error in
+        let proxied = sealed ? sealedSession : session
+        let task = proxied.session.dataTask(with: request) { [weak self] data, response, error in
             guard let self, requests.removeValue(forKey: id) != nil else { return }
+            // A connection that stalled, which a proxy in front of the server answers with 408, as
+            // Cloudflare does, or the request times out on: the core tries again, on a new one.
+            if Self.stalled(error, response) { proxied.renew() }
             #if DEBUG
             if let crash = crashOnResponse, error == nil, crash.method == method,
                crash.url.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil {
@@ -134,6 +138,12 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         }
         requests[id] = task
         task.resume()
+    }
+
+    /// Whether a request's end says its connection stopped carrying anything.
+    static func stalled(_ error: Error?, _ response: URLResponse?) -> Bool {
+        if let error = error as? URLError { return error.code == .timedOut || error.code == .networkConnectionLost }
+        return (response as? HTTPURLResponse)?.statusCode == 408
     }
 
     // MARK: WebSocket

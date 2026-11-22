@@ -35,9 +35,13 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 
-  /** The request might succeed later: the server or network was unavailable. */
+  /**
+   * The request might succeed later: the server or network was unavailable, or a proxy in
+   * front of the server gave up waiting for the request (408), as Cloudflare does when an
+   * upload's HTTP/3 connection stalls on the way, before the server had any of it.
+   */
   get retryable(): boolean {
-    return this.status === 0 || this.status === 429 || this.status >= 500;
+    return this.status === 0 || this.status === 408 || this.status === 429 || this.status >= 500;
   }
 }
 

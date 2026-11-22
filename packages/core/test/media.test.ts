@@ -2,6 +2,7 @@
 // files, voice messages and links, counted and paged from the messages on a device.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ApiError } from "../src/api";
 import type { MediaCounts } from "../src/types";
 import { loadCrypto, png, TestApp, TestServer, waitFor } from "./helpers";
 
@@ -86,5 +87,58 @@ describe("a chat's photos, files and links", () => {
     session.setKv("search_version", 2);
     await session.rebuildSearchIndex();
     expect(bob.session.mediaCounts(groupId)).toEqual(before);
+  });
+});
+
+describe("a file's chunks", () => {
+  // A connection that stalls on the way, as an iPhone's HTTP/3 to Cloudflare did on 2026-11-22,
+  // fails a chunk: Cloudflare answered 408, and the request after it timed out.
+  it("are sent again after a 408 or a dropped connection, and fetched again likewise", async () => {
+    const api = (alice.session as any).api;
+    const upload = api.uploadChunk;
+    const failures = [new ApiError(408, "request_timeout", "Request Timeout"), new ApiError(0, "network", "The network connection was lost.")];
+    let tries = 0;
+    api.uploadChunk = (...args: unknown[]) => {
+      tries++;
+      const failure = failures.shift();
+      return failure ? Promise.reject(failure) : upload.apply(api, args);
+    };
+    try {
+      await alice.session.sendWithAttachments(`user:${bob.userId}`, [file("stalled.pdf", "application/pdf")], { text: "went in the end" });
+    } finally {
+      api.uploadChunk = upload;
+    }
+    expect(tries).toBe(3);
+
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("went in the end"), "bob to get it");
+    const message = bob.session.loadMedia(bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!, "file").messages[0]!;
+    const attachment = message.attachments.find((item) => item.name === "stalled.pdf")!;
+    const bobApi = (bob.session as any).api;
+    const download = bobApi.downloadChunk;
+    let fetched = 0;
+    bobApi.downloadChunk = (...args: unknown[]) => (fetched++ === 0 ? Promise.reject(new ApiError(408, "request_timeout", "Request Timeout")) : download.apply(bobApi, args));
+    try {
+      const blob = await bob.session.downloadFile(attachment as any);
+      expect(new Uint8Array(await blob.arrayBuffer())).toEqual(new Uint8Array(64).fill(7));
+    } finally {
+      bobApi.downloadChunk = download;
+    }
+    expect(fetched).toBe(2);
+  });
+
+  it("aren't sent again after what wouldn't go any better", async () => {
+    const api = (alice.session as any).api;
+    const upload = api.uploadChunk;
+    let tries = 0;
+    api.uploadChunk = () => {
+      tries++;
+      return Promise.reject(new ApiError(413, "too_large", "That's more than this upload said it would be."));
+    };
+    try {
+      await expect(alice.session.sendWithAttachments(`user:${bob.userId}`, [file("refused.pdf", "application/pdf")], {})).rejects.toThrow();
+    } finally {
+      api.uploadChunk = upload;
+    }
+    expect(tries).toBe(1);
   });
 });

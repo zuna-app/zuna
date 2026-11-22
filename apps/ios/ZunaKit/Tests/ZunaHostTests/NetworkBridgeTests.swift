@@ -83,6 +83,40 @@ final class NetworkBridgeTests: XCTestCase {
         XCTAssertEqual(server.requests.last?.headers["x-zuna"], nil)
     }
 
+    /// An upload whose HTTP/3 connection to Cloudflare stalled came back 408, and the requests on
+    /// it after timed out: the core tries again, and that has to go on a new connection.
+    func testAStalledRequestHasTheNextGoOnANewSession() async throws {
+        let server = try await LocalHTTP.start { request in
+            switch request.path {
+            case "/stalled": HTTPResponse(status: 408)
+            case "/silent": nil
+            default: HTTPResponse(status: 200)
+            }
+        }
+        defer { server.stop() }
+        let first = queue.sync { bridge.session.session }
+        call("http", [1, "GET", "\(server.base)/fine", "{}", NSNull(), 5000, false])
+        _ = try await response(1)
+        XCTAssertTrue(queue.sync { bridge.session.session } === first, "an answer keeps the session")
+
+        call("http", [2, "PUT", "\(server.base)/stalled", "{}", bytes(Data(repeating: 1, count: 1024)), 5000, false])
+        let stalled = try await response(2)
+        XCTAssertEqual(stalled.status, 408)
+        let second = queue.sync { bridge.session.session }
+        XCTAssertFalse(second === first, "408 has the next request go on a new session")
+
+        call("http", [3, "GET", "\(server.base)/silent", "{}", NSNull(), 300, false])
+        let silent = try await response(3)
+        XCTAssertNotNil(silent.error)
+        XCTAssertFalse(queue.sync { bridge.session.session } === second, "so does a request timing out")
+
+        // Sealed requests keep connections of their own, which another's stall leaves alone.
+        let sealed = queue.sync { bridge.sealedSession.session }
+        call("http", [4, "PUT", "\(server.base)/stalled", "{}", NSNull(), 5000, false])
+        _ = try await response(4)
+        XCTAssertTrue(queue.sync { bridge.sealedSession.session } === sealed)
+    }
+
     func testRequestsThatCantBeMadeFailAsFetchWould() async throws {
         call("http", [1, "GET", "", "{}", NSNull(), 0, false])
         let invalid = try await response(1)

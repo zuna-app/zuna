@@ -178,4 +178,14 @@ public final class ProxiedSession: @unchecked Sendable {
 
     /// The configuration sessions are made from, before the proxy.
     public var baseConfiguration: URLSessionConfiguration { configuration }
+
+    /// The next request starts a new session, on connections of its own, as after one that
+    /// stalled: an HTTP/3 connection to Cloudflare that stops carrying anything stays the one a
+    /// session gives every request after it. What still goes on the old one finishes there.
+    public func renew() {
+        lock.withLock {
+            made?.session.finishTasksAndInvalidate()
+            made = nil
+        }
+    }
 }
