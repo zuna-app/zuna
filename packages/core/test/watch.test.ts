@@ -296,6 +296,8 @@ describe("watching together", () => {
     bob.session.setVoiceState(null, null);
     const dm = await alice.session.prepareCall(`user:${bob.userId}`);
     await waitFor(() => !!bob.session.getConversations().find((item) => item.groupId === dm)?.ready, "bob to have the conversation");
+    // It shows as ready before bob's app holds its keys, and what's signalled in a call before then never reaches it.
+    await waitFor(() => atOneEpoch(dm, alice, bob), "bob to hold its keys");
     alice.session.setVoiceState(dm, voice, true);
     bob.session.setVoiceState(dm, voice);
     await waitFor(() => bob.session.getVoiceMembers().filter((member) => member.channelId === dm).length === 2, "both to be in the call");
