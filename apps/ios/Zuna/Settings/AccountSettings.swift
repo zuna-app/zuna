@@ -4,16 +4,19 @@ import UniformTypeIdentifiers
 import ZunaModels
 
 /// Your profile on a server, as the desktop's Profile section: the picture,
-/// display name and bio, which only its members can see.
+/// display name and bio, which only its members can see, and signing out of
+/// the server or deleting the account under them.
 struct ProfileView: View {
     let serverId: String
 
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     @State private var displayName = ""
     @State private var bio = ""
     @State private var loaded = false
     @State private var busy = false
     @State private var photo: PhotosPickerItem?
+    @State private var confirmingSignOut = false
 
     var body: some View {
         let server = model.servers[serverId]
@@ -77,7 +80,33 @@ struct ProfileView: View {
                 Text(server.map { t("settings.profile.lead", ["server": $0.entry.name]) } ?? t("settings.profile.bioHintNoServer"))
             }
             .listRowBackground(Theme.bg2)
+            if let server {
+                Section {
+                    Button(role: .destructive) {
+                        confirmingSignOut = true
+                    } label: {
+                        SettingsLabel(t("settings.signOut.action", ["server": server.entry.name]), systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
+                    }
+                    .accessibilityIdentifier(A11y.Settings.signOut)
+                    NavigationLink { DeleteAccountView(serverId: serverId) } label: {
+                        SettingsLabel(t("settings.account.delete"), systemImage: "trash.fill", color: Theme.red)
+                    }
+                    .accessibilityIdentifier(A11y.Settings.deleteAccount)
+                }
+                .listRowBackground(Theme.bg2)
+                .confirmationDialog(
+                    SettingsView.signOutWarning(server.entry.name),
+                    isPresented: $confirmingSignOut,
+                    titleVisibility: .visible
+                ) {
+                    Button(t("settings.signOut.confirm"), role: .destructive) {
+                        Task { await model.signOut(serverId) }
+                    }
+                }
+            }
         }
+        // Signed out of or deleted, here or anywhere else, it has nothing left to show.
+        .onChange(of: server == nil) { _, gone in if gone { dismiss() } }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
         .navigationTitle(t("settings.sections.profile"))
@@ -125,14 +154,12 @@ struct ProfileView: View {
     }
 }
 
-/// Read receipts and online status, per server, and what this device sends, as on the desktop.
+/// What a server is told of the person, read receipts and being online, and who's blocked
+/// there, as the desktop's Privacy section. What this device does for every server is in
+/// `DevicePrivacyView`.
 struct PrivacyView: View {
     let serverId: String
     @Environment(AppModel.self) private var model
-    @Environment(VoiceModel.self) private var voice
-    @State private var confirmingKeep = false
-    /// Read again each time the row shows, as coming back from the proxy's screen.
-    @State private var proxy = ProxyStore.load()
 
     var body: some View {
         let server = model.servers[serverId]
@@ -143,6 +170,10 @@ struct PrivacyView: View {
                     try await model.core.session(serverId).updatePreferences(PreferenceChanges(sendReadReceipts: value))
                 }
                 .accessibilityIdentifier(A11y.Settings.readReceipts)
+            } header: {
+                if let server {
+                    Text(t("settings.privacy.lead", ["server": server.entry.name])).textCase(nil)
+                }
             } footer: {
                 Text(t("settings.privacy.readReceiptsHint"))
             }
@@ -179,21 +210,30 @@ struct PrivacyView: View {
                 Text(t("settings.privacy.blockedHint"))
             }
             .accessibilityIdentifier(A11y.Settings.blocked)
-            Section {
-                NavigationLink { ProxySettingsView() } label: {
-                    LabeledContent(t("settings.proxy.title"), value: proxy.on ? proxy.host : t("settings.privacy.proxyOff"))
-                }
-                .accessibilityIdentifier(A11y.Settings.proxy)
-                .onAppear { proxy = ProxyStore.load() }
-            } header: {
-                Text(t("settings.privacy.onThisDevice"))
-            } footer: {
-                Text(t("settings.privacy.proxyHint"))
-            }
+        }
+        .listRowBackground(Theme.bg2)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg0)
+        .navigationTitle(t("settings.sections.privacy"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// What this device does for every server on it, as the desktop's Privacy on this device: link
+/// previews, files' metadata and YouTube.
+struct DevicePrivacyView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
+    @State private var confirmingKeep = false
+
+    var body: some View {
+        List {
             Section {
                 Toggle(t("settings.privacy.linkPreviews"), isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.linkPreviews)
+            } header: {
+                Text(t("settings.privacy.deviceLead")).textCase(nil)
             } footer: {
                 Text(t("settings.privacy.linkPreviewsHint"))
             }
@@ -225,14 +265,8 @@ struct PrivacyView: View {
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .navigationTitle(t("settings.sections.privacy"))
+        .navigationTitle(t("settings.sections.devicePrivacy"))
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func run(_ action: @escaping () async throws -> Void) {
-        Task {
-            do { try await action() } catch { model.toast(ErrorText.describe(error), .error) }
-        }
     }
 }
 
@@ -509,12 +543,10 @@ extension AppLock {
     }
 }
 
-/// The version, license and where to read more, as the desktop's About section.
+/// The version, license and where to read more, as the desktop's About section. Each server's
+/// name, address and version are in Connections.
 struct AboutView: View {
-    @Environment(AppModel.self) private var model
-
     var body: some View {
-        let server = model.activeServer
         List {
             Section {
                 VStack(spacing: 10) {
@@ -524,13 +556,17 @@ struct AboutView: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.center)
+                    Text(t("settings.about.tagline"))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.text3)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
             }
             .listRowBackground(Color.clear)
             Section {
                 Label {
-                    Text(Self.encryption(server))
+                    Text(t("settings.about.encryption"))
                 } icon: {
                     Image(systemName: "checkmark.shield.fill").foregroundStyle(Theme.green)
                 }
@@ -539,9 +575,9 @@ struct AboutView: View {
             }
             .listRowBackground(Theme.bg2)
             Section {
+                Link(destination: OnboardingText.siteURL) { Label(t("settings.about.website"), systemImage: "globe") }
                 Link(destination: OnboardingText.projectURL) { Label(t("settings.about.sourceCode"), systemImage: "chevron.left.forwardslash.chevron.right") }
                 Link(destination: OnboardingText.projectURL.appending(path: "blob/main/SECURITY.md")) { Label(t("settings.about.securityModel"), systemImage: "lock.shield") }
-                Link(destination: OnboardingText.termsURL) { Label(t("settings.about.terms"), systemImage: "doc.text") }
             }
             .listRowBackground(Theme.bg2)
         }
@@ -549,12 +585,5 @@ struct AboutView: View {
         .background(Theme.bg0)
         .navigationTitle(t("settings.sections.about"))
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    /// How messages are encrypted, and which server this is, with its version once it's known.
-    private static func encryption(_ server: AppModel.ServerState?) -> String {
-        guard let server else { return t("settings.about.encryption") }
-        guard let info = server.info else { return t("settings.about.encryptionConnected", ["server": server.entry.name]) }
-        return t("settings.about.encryptionConnectedVersion", ["server": server.entry.name, "version": info.version])
     }
 }

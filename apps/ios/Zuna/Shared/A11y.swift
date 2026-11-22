@@ -81,7 +81,6 @@ enum A11y {
         static let password = "telegram.password"
         static let problem = "telegram.problem"
         static let takesCalls = "telegram.takesCalls"
-        static let connections = "telegram.connections"
         static let unlink = "telegram.unlink"
         static let joinByLink = "telegram.joinByLink"
         static let inviteLink = "telegram.inviteLink"
@@ -387,6 +386,11 @@ enum A11y {
         static let appearance = "settings.appearance"
         static let profile = "settings.profile"
         static let privacy = "settings.privacy"
+        static let devicePrivacy = "settings.devicePrivacy"
+        static let connections = "settings.connections"
+        static func connectionServer(_ id: String) -> String { "settings.connection.server.\(id)" }
+        static func leaveServer(_ id: String) -> String { "settings.connection.leave.\(id)" }
+        static let connectionTelegram = "settings.connection.telegram"
         static let security = "settings.security"
         static let serverData = "settings.serverData"
         static let appLock = "settings.appLock"

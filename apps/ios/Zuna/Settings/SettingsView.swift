@@ -2,43 +2,38 @@ import SwiftUI
 import UIKit
 import ZunaModels
 
-/// Settings, laid out like Telegram's: your profile on the active server at
-/// the top, then grouped sections, as the desktop's settings and server
-/// settings have them. With more than one server, a picker says which one the
-/// account's sections are for. Notifications come later.
+/// Settings, laid out as the desktop's (`ui/settings/mod.rs`): your profile on the server they're
+/// for at the top, as Telegram's, then that server's own sections under "Server", below a picker
+/// of every server, and the rest under "App", for every server on this device. Picking a server
+/// shows its sections and leaves the one in front where it was, as the desktop puts it back when
+/// its settings close. The Telegram account, which has none of a server's sections, is in
+/// Connections.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @State private var confirmingSignOut = false
-    @State private var confirmingUnlink = false
+    /// The server picked here, until another comes to the front or Settings are left.
+    @State private var picked: String?
+    /// Read again each time its row shows, as coming back from the proxy's screen.
+    @State private var proxy = ProxyStore.load()
     /// Closes it, where it's a sheet, as on an iPad, which has no tab bar to leave it by.
     var onDone: (() -> Void)?
 
+    /// Every server whose own sections can be shown, in the list's order: all but Telegram.
+    private var servers: [AppModel.ServerState] {
+        model.order.compactMap { model.servers[$0] }.filter { !$0.entry.isTelegram }
+    }
+
+    /// The server the sections are for: the one picked, or else the one in front, unless that's
+    /// the Telegram account.
+    private var server: AppModel.ServerState? {
+        if let picked, let server = model.servers[picked], !server.entry.isTelegram { return server }
+        return model.activeServer.flatMap { $0.entry.isTelegram ? nil : $0 }
+    }
+
     var body: some View {
+        let server = server
         NavigationStack {
             List {
-                if model.hasServerList {
-                    Section {
-                        Picker(t("settings.server"), selection: Binding(get: { model.activeServerId ?? "" }, set: { model.selectServer($0) })) {
-                            ForEach(model.order, id: \.self) { id in
-                                Text(model.servers[id]?.entry.name ?? "").tag(id)
-                            }
-                        }
-                        .tint(Theme.text2)
-                        .accessibilityIdentifier(A11y.Settings.serverPicker)
-                    }
-                    .listRowBackground(Theme.bg2)
-                }
-                if let server = model.activeServer, server.entry.isTelegram {
-                    // The account's own settings are Telegram's app's (docs/TELEGRAM_PLAN.md).
-                    Section {
-                        header(server)
-                    } footer: {
-                        Text(t("settings.telegramAccountHint"))
-                            .frame(maxWidth: .infinity)
-                            .multilineTextAlignment(.center)
-                    }
-                    .listRowBackground(Color.clear)
-                } else if let server = model.activeServer {
+                if let server {
                     Section {
                         NavigationLink {
                             ProfileView(serverId: server.entry.id)
@@ -48,25 +43,61 @@ struct SettingsView: View {
                         .accessibilityIdentifier(A11y.Settings.profile)
                     }
                     .listRowBackground(Color.clear)
+                }
+                if !servers.isEmpty {
                     Section {
-                        NavigationLink { PrivacyView(serverId: server.entry.id) } label: {
-                            SettingsLabel(t("settings.sections.privacy"), systemImage: "hand.raised.fill", color: Color(hex: 0x6B6470))
+                        picker(server)
+                        if let server {
+                            NavigationLink { PrivacyView(serverId: server.entry.id) } label: {
+                                SettingsLabel(t("settings.sections.privacy"), systemImage: "hand.raised.fill", color: Color(hex: 0x6B6470))
+                            }
+                            .accessibilityIdentifier(A11y.Settings.privacy)
+                            NavigationLink { SecurityView(serverId: server.entry.id) } label: {
+                                SettingsLabel(t("settings.sections.security"), systemImage: "key.fill", color: Color(hex: 0x3FA772))
+                            }
+                            .accessibilityIdentifier(A11y.Settings.security)
+                            NavigationLink { ServerDataView(serverId: server.entry.id) } label: {
+                                SettingsLabel(t("settings.sections.data"), systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
+                            }
+                            .accessibilityIdentifier(A11y.Settings.serverData)
+                            if server.me?.role != .member {
+                                NavigationLink { ServerSettingsView(serverId: server.entry.id) } label: {
+                                    SettingsLabel(t("settings.serverSettings"), systemImage: "server.rack", color: Color(hex: 0x5F6775))
+                                }
+                                .accessibilityIdentifier(A11y.Settings.server)
+                            } else if BotsSettingsView.shows(server) {
+                                // Someone who isn't an admin has their own bots here, where the server lets them make any.
+                                NavigationLink { BotsSettingsView(serverId: server.entry.id) } label: {
+                                    SettingsLabel(t("serverSettings.sections.bots"), systemImage: "cpu", color: Color(hex: 0x5F6775))
+                                }
+                            }
                         }
-                        .accessibilityIdentifier(A11y.Settings.privacy)
-                        NavigationLink { SecurityView(serverId: server.entry.id) } label: {
-                            SettingsLabel(t("settings.sections.security"), systemImage: "key.fill", color: Color(hex: 0x3FA772))
-                        }
-                        .accessibilityIdentifier(A11y.Settings.security)
-                        NavigationLink { ServerDataView(serverId: server.entry.id) } label: {
-                            SettingsLabel(t("settings.sections.data"), systemImage: "externaldrive.fill", color: Color(hex: 0x5F6775))
-                        }
-                        .accessibilityIdentifier(A11y.Settings.serverData)
+                    } header: {
+                        Text(t("settings.groups.server"))
                     } footer: {
-                        Text(t("settings.accountFooter", ["server": server.entry.name]))
+                        if let server {
+                            Text(t("settings.accountFooter", ["server": server.entry.name]))
+                        }
                     }
                     .listRowBackground(Theme.bg2)
                 }
                 Section {
+                    NavigationLink { AppearanceView() } label: {
+                        SettingsLabel(t("settings.sections.appearance"), systemImage: "paintpalette.fill", color: Color(hex: 0x4B8FE0))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.appearance)
+                    NavigationLink { ConnectionsView() } label: {
+                        SettingsLabel(t("settings.connections.title"), systemImage: "link", color: Color(hex: 0x3D8FD9))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.connections)
+                    NavigationLink { DevicePrivacyView() } label: {
+                        SettingsLabel(t("settings.sections.devicePrivacy"), systemImage: "eye.slash.fill", color: Color(hex: 0x6B6470))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.devicePrivacy)
+                    NavigationLink { AppLockView() } label: {
+                        SettingsLabel(t("settings.appLock.title"), systemImage: "faceid", color: Color(hex: 0xD9962A))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.appLock)
                     NavigationLink { NotificationSettingsView() } label: {
                         SettingsLabel(t("settings.sections.notifications"), systemImage: "bell.badge.fill", color: Color(hex: 0xD9534A))
                     }
@@ -75,83 +106,23 @@ struct SettingsView: View {
                         SettingsLabel(t("settings.sections.voice"), systemImage: "waveform", color: Color(hex: 0x3FA66B))
                     }
                     .accessibilityIdentifier(A11y.Settings.voice)
-                    NavigationLink { AppearanceView() } label: {
-                        SettingsLabel(t("settings.sections.appearance"), systemImage: "paintpalette.fill", color: Color(hex: 0x4B8FE0))
-                    }
-                    .accessibilityIdentifier(A11y.Settings.appearance)
-                    NavigationLink { AppLockView() } label: {
-                        SettingsLabel(t("settings.appLock.title"), systemImage: "faceid", color: Color(hex: 0xD9962A))
-                    }
-                    .accessibilityIdentifier(A11y.Settings.appLock)
-                    if model.telegramAvailable || model.telegram != nil {
-                        NavigationLink { TelegramConnectionsView() } label: {
-                            SettingsLabel(t("settings.connections.title"), systemImage: "bubble.left.and.bubble.right.fill", color: Color(hex: 0x3D8FD9))
-                        }
-                        .accessibilityIdentifier(A11y.Telegram.connections)
-                    }
-                }
-                .listRowBackground(Theme.bg2)
-                if let server = model.activeServer, server.entry.isTelegram {
-                    Section {
-                        Button(role: .destructive) {
-                            confirmingUnlink = true
+                    NavigationLink { ProxySettingsView() } label: {
+                        LabeledContent {
+                            Text(proxy.on ? proxy.host : t("settings.privacy.proxyOff"))
                         } label: {
-                            SettingsLabel(t("telegram.unlink.action"), systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
-                        }
-                        .accessibilityIdentifier(A11y.Telegram.unlink)
-                    }
-                    .listRowBackground(Theme.bg2)
-                    .confirmationDialog(
-                        t("telegram.unlink.confirm"),
-                        isPresented: $confirmingUnlink,
-                        titleVisibility: .visible
-                    ) {
-                        Button(t("telegram.unlink.action"), role: .destructive) {
-                            Task { await model.unlinkTelegram() }
+                            SettingsLabel(t("settings.proxy.title"), systemImage: "globe", color: Color(hex: 0x5F6775))
                         }
                     }
-                } else if let server = model.activeServer {
-                    Section {
-                        if server.me?.role != .member {
-                            NavigationLink { ServerSettingsView(serverId: server.entry.id) } label: {
-                                SettingsLabel(t("settings.serverSettings"), systemImage: "server.rack", color: Color(hex: 0x5F6775))
-                            }
-                            .accessibilityIdentifier(A11y.Settings.server)
-                        } else if BotsSettingsView.shows(server) {
-                            // Someone who isn't an admin has their own bots here, where the server lets them make any.
-                            NavigationLink { BotsSettingsView(serverId: server.entry.id) } label: {
-                                SettingsLabel(t("serverSettings.sections.bots"), systemImage: "cpu", color: Color(hex: 0x5F6775))
-                            }
-                        }
-                        Button(role: .destructive) {
-                            confirmingSignOut = true
-                        } label: {
-                            SettingsLabel(t("settings.signOut.action", ["server": server.entry.name]), systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
-                        }
-                        .accessibilityIdentifier(A11y.Settings.signOut)
-                        NavigationLink { DeleteAccountView(serverId: server.entry.id) } label: {
-                            SettingsLabel(t("settings.account.delete"), systemImage: "trash.fill", color: Theme.red)
-                        }
-                        .accessibilityIdentifier(A11y.Settings.deleteAccount)
-                    }
-                    .listRowBackground(Theme.bg2)
-                    .confirmationDialog(
-                        Self.signOutWarning(server.entry.name),
-                        isPresented: $confirmingSignOut,
-                        titleVisibility: .visible
-                    ) {
-                        Button(t("settings.signOut.confirm"), role: .destructive) {
-                            Task { await model.signOut(server.entry.id) }
-                        }
-                    }
-                }
-                Section {
+                    .accessibilityIdentifier(A11y.Settings.proxy)
+                    .onAppear { proxy = ProxyStore.load() }
                     NavigationLink { AboutView() } label: {
                         SettingsLabel(t("settings.about.row"), systemImage: "info.circle.fill", color: Color(hex: 0x5B6B7A))
                     }
                     .accessibilityIdentifier(A11y.Settings.about)
+                } header: {
+                    Text(t("settings.groups.app"))
                 } footer: {
-                    if model.showsTelegram {
+                    if model.telegram != nil {
                         Label(t("settings.encryptedTelegram"), systemImage: "lock.open")
                             .font(.footnote)
                     } else {
@@ -172,7 +143,54 @@ struct SettingsView: View {
                 }
             }
             .accessibilityIdentifier(A11y.Settings.screen)
+            // They open on the server in front, as the desktop's do.
+            .onChange(of: model.activeServerId) { picked = nil }
+            .onChange(of: model.tab) { _, tab in if tab != .settings { picked = nil } }
         }
+    }
+
+    /// Which server the sections under it are for, and every other to pick from instead, as the
+    /// desktop's picker; while the Telegram account is in front, a prompt to pick one.
+    private func picker(_ server: AppModel.ServerState?) -> some View {
+        Menu {
+            ForEach(servers, id: \.entry.id) { choice in
+                Button {
+                    picked = choice.entry.id
+                } label: {
+                    if choice.entry.id == server?.entry.id {
+                        Label(choice.entry.name, systemImage: "checkmark")
+                    } else {
+                        Text(choice.entry.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 0) {
+                Label {
+                    Text(server?.entry.name ?? t("settings.groups.chooseServer"))
+                        .foregroundStyle(server == nil ? Theme.text2 : Theme.text1)
+                        .lineLimit(1)
+                } icon: {
+                    if let server {
+                        ServerIcon(entry: server.entry, size: 29)
+                    } else {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 29, height: 29)
+                            .background(Color(hex: 0x5F6775), in: .rect(cornerRadius: 7, style: .continuous))
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.text3)
+            }
+            .contentShape(.rect)
+        }
+        .accessibilityLabel(t("settings.groups.server"))
+        .accessibilityValue(server?.entry.name ?? t("settings.groups.chooseServer"))
+        .accessibilityIdentifier(A11y.Settings.serverPicker)
     }
 
     private func header(_ server: AppModel.ServerState) -> some View {
@@ -231,7 +249,8 @@ struct SettingsLabel: View {
     }
 }
 
-/// The language, accent, message size and motion, kept on this device as on the desktop.
+/// The accent, message size, language, motion and what Return does, kept on this device, in the
+/// desktop's order.
 struct AppearanceView: View {
     @Environment(AppModel.self) private var model
     @Environment(CoreController.self) private var core
@@ -243,22 +262,6 @@ struct AppearanceView: View {
         // Each language by its own name, which is never translated.
         let languages = I18n.languages
         List {
-            Section {
-                // The language shown, the system's until another is picked. Picking the system's
-                // own keeps none, so that the app goes on following it.
-                Picker(t("settings.appearance.language"), selection: Binding(get: { I18n.resolve(language) }, set: { tag in
-                    let choice = tag == I18n.resolve(nil) ? nil : tag
-                    language = choice
-                    core.chooseLanguage(choice)
-                })) {
-                    ForEach(languages.indices, id: \.self) { index in
-                        Text(verbatim: languages[index].name).tag(languages[index].tag)
-                    }
-                }
-                .tint(Theme.text2)
-            } footer: {
-                Text(t("settings.appearance.languageHint"))
-            }
             Section(t("settings.appearance.accentSection")) {
                 HStack(spacing: 0) {
                     ForEach(Accent.allCases, id: \.self) { accent in
@@ -294,6 +297,22 @@ struct AppearanceView: View {
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
+            }
+            Section {
+                // The language shown, the system's until another is picked. Picking the system's
+                // own keeps none, so that the app goes on following it.
+                Picker(t("settings.appearance.language"), selection: Binding(get: { I18n.resolve(language) }, set: { tag in
+                    let choice = tag == I18n.resolve(nil) ? nil : tag
+                    language = choice
+                    core.chooseLanguage(choice)
+                })) {
+                    ForEach(languages.indices, id: \.self) { index in
+                        Text(verbatim: languages[index].name).tag(languages[index].tag)
+                    }
+                }
+                .tint(Theme.text2)
+            } footer: {
+                Text(t("settings.appearance.languageHint"))
             }
             Section {
                 Toggle(t("settings.appearance.reduceMotion"), isOn: $model.settings.reduceMotion)

@@ -118,12 +118,12 @@ final class ForwardingTests: XCTestCase {
         XCTAssertNil(try aliceMessage(alice, containing: "Without one")?["preview"] as? [String: Any])
     }
 
-    /// Settings, then Privacy, unless the Settings tab is still showing it.
+    /// Settings, then Privacy on this device, unless the Settings tab is still showing it.
     private func openPrivacy() {
         zuna.tab("Settings").tap()
         let toggle = zuna.app.switches[A11y.Settings.linkPreviews]
         if toggle.waitForExistence(timeout: 2) { return }
-        let row = zuna.element(A11y.Settings.privacy)
+        let row = zuna.element(A11y.Settings.devicePrivacy)
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
     }

@@ -3,8 +3,8 @@ import ZunaHost
 import ZunaModels
 
 /// The SOCKS5 proxy everything this device sends goes through, for every server on it, as the
-/// desktop's Proxy dialog (`ui/overlays/proxy.rs`): from Privacy, and from the first screen, before
-/// any server is joined. Saving closes every connection and opens them again the new way.
+/// desktop's Proxy form (`ui/proxy.rs`): from its own row in Settings, and from the first screen,
+/// before any server is joined. Saving closes every connection and opens them again the new way.
 struct ProxySettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss

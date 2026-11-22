@@ -33,7 +33,7 @@ It isn't told who sent each message, but it can often work that out from address
 - **Use a long password you don't use anywhere else.** Whoever controls the server can try to guess it.
 - **Keep your recovery key safe.** It opens your account just as your password does.
 - **Compare emoji** with the people who matter to you.
-- **To hide your IP address from servers,** set a SOCKS5 proxy in Settings, Privacy, in the desktop app or the iPhone app.
+- **To hide your IP address from servers,** set a SOCKS5 proxy in Settings, Proxy, in the desktop app or the iPhone app.
 - **If your password or recovery key may have been stolen,** change them, and remove any device you don't recognize in Settings.
 - **Paste invite links into the app** rather than opening them in a browser.
 

@@ -165,10 +165,30 @@ final class OnboardingTests: XCTestCase {
         try waitFor("the first server to open again") { title.label == World.current.serverName }
         XCTAssertTrue(zuna.serverButton.label.contains(World.current.serverName))
 
-        // Settings say which server the account's sections are for.
+        // Settings say which server the account's sections are for, and picking the other shows
+        // its own, as the desktop's picker does.
         zuna.tab("Settings").tap()
-        XCTAssertTrue(zuna.element(A11y.Settings.serverPicker).waitForExistence(timeout: 5))
+        let picker = zuna.element(A11y.Settings.serverPicker)
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(zuna.app.staticTexts["@bob · \(World.current.serverName)"].exists)
+        picker.tap()
+        let other = zuna.app.buttons["Book club"]
+        XCTAssertTrue(other.waitForExistence(timeout: 5))
+        other.tap()
+        let otherProfile = zuna.app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " · Book club"))
+        try waitFor("the other server's profile") { otherProfile.count > 0 }
+        zuna.screenshot("48b-settings-other-server")
+
+        // Connections list both.
+        zuna.element(A11y.Settings.connections).tap()
+        let rows = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Settings.connectionServer("")))
+        try waitFor("both servers in Connections") { rows.count == 2 }
+        XCTAssertTrue(zuna.element(A11y.Settings.leaveServer(zuna.serverId)).exists)
+        zuna.screenshot("48c-connections")
+
+        // The chats stay on the server in front.
+        zuna.tab("Chats").tap()
+        try waitFor("the first server to stay open") { title.label == World.current.serverName }
     }
 
     /// Opens a link the way another app would, as `zuna://join?link=…`.

@@ -58,9 +58,11 @@ final class SettingsTests: XCTestCase {
         zuna.app.switches[A11y.Settings.readReceipts].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         try waitFor("read receipts off") { try self.zuna.preferencesFlag("sendReadReceipts") == false }
 
-        // Removing metadata from files is on, and turning it off asks first.
+        // Removing metadata from files is this device's, for every server, and on, and turning
+        // it off asks first.
+        zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
+        zuna.element(A11y.Settings.devicePrivacy).tap()
         let metadata = zuna.app.switches[A11y.Settings.removeMetadata]
-        zuna.app.swipeUp()
         XCTAssertTrue(metadata.waitForExistence(timeout: 5))
         XCTAssertEqual(metadata.value as? String, "1")
         zuna.toggle(A11y.Settings.removeMetadata)
@@ -130,7 +132,8 @@ final class SettingsTests: XCTestCase {
 
     func testSignsOutAndErasesTheLocalCopy() throws {
         _ = try newAccount("olaf")
-        zuna.tab("Settings").tap()
+        // From the profile, as the desktop's.
+        openSettings(A11y.Settings.profile)
         let signOut = zuna.element(A11y.Settings.signOut)
         XCTAssertTrue(signOut.waitForExistence(timeout: 10))
         signOut.tap()
