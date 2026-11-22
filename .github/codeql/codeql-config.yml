@@ -13,6 +13,13 @@ name: Zuna
 queries:
   - uses: security-extended
 
+query-filters:
+  # A file checked and then used, which matters only where someone else can change it in
+  # between. The only Node code here that touches files is the build scripts, the plugin CLI and
+  # zuna-bot, each on its own person's files: all twelve it found in them were that.
+  - exclude:
+      id: js/file-system-race
+
 paths-ignore:
   # The App Store's art and showcase scripts, run by hand on a Mac (appstore/README.md).
   - appstore
