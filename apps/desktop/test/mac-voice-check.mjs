@@ -42,16 +42,19 @@ function startLiveKit(port, serverUrl) {
 /**
  * LiveKit's webhooks, handed on to the server as they come, and each one's event and the server's
  * answer kept, so the check can say LiveKit told the server who came in and nobody was taken out.
+ * Everything goes to the server's webhook alone, whatever path it came to, which is the one
+ * `liveKitWebhook` gives LiveKit.
  */
 async function startWebhookRelay(serverUrl) {
   const heard = [];
+  const webhook = new URL("/api/livekit/webhook", serverUrl);
   const server = createServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", async () => {
       const body = Buffer.concat(chunks);
       const headers = { authorization: request.headers.authorization ?? "", "content-type": request.headers["content-type"] ?? "" };
-      const answer = await fetch(serverUrl + request.url, { method: "POST", headers, body }).catch(() => null);
+      const answer = await fetch(webhook, { method: "POST", headers, body }).catch(() => null);
       let event = "unreadable";
       try {
         event = JSON.parse(body).event;
