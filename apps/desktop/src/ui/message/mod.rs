@@ -381,6 +381,11 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
     let meta_color = if bare { theme.text3 } else { theme.bubble_meta };
 
     let meta = meta_element(message, own, is_deleted, context.read_up_to, meta_color, only_images, &theme, window);
+    let mut entries = menu_entries(message, own, can_act, context);
+    if can_act {
+        entries.extend(crate::ui::plugins::message_entries(&context.server_id, message, cx));
+    }
+    let menu = MessageMenu { entries: entries.clone(), can_act, telegram: context.server_id == crate::telegram::SERVER_ID, state: context.state.clone(), group: message.group_id.clone(), id: message.id.clone() };
 
     let mut bubble = div()
         .relative()
@@ -500,7 +505,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         if !message.attachments.is_empty() {
             // Under the name, a forwarded line or a reply, pictures start below them (`.msg-author + .media-grid`).
             let after_header = (!own && context.is_group && !grouped && !bare) || message.forwarded.is_some() || message.reply.is_some();
-            bubble = bubble.child(attachments(message, &images, only_images, own, grouped, after_header, context, &theme, cx));
+            bubble = bubble.child(attachments(message, &images, only_images, own, grouped, after_header, Some(&menu), context, &theme, cx));
         }
         if !message.text.is_empty() {
             if jumbo > 0 {
@@ -571,16 +576,9 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         );
     }
 
-    let mut entries = menu_entries(message, own, can_act, context);
-    if can_act {
-        entries.extend(crate::ui::plugins::message_entries(&context.server_id, message, cx));
-    }
     let selecting = context.selecting;
     let selected = context.selected.contains(&message.id);
-    let react_state = context.state.clone();
-    let (react_group, react_id) = (message.group_id.clone(), message.id.clone());
-    let telegram = context.server_id == crate::telegram::SERVER_ID;
-    let menu_entries_for_right_click = entries.clone();
+    let telegram = menu.telegram;
     let mut row = div()
         .id(SharedString::from(format!("msg-row-{id}")))
         .group(group.clone())
@@ -622,11 +620,9 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
                         .when(!can_act, |el| el.opacity(0.3)),
                 )
         })
-        .on_mouse_down(MouseButton::Right, move |event, _, cx| {
-            if menu_entries_for_right_click.is_empty() {
-                return;
-            }
-            open_message_menu(event.position, menu_entries_for_right_click.clone(), can_act, telegram, react_state.clone(), react_group.clone(), react_id.clone(), false, cx);
+        .on_mouse_down(MouseButton::Right, {
+            let menu = menu.clone();
+            move |event, _, cx| menu.open(event.position, Vec::new(), cx)
         });
     if !own && context.is_group {
         let mut slot = div().w(px(32.)).flex_none().mr(px(3.)).flex();
@@ -694,6 +690,32 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         );
     }
     row.into_any_element()
+}
+
+/// A message's menu, as a right click opens it, anywhere on its row or on one of its pictures,
+/// which puts what's for that picture first.
+#[derive(Clone)]
+pub(in crate::ui) struct MessageMenu {
+    pub entries: Vec<MenuEntry>,
+    pub can_act: bool,
+    pub telegram: bool,
+    pub state: Entity<AppState>,
+    pub group: String,
+    pub id: String,
+}
+
+impl MessageMenu {
+    /// Opens it with `first` above the message's own entries, a line between them.
+    pub fn open(&self, position: gpui::Point<Pixels>, mut first: Vec<MenuEntry>, cx: &mut App) {
+        if !first.is_empty() && !self.entries.is_empty() {
+            first.push(MenuEntry::separator());
+        }
+        first.extend(self.entries.iter().cloned());
+        if first.is_empty() {
+            return;
+        }
+        open_message_menu(position, first, self.can_act, self.telegram, self.state.clone(), self.group.clone(), self.id.clone(), false, cx);
+    }
 }
 
 /// Opens a message's menu with its quick reactions over it, if it can be reacted to. On

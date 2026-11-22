@@ -8,7 +8,7 @@ use serde_json::json;
 use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::open_menu_with_reactions;
-use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, emote_placeholder, emote_width, jumbo_body, menu_entries, name_of, system_text, text_body, with_emote_card};
+use super::message::{ChatContext, MessageMenu, QUICK_REACTIONS, attachments, continues, emote_placeholder, emote_width, jumbo_body, menu_entries, name_of, system_text, text_body, with_emote_card};
 use crate::format::{format_day, format_full, format_stamp, format_time, name_color};
 use crate::i18n::t;
 use crate::markup;
@@ -238,19 +238,10 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
         .hover(move |style| style.bg(if mentions_me { theme::color(theme::rgba(229, 165, 10, 0.11)) } else { theme::color(theme::white_a(0.025)) }))
         .when(mentions_me, |el| el.bg(theme::color(theme::rgba(229, 165, 10, 0.08))).child(div().absolute().left_0().top_0().bottom_0().w(px(2.)).bg(theme.amber)))
         .when(highlighted || selected, |el| el.bg(theme.accent_soft));
-    {
-        let entries = entries.clone();
-        let state = context.state.clone();
-        let (group, id) = (message.group_id.clone(), message.id.clone());
-        row = row.on_mouse_down(MouseButton::Right, move |event, _, cx| {
-            if selecting || entries.is_empty() {
-                return;
-            }
-            let state = state.clone();
-            let (group, id) = (group.clone(), id.clone());
-            let reactions = if can_act { QUICK_REACTIONS.to_vec() } else { Vec::new() };
-            open_menu_with_reactions(event.position, entries.clone(), reactions, move |emoji, _, cx| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group), json!(id), json!(emoji)], cx)), false, cx);
-        });
+    let menu = MessageMenu { entries: entries.clone(), can_act, telegram: false, state: context.state.clone(), group: message.group_id.clone(), id: message.id.clone() };
+    if !selecting {
+        let menu = menu.clone();
+        row = row.on_mouse_down(MouseButton::Right, move |event, _, cx| menu.open(event.position, Vec::new(), cx));
     }
     if selecting {
         let state = context.state.clone();
@@ -450,7 +441,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
         }
         if !message.attachments.is_empty() {
             let images: Vec<&crate::models::Attachment> = message.attachments.iter().filter(|a| a.mime.starts_with("image/") && a.width.is_some()).collect();
-            body = body.child(div().my(px(2.)).flex().flex_col().items_start().gap(px(4.)).child(attachments(message, &images, false, false, false, false, context, &theme, cx)));
+            body = body.child(div().my(px(2.)).flex().flex_col().items_start().gap(px(4.)).child(attachments(message, &images, false, false, false, false, (!selecting).then_some(&menu), context, &theme, cx)));
         }
         if let Some(preview) = &message.preview {
             body = body.child(channel_link_card(preview, &theme, cx));

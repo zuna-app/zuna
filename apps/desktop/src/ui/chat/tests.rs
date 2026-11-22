@@ -551,6 +551,42 @@ fn every_messages_menu(cx: &mut TestAppContext) {
     assert!(!app.calls_of("retryMessage").is_empty());
 }
 
+#[gpui::test]
+fn a_right_click_on_a_picture_offers_to_save_it(cx: &mut TestAppContext) {
+    let (app, _) = open_chat(cx, &World::new("save-picture"), &format!("user:{BOB}"));
+    app.settle(cx, |state| state.lists.get(DM).is_some_and(|list| list.loaded));
+    app.answer("downloadFile", |_| Ok(crate::host::bytes(b"the picture")));
+    crate::ui::motion::set_reduced(true);
+    app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.jump_to_message(DM, "m04", cx);
+    });
+    app.run(cx);
+    let tile: &'static str = Box::leak(format!("tile-m04-{}", "f".repeat(32)).into_boxed_str());
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    // Where it's drawn once the list has come to it.
+    window.run_until_parked();
+    window.update(|window, _| window.refresh());
+    window.run_until_parked();
+    let at = window.debug_bounds(tile).expect("the picture is drawn").center();
+    window.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    window.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    window.simulate_mouse_up(at, gpui::MouseButton::Right, gpui::Modifiers::none());
+    app.run(cx);
+    // Save first, then the message's own entries.
+    let labels = cx.update(|cx| crate::ui::menu::open_labels(cx));
+    assert_eq!(labels.first().map(String::as_str), Some("Save"), "{labels:?}");
+    assert!(labels.contains(&"Reply".to_string()), "{labels:?}");
+    assert!(choose(&app, cx, "Save"));
+    assert!(cx.did_prompt_for_new_path());
+    let target = crate::testing::data_dir().join("saved-photo.png");
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    app.run(cx);
+    assert_eq!(app.calls_of("downloadFile").last().map(|args| args[0]["fileId"].clone()), Some(json!("f".repeat(32))));
+    assert_eq!(std::fs::read(&target).unwrap(), b"the picture");
+    assert!(app.toasts(cx).contains(&"Saved".to_string()));
+}
 
 #[gpui::test]
 fn an_empty_chat_says_whose_it_is_and_offers_to_verify(cx: &mut TestAppContext) {

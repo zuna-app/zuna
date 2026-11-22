@@ -55,7 +55,10 @@ fn sticker(message: &MessageView, attachment: &Attachment, context: &ChatContext
         .into_any_element()
 }
 
-pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
+/// The message's attachments: pictures in a grid, then the rest. A right click on a picture opens
+/// `menu`, if it's given, with Save first, which saves that picture.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, menu: Option<&MessageMenu>, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
     if !images.is_empty() {
         let single = images.len() == 1;
@@ -96,14 +99,25 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
             // and stays its own size.
             let fills = single && !context.is_channel;
             let mut tile = round_corners(
-                div()
-                    .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
+                named_div(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
                     .relative()
                     .when(image.is_none(), |el| el.bg(theme.bg3))
                     .overflow_hidden(),
                 corners,
             );
             tile = if fills { tile.absolute().inset_0() } else { tile.w(px(w as f32)).h(px(h as f32)) };
+            // One still being sent has nothing to save yet, and its row's menu opens instead.
+            if let Some(menu) = menu.filter(|_| !attachment.file_id.is_empty()) {
+                let menu = menu.clone();
+                let (state, server_id, name) = (context.state.clone(), context.server_id.clone(), attachment.name.clone());
+                let reference = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
+                tile = tile.on_mouse_down(MouseButton::Right, move |event, _, cx| {
+                    cx.stop_propagation();
+                    let (state, server_id, reference, name) = (state.clone(), server_id.clone(), reference.clone(), name.clone());
+                    let save = MenuEntry::new(t("common.save"), "download", move |_, cx| save_attachment(state.clone(), server_id.clone(), reference.clone(), name.clone(), cx));
+                    menu.open(event.position, vec![save], cx);
+                });
+            }
             if let Some(image) = image {
                 let (full, opened) = (image.clone(), (*attachment).clone());
                 let (state, server_id, group_id) = (context.state.clone(), context.server_id.clone(), message.group_id.clone());

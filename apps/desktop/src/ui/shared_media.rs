@@ -85,11 +85,22 @@ fn reference(attachment: &Attachment) -> AvatarRef {
 
 /// "Show in chat" on a right click, for anything listed.
 fn show_in_chat(state: Entity<AppState>, message: &MessageView) -> impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut App) + 'static {
+    show_in_chat_or_save(state, message, None)
+}
+
+/// The same, after Save for a picture, which saves it as a file's chip does.
+fn show_in_chat_or_save(state: Entity<AppState>, message: &MessageView, save: Option<(&str, &Attachment)>) -> impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut App) + 'static {
     let (group, id) = (message.group_id.clone(), message.id.clone());
+    let save = save.map(|(server_id, attachment)| (server_id.to_string(), serde_json::to_value(reference(attachment)).unwrap_or_default(), attachment.name.clone()));
     move |event, _, cx| {
+        let mut entries = Vec::new();
+        if let Some((server_id, reference, name)) = save.clone() {
+            let state = state.clone();
+            entries.push(MenuEntry::new(t("common.save"), "download", move |_, cx| super::message::save_attachment(state.clone(), server_id.clone(), reference.clone(), name.clone(), cx)));
+        }
         let (state, group, id) = (state.clone(), group.clone(), id.clone());
-        let entry = MenuEntry::new(t("details.media.showInChat"), "message-square", move |_, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &id, cx)));
-        open_menu(event.position, vec![entry], false, cx);
+        entries.push(MenuEntry::new(t("details.media.showInChat"), "message-square", move |_, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &id, cx))));
+        open_menu(event.position, entries, false, cx);
     }
 }
 
@@ -252,7 +263,7 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
                 }
             }),
         })
-        .on_mouse_down(MouseButton::Right, show_in_chat(state.clone(), message))
+        .on_mouse_down(MouseButton::Right, show_in_chat_or_save(state.clone(), message, (!video).then_some((server.entry.id.as_str(), attachment))))
         .when_some(thumb, |el, thumb| el.child(round_corners(cover(thumb, 1., 120, cx).absolute().inset_0().size_full(), corners)))
         // `.shared-tile-full`: faded in once it's here.
         .when_some(picture, |el, picture| el.child(round_corners(cover(picture, 1., 240, cx).absolute().inset_0().size_full(), corners).enter(SharedString::from(format!("shared-full-{}", hover)), Enter::Fade, 120)))
