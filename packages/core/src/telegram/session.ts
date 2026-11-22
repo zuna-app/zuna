@@ -130,6 +130,15 @@ export const telegramNotifyTiming = {
   clockAnswer: 2_000,
 };
 
+/** How long `sendNow` waits, for the account to be signed in and then for Telegram to have what was sent. */
+export const telegramSendTiming = {
+  ready: 20_000,
+  sent: 60_000,
+};
+
+/** How many sends' outcomes are kept for `sendNow`, which may ask after one only once it came. */
+const MOST_OUTCOMES = 200;
+
 /**
  * Updates the adapter acts on. Any other kind is dropped, and noted once, never handed on: what
  * TDLib adds in a new version is shown nowhere until it's mapped here.
@@ -172,6 +181,13 @@ const HANDLED = new Set([
 ]);
 
 /** What Telegram's errors mean, in the app's words. */
+/** Why Telegram refused a message that was going, in words to show, from TDLib's error. */
+function refusal(error: unknown): string {
+  const message = isObject(error) ? str(error.message, 200) : "";
+  if (!message) return t("errors.thisMessageCouldntBeSent");
+  return explain(new TelegramError(message, isObject(error) ? int(error.code, 0, 1000, 400) : 400)).message;
+}
+
 function explain(error: unknown): Error {
   if (!(error instanceof TelegramError)) return error instanceof Error ? error : new Error(String(error));
   const message = error.message;
@@ -310,6 +326,14 @@ export class TelegramSession {
    * numbers from before (`renumbered`).
    */
   private sources = new Map<string, TdObject>();
+  /**
+   * What became of messages sent lately, by their chat and the number each had while it went:
+   * nothing for one Telegram has, and why for one it refused. `sendNow` waits on them.
+   */
+  private outcomes = new Map<string, string | null>();
+  private waitingFor = new Map<string, (why: string | null) => void>();
+  /** `sendNow`s waiting for the account to be signed in. */
+  private waitingReady: { done: () => void; failed: (error: Error) => void }[] = [];
   /** The account's one call at a time (calls/call.ts). */
   private readonly calls: TelegramCalls;
 
@@ -344,6 +368,7 @@ export class TelegramSession {
     this.forgetLate();
     this.calls.reset();
     this.doneReadingAll();
+    this.giveUpWaiting(new TelegramError(t("telegram.telegramStopped"), 503));
     this.engine.stop(false);
   }
 
@@ -352,6 +377,7 @@ export class TelegramSession {
     this.forgetLate();
     this.calls.reset();
     this.doneReadingAll();
+    this.giveUpWaiting(new TelegramError(t("telegram.telegramStopped"), 503));
     return new Promise((resolve) => {
       this.unlinking = resolve;
       this.signingOut = true;
@@ -480,6 +506,15 @@ export class TelegramSession {
   private setLink(link: TelegramLink): void {
     this.link = link;
     this.options.onEvent({ type: "telegram", serverId: TELEGRAM_ID, link });
+    const waiting = this.waitingReady;
+    if (link.step === "ready") {
+      this.waitingReady = [];
+      for (const each of waiting) each.done();
+    } else if (link.step === "failed" || link.step === "unlinked") {
+      this.waitingReady = [];
+      const error = new Error(link.step === "failed" ? link.reason : t("errors.noTelegramAccountIsLinked"));
+      for (const each of waiting) each.failed(error);
+    }
   }
 
   private onAuth(state: unknown): void {
@@ -671,6 +706,7 @@ export class TelegramSession {
         const chatId = idOf(message.chat_id);
         this.doneWith(old);
         if (!chatId) return;
+        this.settled(chatId, old, null);
         this.messages.get(chatId)?.delete(old);
         this.remember(message);
         this.emitMessage(message, false, old);
@@ -682,6 +718,7 @@ export class TelegramSession {
         if (old) this.doneWith(old);
         if (!isObject(message)) return;
         const chatId = idOf(message.chat_id);
+        if (chatId && old) this.settled(chatId, old, refusal(update.error));
         const replaced = chatId && old && old !== idOf(message.id) ? old : undefined;
         if (chatId && replaced) this.messages.get(chatId)?.delete(replaced);
         this.remember(message);
@@ -781,6 +818,28 @@ export class TelegramSession {
    */
   private doneWith(message: number): void {
     for (const [name, reading] of this.reading) if (reading.message === message && !reading.busy) this.doneReading(name);
+  }
+
+  /** What became of a message sent, for `sendNow`: nothing if Telegram has it, or why it refused it. */
+  private settled(chatId: number, old: number, why: string | null): void {
+    const key = `${chatId}:${old}`;
+    const waiting = this.waitingFor.get(key);
+    if (waiting) {
+      this.waitingFor.delete(key);
+      return waiting(why);
+    }
+    this.outcomes.set(key, why);
+    if (this.outcomes.size > MOST_OUTCOMES) this.outcomes.delete(this.outcomes.keys().next().value!);
+  }
+
+  /** Every `sendNow` still waiting gives up, as when the engine stops for good. */
+  private giveUpWaiting(error: Error): void {
+    const ready = this.waitingReady;
+    this.waitingReady = [];
+    for (const each of ready) each.failed(error);
+    const sends = [...this.waitingFor.values()];
+    this.waitingFor.clear();
+    for (const each of sends) each(error.message);
   }
 
   /** The engine is going away, and with it whatever it would still ask for. */
@@ -1486,8 +1545,14 @@ export class TelegramSession {
 
   /** Sends files, each as the kind of message Telegram has for it, with the text on the first. */
   async sendWithAttachments(groupKey: string, files: OutgoingFile[], body: MessageBody, options: { keepMetadata?: boolean } = {}): Promise<string> {
-    const reader = this.options.files ?? blobFiles;
     if (files.length === 0) return (await this.sendMessage(groupKey, body)).id;
+    const sent = await this.sendFiles(groupKey, files, body, options);
+    return String(idOf(sent[0]?.id) ?? "");
+  }
+
+  /** Sends files, and gives the messages they went in, once TDLib has every file. */
+  private async sendFiles(groupKey: string, files: OutgoingFile[], body: MessageBody, options: { keepMetadata?: boolean }): Promise<TdObject[]> {
+    const reader = this.options.files ?? blobFiles;
     const tooBig = files.find((file) => reader.size(file.blob) > MOST_UPLOAD);
     if (tooBig) throw new Error(t("telegram.fileTooLarge", { name: tooBig.name }));
     const chatId = await this.chatForKey(groupKey);
@@ -1544,7 +1609,78 @@ export class TelegramSession {
       else if (!reading?.busy) this.doneReading(name);
     }
     await read;
-    return String(idOf(sent[0]?.id) ?? "");
+    return sent;
+  }
+
+  /**
+   * Sends a message, with any files, and resolves once Telegram has every message of it, for a
+   * process that stops straight after: the iOS share extension (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+   * There the engine has only just started, so this waits for the account to be signed in, and
+   * asks for a group the list hasn't told of yet. A link's preview is Telegram's to make.
+   */
+  async sendNow(groupKey: string, files: OutgoingFile[], body: MessageBody, options: { previewUrl?: string; keepMetadata?: boolean } = {}): Promise<void> {
+    await this.untilReady();
+    await this.knownChat(groupKey);
+    const sent = files.length > 0 ? await this.sendFiles(groupKey, files, body, options) : [await this.sendText(groupKey, body)];
+    const why = (await Promise.all(sent.map((message) => this.untilSent(message)))).find((each) => each !== null);
+    if (why) throw new Error(why);
+  }
+
+  /** Waits for the account to be signed in, as an engine that just started says once it's read its database. */
+  private untilReady(): Promise<void> {
+    if (this.link.step === "ready") return Promise.resolve();
+    if (this.link.step === "failed") return Promise.reject(new Error(this.link.reason));
+    return new Promise((resolve, reject) => {
+      const waiting = {
+        done: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        failed: (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      const timer = setTimeout(() => {
+        this.waitingReady = this.waitingReady.filter((each) => each !== waiting);
+        reject(new Error(t("telegram.notConnectedInTime")));
+      }, telegramSendTiming.ready);
+      this.waitingReady.push(waiting);
+    });
+  }
+
+  /** A group the list hasn't told of yet is asked for, as TDLib tells of a chat before it answers with it. */
+  private async knownChat(groupKey: string): Promise<void> {
+    const group = groupKey.match(/^group:(-?\d+)$/);
+    const id = group ? Number(group[1]) : 0;
+    if (!group || !Number.isSafeInteger(id) || this.chats.has(id)) return;
+    const chat = await this.engine.request({ "@type": "getChat", chat_id: id }).catch((error) => {
+      throw explain(error);
+    });
+    if (idOf(chat.id) === id && !this.chats.has(id)) this.chats.set(id, chat);
+  }
+
+  /** What became of one message sent: nothing once Telegram has it, or why it refused it. */
+  private untilSent(message: TdObject): Promise<string | null> {
+    const chatId = idOf(message.chat_id);
+    const id = idOf(message.id);
+    if (!chatId || !id || !isObject(message.sending_state)) return Promise.resolve(null);
+    const key = `${chatId}:${id}`;
+    if (this.outcomes.has(key)) {
+      const why = this.outcomes.get(key)!;
+      this.outcomes.delete(key);
+      return Promise.resolve(why);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waitingFor.delete(key);
+        reject(new Error(t("telegram.sendingIsTakingLong")));
+      }, telegramSendTiming.sent);
+      this.waitingFor.set(key, (why) => {
+        clearTimeout(timer);
+        resolve(why);
+      });
+    });
   }
 
   /** How one file goes to Telegram: as the engine will ask for it by the name made for this send. */
@@ -1747,6 +1883,15 @@ export class TelegramSession {
   }
 
   async sendMessage(groupKey: string, body: MessageBody): Promise<MessageView> {
+    const sent = await this.sendText(groupKey, body);
+    const view = this.view(sent);
+    if (!view) throw new Error(t("telegram.telegramDidntAcceptThatMessage"));
+    this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
+    return view;
+  }
+
+  /** Sends text, or a place, and gives the message it went in. */
+  private async sendText(groupKey: string, body: MessageBody): Promise<TdObject> {
     if (body.attachments?.length) throw new Error(t("telegram.thoseFilesWereUploadedTo"));
     if (body.forwarded) throw new Error(t("telegram.nothingIsForwardedBetweenZuna"));
     const text = (body.text ?? "").trim();
@@ -1762,10 +1907,7 @@ export class TelegramSession {
         throw explain(error);
       });
     this.remember(sent);
-    const view = this.view(sent);
-    if (!view) throw new Error(t("telegram.telegramDidntAcceptThatMessage"));
-    this.options.onEvent({ type: "message", serverId: TELEGRAM_ID, message: view, isNew: true });
-    return view;
+    return sent;
   }
 
   async editMessage(groupId: string, id: string, text: string): Promise<void> {

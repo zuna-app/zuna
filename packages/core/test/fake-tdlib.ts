@@ -119,6 +119,14 @@ export class FakeTdlib implements TelegramAdapter {
   private generations = new Map<string, string>();
   /** TDLib stops asking for a file once this much of it is written. */
   stopAfterBytes: number | null = null;
+  /** Telegram refuses what's sent, with this error. */
+  refuseSends: string | null = null;
+  /** Telegram says nothing of what's sent until `letSendsThrough`. */
+  holdSends = false;
+  private heldSends: { message: Td; temporary: number }[] = [];
+  /** The list isn't told of until `tellList`, as while TDLib is still reading it after a start. */
+  holdList = false;
+  private heldList: (() => void) | null = null;
   private nextFile = 500;
   /** The engine of whoever this account calls, and is called by: Telegram between the two. */
   peer: FakeTdlib | null = null;
@@ -208,6 +216,10 @@ export class FakeTdlib implements TelegramAdapter {
         return answer(this.users.get(SELF)!);
       case "loadChats":
         if (this.loaded) return fail(404, "Not Found");
+        if (this.holdList) {
+          this.heldList = () => this.send(json);
+          return;
+        }
         this.loaded = true;
         for (const supergroup of this.supergroups.values()) this.emit({ "@type": "updateSupergroup", supergroup });
         for (const chat of this.chats.values()) this.emit({ "@type": "updateNewChat", chat: { ...chat, positions: [] } });
@@ -224,6 +236,13 @@ export class FakeTdlib implements TelegramAdapter {
         const found = this.history.get(request.chat_id)?.find((message) => message.id === request.message_id);
         return found ? answer(found) : fail(404, "Not Found");
       }
+      case "getChat": {
+        // TDLib tells of a chat this client hasn't heard of before it answers with it.
+        const chat = this.chats.get(request.chat_id);
+        if (!chat) return fail(400, "Chat not found");
+        this.emit({ "@type": "updateNewChat", chat: { ...chat, positions: [] } });
+        return answer(chat);
+      }
       case "sendMessageAlbum": {
         const messages = request.input_message_contents.map((content: Td) => this.sending(request.chat_id, content));
         return answer({ "@type": "messages", total_count: messages.length, messages });
@@ -239,11 +258,7 @@ export class FakeTdlib implements TelegramAdapter {
           reply_to: request.reply_to ? { "@type": "messageReplyToMessage", chat_id: request.chat_id, message_id: request.reply_to.message_id } : null,
         };
         answer(message);
-        setTimeout(() => {
-          const sent = { ...message, id: serverId(100 + temporary), sending_state: null };
-          this.history.get(request.chat_id)?.push(sent);
-          this.emit({ "@type": "updateMessageSendSucceeded", message: sent, old_message_id: temporary });
-        }, 5);
+        setTimeout(() => this.outcome(message, temporary), 5);
         return;
       }
       case "viewMessages": {
@@ -437,12 +452,40 @@ export class FakeTdlib implements TelegramAdapter {
     const temporary = this.nextTemporary++;
     this.generate(input);
     const message = { ...textMessage(chatId, temporary, SELF, ""), content: contentOf(input, () => this.newFile()), sending_state: { "@type": "messageSendingStatePending" } };
-    setTimeout(() => {
-      const sent = { ...message, id: serverId(100 + temporary), sending_state: null };
-      this.history.get(chatId)?.push(sent);
-      this.emit({ "@type": "updateMessageSendSucceeded", message: sent, old_message_id: temporary });
-    }, 5);
+    setTimeout(() => this.outcome(message, temporary), 5);
     return message;
+  }
+
+  /** What Telegram says of a message that went: that it has it, or why it refused it, or nothing yet. */
+  private outcome(message: Td, temporary: number): void {
+    if (this.holdSends) {
+      this.heldSends.push({ message, temporary });
+      return;
+    }
+    if (this.refuseSends) {
+      const error = { "@type": "error", code: 403, message: this.refuseSends };
+      this.emit({ "@type": "updateMessageSendFailed", message: { ...message, sending_state: { "@type": "messageSendingStateFailed", error } }, old_message_id: temporary, error });
+      return;
+    }
+    const sent = { ...message, id: serverId(100 + temporary), sending_state: null };
+    this.history.get(message.chat_id)?.push(sent);
+    this.emit({ "@type": "updateMessageSendSucceeded", message: sent, old_message_id: temporary });
+  }
+
+  /** Telegram says what became of every message it held. */
+  letSendsThrough(): void {
+    this.holdSends = false;
+    const held = this.heldSends;
+    this.heldSends = [];
+    for (const each of held) this.outcome(each.message, each.temporary);
+  }
+
+  /** TDLib tells of the list it was asked for. */
+  tellList(): void {
+    this.holdList = false;
+    const held = this.heldList;
+    this.heldList = null;
+    held?.();
   }
 
   private newFile(): Td {

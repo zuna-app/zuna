@@ -10,7 +10,7 @@ import { serveCore, type RpcPort } from "../src/rpc";
 import { fromMarkup, toMarkup } from "../src/telegram/markup";
 import { attachmentsOf, conversationView, messageView, userView, waveformFromTelegram, waveformToTelegram } from "../src/telegram/map";
 import { previewText } from "../src/notify";
-import { telegramNotifyTiming } from "../src/telegram/session";
+import { telegramNotifyTiming, telegramSendTiming } from "../src/telegram/session";
 import { TELEGRAM_ID, type CoreEvent, type TelegramLink } from "../src/types";
 import { BOT, CHANNEL, FakeTdlib, GRACE, GROUP, SECRET, SELF, serverId, sticker, textMessage } from "./fake-tdlib";
 import { loadCrypto, MemoryDbProvider } from "./helpers";
@@ -789,6 +789,85 @@ describe("media, stickers and groups", () => {
     expect(await session.deleteChoices(String(GRACE), String(serverId(1)))).toEqual({ forEveryone: false, forSelf: true });
     await session.deleteMessages(String(GRACE), [String(serverId(1))], false);
     expect(engine.requests("deleteMessages")[0]).toMatchObject({ chat_id: GRACE, message_ids: [serverId(1)], revoke: false });
+  });
+});
+
+describe("sending from the share sheet (sendNow)", () => {
+  // The iPhone's share extension sends and stops straight after, so it waits until Telegram has
+  // what was sent (docs/IOS_TELEGRAM_SHARE_PLAN.md).
+  async function ready() {
+    const linked = await linkedClient({ authorized: true });
+    linked.client.linkTelegram();
+    await until(() => linked.client.telegramSession.getConversations().length === 3, "the list");
+    return { ...linked, session: linked.client.telegramSession };
+  }
+
+  const picture = () => ({ blob: new Blob([new Uint8Array(1500).fill(9)], { type: "image/png" }), name: "a.png", mime: "image/png", width: 40, height: 30 });
+
+  it("is back once Telegram has the text, or every message with a file", async () => {
+    const { engine, session } = await ready();
+    engine.holdSends = true;
+    let done = false;
+    const sending = session.sendNow(`user:${GRACE}`, [], { text: "hello" }).then(() => (done = true));
+    await until(() => engine.requests("sendMessage").length === 1, "the message going");
+    await settle();
+    expect(done).toBe(false);
+    engine.letSendsThrough();
+    await sending;
+
+    await session.sendNow(`group:${GROUP}`, [picture(), picture()], { text: "two" }, { keepMetadata: true, previewUrl: "https://example.com" });
+    expect(engine.requests("sendMessageAlbum")).toHaveLength(1);
+    expect([...engine.generated.values()].filter((file) => file.finished && !file.error)).toHaveLength(2);
+  });
+
+  it("throws what Telegram refused, and gives up once it's said nothing for too long", async () => {
+    const { engine, session } = await ready();
+    engine.refuseSends = "CHAT_WRITE_FORBIDDEN";
+    await expect(session.sendNow(`group:${GROUP}`, [], { text: "hi" })).rejects.toThrow("You can't send messages in this chat.");
+    engine.refuseSends = null;
+
+    const wait = telegramSendTiming.sent;
+    telegramSendTiming.sent = 50;
+    try {
+      engine.holdSends = true;
+      await expect(session.sendNow(`user:${GRACE}`, [], { text: "hi" })).rejects.toThrow("Telegram hasn't confirmed the message yet.");
+    } finally {
+      telegramSendTiming.sent = wait;
+    }
+  });
+
+  it("waits for the account to be signed in, and asks for a group the list hasn't told of", async () => {
+    const engine = new FakeTdlib();
+    engine.holdList = true;
+    const { client } = await linkedClient({ authorized: true, engine });
+    client.linkTelegram();
+    const session = client.telegramSession;
+    await session.sendNow(`group:${GROUP}`, [], { text: "from the share sheet" });
+    expect(engine.requests("getChat").some((request) => request.chat_id === GROUP)).toBe(true);
+    expect(engine.requests("sendMessage").at(-1)).toMatchObject({ chat_id: GROUP });
+    engine.tellList();
+    await until(() => session.getConversations().length === 3, "the list");
+  });
+
+  it("finishes a send that went on across the engine starting again", async () => {
+    const { engine, session } = await ready();
+    engine.holdSends = true;
+    const sending = session.sendNow(`user:${GRACE}`, [picture()], { text: "" }, { keepMetadata: true });
+    await until(() => engine.requests("sendMessage").length === 1, "the message going");
+    // The app went to sleep and woke: its broker closed TDLib and started it again.
+    engine.emit({ "@type": "zunaRestarted" });
+    engine.emit({ "@type": "updateConnectionState", state: { "@type": "connectionStateReady" } });
+    engine.letSendsThrough();
+    await sending;
+  });
+
+  it("says why it can't, rather than wait, once the engine stopped", async () => {
+    const { engine, session } = await ready();
+    engine.holdSends = true;
+    const sending = session.sendNow(`user:${GRACE}`, [], { text: "hi" });
+    await until(() => engine.requests("sendMessage").length === 1, "the message going");
+    session.stop();
+    await expect(sending).rejects.toThrow("Telegram stopped.");
   });
 });
 
