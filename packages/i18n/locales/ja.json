@@ -2114,7 +2114,7 @@
   "servers.rail.connectTelegram": "Telegram を連携",
   "servers.rail.join": "サーバーに参加",
   "servers.rail.profile": "プロフィール",
-  "servers.rail.resetIcon": "Zuna のアイコンを使用",
+  "servers.rail.resetIcon": "デフォルトのアイコンを使用",
   "servers.rail.telegram": "Telegram：エンドツーエンド暗号化なし",
   "servers.signedOut.accountDeleted": "別の端末からサーバーのアカウントが削除されました。",
   "servers.signedOut.banned": "管理者によってサーバーから削除されました。",

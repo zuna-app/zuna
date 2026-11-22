@@ -2114,7 +2114,7 @@
   "servers.rail.connectTelegram": "关联 Telegram",
   "servers.rail.join": "加入服务器",
   "servers.rail.profile": "你的个人资料",
-  "servers.rail.resetIcon": "使用 Zuna 图标",
+  "servers.rail.resetIcon": "使用默认图标",
   "servers.rail.telegram": "Telegram：未采用端到端加密",
   "servers.signedOut.accountDeleted": "你在某个服务器上的账号已从另一台设备删除。",
   "servers.signedOut.banned": "你已被某个服务器的管理员移出。",

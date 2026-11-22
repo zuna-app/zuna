@@ -2188,7 +2188,7 @@
   "servers.rail.connectTelegram": "Connect Telegram",
   "servers.rail.join": "Join a server",
   "servers.rail.profile": "Your profile",
-  "servers.rail.resetIcon": "Use Zuna's icon",
+  "servers.rail.resetIcon": "Use default icon",
   "servers.rail.telegram": "Telegram: not end-to-end encrypted",
   "servers.signedOut.accountDeleted": "Your account on a server was deleted from another device.",
   "servers.signedOut.banned": "You were removed from a server by its admins.",

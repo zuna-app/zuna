@@ -2334,7 +2334,7 @@
   "servers.rail.connectTelegram": "Połącz Telegram",
   "servers.rail.join": "Dołącz do serwera",
   "servers.rail.profile": "Twój profil",
-  "servers.rail.resetIcon": "Użyj ikony Zuny",
+  "servers.rail.resetIcon": "Użyj domyślnej ikony",
   "servers.rail.telegram": "Telegram: bez szyfrowania end-to-end",
   "servers.signedOut.accountDeleted": "Twoje konto na serwerze usunięto z innego urządzenia.",
   "servers.signedOut.banned": "Administratorzy usunęli Cię z serwera.",

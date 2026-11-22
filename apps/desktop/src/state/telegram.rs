@@ -457,8 +457,8 @@ mod tests {
         assert!(super::load_telegram_icon().is_some(), "kept for the next start");
 
         // Zuna's drawing back, from the rail.
-        assert_eq!(menu(cx), ["Change icon…", "Use Zuna's icon"]);
-        app.window.update(cx, |_, window, cx| crate::ui::menu::choose("Use Zuna's icon", window, cx)).unwrap();
+        assert_eq!(menu(cx), ["Change icon…", "Use default icon"]);
+        app.window.update(cx, |_, window, cx| crate::ui::menu::choose("Use default icon", window, cx)).unwrap();
         app.run(cx);
         assert!(app.read(cx, |state| state.telegram_icon.is_none()) && !super::telegram_icon_file().exists());
 

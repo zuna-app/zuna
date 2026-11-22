@@ -112,8 +112,9 @@ impl SettingsView {
         account_row("connection-telegram".into(), picture, "Telegram".into(), hint, false, control, &theme)
     }
 
-    /// The account's icon in the rail, as its right click there offers too: a picture of one's
-    /// own, or Zuna's drawing back (`choose_telegram_icon` in `state/telegram.rs`).
+    /// The account's icon in the rail, as its right click there offers too: the icon on the left,
+    /// and a picture of one's own, or the default drawing back (`choose_telegram_icon` in
+    /// `state/telegram.rs`).
     fn telegram_icon_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let image = self.state.read(cx).telegram_icon.clone();
@@ -122,16 +123,21 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(crate::ui::rail::telegram_icon_view(image, 32., cx))
             .when(custom, |el| {
-                el.child(button("tg-icon-reset", ButtonKind::Ghost, ButtonSize::Small, false, cx).child(t("servers.rail.resetIcon")).on_click(cx.listener(|view, _, _, cx| {
+                el.child(button("tg-icon-reset", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("servers.rail.resetIcon")).on_click(cx.listener(|view, _, _, cx| {
                     view.state.update(cx, |state, cx| state.reset_telegram_icon(cx));
                 })))
             })
             .child(button("tg-icon-change", ButtonKind::Default, ButtonSize::Small, false, cx).child(t("servers.rail.changeIcon")).on_click(cx.listener(|view, _, _, cx| {
                 view.state.update(cx, |state, cx| state.choose_telegram_icon(cx));
             })));
-        Self::row(t("settings.connections.telegramIcon"), Some(t("settings.connections.telegramIconHint")), control, &theme)
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(crate::ui::rail::telegram_icon_view(image, ACCOUNT_PICTURE, cx))
+            .child(div().flex_1().min_w_0().child(Self::row(t("settings.connections.telegramIcon"), Some(t("settings.connections.telegramIconHint")), control, &theme)))
+            .into_any_element()
     }
 
     /// "Take Telegram calls on this device": Telegram's own "Accept calls" for this session, so
