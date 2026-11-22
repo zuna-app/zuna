@@ -345,7 +345,7 @@ What was considered and left:
 
 ### Left for later there
 
-- **Sharing into a Telegram chat from another app.** The share extension runs a core of its own, and can't open the engine's database while the app has it.
+- **Sharing into a Telegram chat from another app.** The share extension runs a core of its own, and can't open the engine's database, which is in the app's own container. [IOS_TELEGRAM_SHARE_PLAN.md](IOS_TELEGRAM_SHARE_PLAN.md) is the plan for it, with what was measured on 2026-11-22: the database in the App Group under the core's lock, closed before the app sleeps, and TDLib in the extension from Send until sent.
 
 ## The api_id
 
