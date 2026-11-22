@@ -35,14 +35,14 @@ const SERVER_SECTIONS: [Section; 4] = [
 
 /// The sections that are this device's, for every server on it, under "App".
 const APP_SECTIONS: [Section; 9] = [
+    ("appearance", mark("settings.sections.appearance"), "palette"),
     ("connections", mark("settings.connections.title"), "link"),
     ("device-privacy", mark("settings.sections.devicePrivacy"), "eye-off"),
-    ("proxy", mark("settings.proxy.title"), "globe"),
     ("notifications", mark("settings.sections.notifications"), "bell"),
     ("voice", mark("settings.sections.voice"), "mic"),
     ("screen", mark("settings.sections.screen"), "monitor-up"),
-    ("appearance", mark("settings.sections.appearance"), "palette"),
     ("plugins", mark("settings.sections.plugins"), "puzzle"),
+    ("proxy", mark("settings.proxy.title"), "globe"),
     ("about", mark("settings.sections.about"), "info"),
 ];
 
