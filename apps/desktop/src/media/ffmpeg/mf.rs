@@ -211,4 +211,25 @@ mod tests {
             assert!(poster(&fixture(name), 0., 160, 50).is_some_and(|(jpeg, width, _)| jpeg.starts_with(&[0xff, 0xd8]) && width <= 160));
         }
     }
+
+    #[test]
+    fn cuts_a_picture_out_of_a_padded_frame() {
+        let path = crate::media::padded_video();
+        let mut frames = VideoFrames::open(&path).unwrap();
+        let mut count = 0;
+        while let Some(frame) = frames.next().unwrap() {
+            if let Some(problem) = crate::media::padded_picture_problem(frames.width, frames.height, &frame.bgra) {
+                panic!("frame {count}: {problem}");
+            }
+            count += 1;
+        }
+        assert!(count >= 10, "{count} frames");
+        // The picture sent before the video, from the same frames.
+        let (jpeg, width, height) = poster(&path, 0.1, 320, 90).unwrap();
+        let mut bgra = image::load_from_memory(&jpeg).unwrap().to_rgba8().into_raw();
+        for pixel in bgra.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        assert_eq!(crate::media::padded_picture_problem(width, height, &bgra), None);
+    }
 }

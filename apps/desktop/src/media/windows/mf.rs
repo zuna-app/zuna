@@ -7,7 +7,7 @@ use std::sync::Once;
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
-use windows::core::{GUID, HSTRING};
+use windows::core::{GUID, HSTRING, Interface};
 
 const FIRST_AUDIO: u32 = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
 const FIRST_VIDEO: u32 = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -106,12 +106,81 @@ pub fn decode_audio(path: &Path) -> windows::core::Result<(Vec<f32>, u32)> {
 /// Reads a video's frames one at a time, as BGRA, for playing it.
 pub struct VideoFrames {
     reader: IMFSourceReader,
+    /// The picture's size, which is what each frame is cut to.
     pub width: u32,
     pub height: u32,
+    layout: Layout,
+}
+
+/// Where the picture is in the frames the decoder gives. H.264 is decoded in blocks of 16
+/// pixels, so a video 854 by 478 comes out of it in frames 864 by 480, with the picture in
+/// their top left corner. The reader only says so once it has decoded the first frame, by
+/// changing its media type, whose aperture is then the picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Layout {
+    left: u32,
+    top: u32,
+    /// The whole frame's height, the picture's and what pads it.
+    rows: u32,
+    /// How far one row starts from the one above it, for a buffer that can't say, negative when
+    /// the rows come bottom first.
     stride: i32,
 }
 
 pub use crate::media::Frame;
+
+/// An aperture's area, as `MFVideoArea` lays it out: each offset a fraction and a whole number,
+/// then the width and height. None when there's none, or it's empty.
+fn aperture(kind: &IMFMediaType, key: &GUID) -> Option<(u32, u32, u32, u32)> {
+    let mut blob = [0u8; std::mem::size_of::<MFVideoArea>()];
+    let mut size = 0u32;
+    unsafe { kind.GetBlob(key, &mut blob, Some(&mut size)) }.ok()?;
+    if size as usize != blob.len() {
+        return None;
+    }
+    let left = i16::from_le_bytes([blob[2], blob[3]]);
+    let top = i16::from_le_bytes([blob[6], blob[7]]);
+    let width = i32::from_le_bytes(blob[8..12].try_into().ok()?);
+    let height = i32::from_le_bytes(blob[12..16].try_into().ok()?);
+    (left >= 0 && top >= 0 && width > 0 && height > 0).then_some((left as u32, top as u32, width as u32, height as u32))
+}
+
+/// The picture's size and where it is in the frames of a media type. With no aperture, it's
+/// `before`, the size the file said before the decoder padded it, or the whole frame.
+fn layout(kind: &IMFMediaType, before: Option<(u32, u32)>) -> windows::core::Result<(u32, u32, Layout)> {
+    let size = unsafe { kind.GetUINT64(&MF_MT_FRAME_SIZE)? };
+    let (columns, rows) = ((size >> 32) as u32, size as u32);
+    let (left, top, width, height) = [MF_MT_MINIMUM_DISPLAY_APERTURE, MF_MT_GEOMETRIC_APERTURE]
+        .iter()
+        .find_map(|key| aperture(kind, key))
+        .unwrap_or_else(|| {
+            let (width, height) = before.unwrap_or((columns, rows));
+            (0, 0, width, height)
+        });
+    let (left, top) = (left.min(columns), top.min(rows));
+    let (width, height) = (width.min(columns - left), height.min(rows - top));
+    let stride = unsafe { kind.GetUINT32(&MF_MT_DEFAULT_STRIDE) }.map(|stride| stride as i32).unwrap_or(columns as i32 * 4);
+    Ok((width, height, Layout { left, top, rows, stride }))
+}
+
+/// The picture cut out of a frame of BGRA, `width` by `height`: `bytes` holds the frame, whose
+/// first row starts at `first` and each next one `pitch` on, negative when they go up through
+/// it. A row that isn't all within it is left black.
+fn cut(bytes: &[u8], first: isize, pitch: isize, layout: &Layout, width: u32, height: u32) -> Vec<u8> {
+    let row = width as usize * 4;
+    let mut bgra = vec![0u8; row * height as usize];
+    for (y, line) in bgra.chunks_exact_mut(row).enumerate() {
+        let start = first + (layout.top as isize + y as isize) * pitch + layout.left as isize * 4;
+        if start >= 0 && start as usize + row <= bytes.len() {
+            line.copy_from_slice(&bytes[start as usize..start as usize + row]);
+        }
+    }
+    // RGB32 leaves the alpha byte unset.
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel[3] = 255;
+    }
+    bgra
+}
 
 impl VideoFrames {
     pub fn open(path: &Path) -> windows::core::Result<VideoFrames> {
@@ -123,11 +192,8 @@ impl VideoFrames {
             wanted.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
             wanted.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)?;
             reader.SetCurrentMediaType(FIRST_VIDEO, None, &wanted)?;
-            let current = reader.GetCurrentMediaType(FIRST_VIDEO)?;
-            let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
-            let (width, height) = ((size >> 32) as u32, size as u32);
-            let stride = current.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|stride| stride as i32).unwrap_or(width as i32 * 4);
-            Ok(VideoFrames { reader, width, height, stride })
+            let (width, height, layout) = layout(&reader.GetCurrentMediaType(FIRST_VIDEO)?, None)?;
+            Ok(VideoFrames { reader, width, height, layout })
         }
     }
 
@@ -142,27 +208,33 @@ impl VideoFrames {
                 if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
                     return Ok(None);
                 }
+                // The frames' size changed, as it does once the decoder has the first: what comes
+                // with this sample is laid out the new way.
+                if flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED.0 as u32 != 0 {
+                    (self.width, self.height, self.layout) = layout(&self.reader.GetCurrentMediaType(FIRST_VIDEO)?, Some((self.width, self.height)))?;
+                }
                 let Some(sample) = sample else { continue };
                 let buffer = sample.ConvertToContiguousBuffer()?;
+                // A frame's own buffer says how far apart its rows are, which may be more than
+                // its width makes them, and where its top row is.
+                if let Ok(frame) = buffer.cast::<IMF2DBuffer2>() {
+                    let (mut first, mut pitch, mut start, mut length) = (std::ptr::null_mut(), 0i32, std::ptr::null_mut(), 0u32);
+                    if frame.Lock2DSize(MF2DBuffer_LockFlags_Read, &mut first, &mut pitch, &mut start, &mut length).is_ok() {
+                        let bytes = std::slice::from_raw_parts(start as *const u8, length as usize);
+                        let bgra = cut(bytes, first.offset_from(start), pitch as isize, &self.layout, self.width, self.height);
+                        frame.Unlock2D()?;
+                        return Ok(Some(Frame { at: at as f64 / 10_000_000., bgra }));
+                    }
+                }
                 let mut data = std::ptr::null_mut();
                 let mut length = 0u32;
                 buffer.Lock(&mut data, None, Some(&mut length))?;
                 let bytes = std::slice::from_raw_parts(data, length as usize);
-                let row = self.width as usize * 4;
-                let mut bgra = vec![0u8; row * self.height as usize];
-                let stride = self.stride.unsigned_abs() as usize;
-                for y in 0..self.height as usize {
-                    // A negative stride means the rows come bottom first.
-                    let source = if self.stride < 0 { (self.height as usize - 1 - y) * stride } else { y * stride };
-                    if source + row <= bytes.len() {
-                        bgra[y * row..(y + 1) * row].copy_from_slice(&bytes[source..source + row]);
-                    }
-                }
+                let stride = self.layout.stride as isize;
+                // Bottom first, the top row is the last one in the buffer.
+                let first = if stride < 0 { (self.layout.rows as isize - 1) * -stride } else { 0 };
+                let bgra = cut(bytes, first, stride, &self.layout, self.width, self.height);
                 buffer.Unlock()?;
-                // RGB32 leaves the alpha byte unset.
-                for pixel in bgra.chunks_mut(4) {
-                    pixel[3] = 255;
-                }
                 return Ok(Some(Frame { at: at as f64 / 10_000_000., bgra }));
             }
         }
@@ -212,5 +284,49 @@ mod tests {
             assert!(frames.width > 0 && frames.height > 0);
             assert!(frames.next().unwrap().is_some(), "{name} has a picture");
         }
+    }
+
+    #[test]
+    fn cuts_a_picture_out_of_a_padded_frame() {
+        let path = crate::media::padded_video();
+        let mut frames = VideoFrames::open(&path).unwrap();
+        let mut count = 0;
+        while let Some(frame) = frames.next().unwrap() {
+            if let Some(problem) = crate::media::padded_picture_problem(frames.width, frames.height, &frame.bgra) {
+                panic!("frame {count} of {:?}: {problem}", frames.layout);
+            }
+            count += 1;
+        }
+        assert!(count >= 10, "{count} frames");
+        // The picture sent before the video, from the same frames.
+        let (jpeg, width, height) = poster(&path, 0.1, 320, 90).unwrap();
+        let mut bgra = image::load_from_memory(&jpeg).unwrap().to_rgba8().into_raw();
+        for pixel in bgra.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        assert_eq!(crate::media::padded_picture_problem(width, height, &bgra), None);
+    }
+
+    #[test]
+    fn cuts_rows_top_down_and_bottom_up() {
+        // A frame 3 pixels by 3 rows, each row 16 bytes apart, each pixel's first byte its column
+        // and second its row, and the picture the 2 by 2 at its bottom right.
+        let frame = |bottom_up: bool| -> Vec<u8> {
+            let mut bytes = vec![0u8; 16 * 3];
+            for row in 0..3u8 {
+                let line = usize::from(if bottom_up { 2 - row } else { row });
+                for column in 0..3u8 {
+                    bytes[line * 16 + column as usize * 4..][..2].copy_from_slice(&[column, row]);
+                }
+            }
+            bytes
+        };
+        let layout = Layout { left: 1, top: 1, rows: 3, stride: 16 };
+        let pixels = |bgra: Vec<u8>| bgra.chunks(4).map(|pixel| (pixel[0], pixel[1], pixel[3])).collect::<Vec<_>>();
+        let wanted = vec![(1, 1, 255), (2, 1, 255), (1, 2, 255), (2, 2, 255)];
+        assert_eq!(pixels(cut(&frame(false), 0, 16, &layout, 2, 2)), wanted);
+        assert_eq!(pixels(cut(&frame(true), 32, -16, &layout, 2, 2)), wanted);
+        // A row past the buffer's end is left black.
+        assert_eq!(pixels(cut(&frame(false)[..40], 0, 16, &layout, 2, 2))[2..], [(0, 0, 255), (0, 0, 255)]);
     }
 }
