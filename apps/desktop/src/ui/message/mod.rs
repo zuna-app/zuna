@@ -509,7 +509,7 @@ fn render_message_as(message: &MessageView, grouped: bool, last_in_group: bool, 
         }
         if !message.text.is_empty() {
             if jumbo > 0 {
-                bubble = bubble.child(jumbo_body(message, context, cx));
+                bubble = bubble.child(jumbo_body(message, own, context, cx));
             } else {
                 bubble = bubble.child(text_body(message, own, meta_in_text, context, &theme, window, cx));
             }

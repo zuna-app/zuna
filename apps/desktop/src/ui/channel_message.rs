@@ -424,7 +424,7 @@ fn render_message_as(message: &MessageView, grouped: bool, after_line: bool, con
         }
         if !message.text.is_empty() {
             let jumbo = if message.attachments.is_empty() { markup::jumbo_size(&message.text, &message.emotes) } else { 0 };
-            let text = if jumbo > 0 { jumbo_body(message, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
+            let text = if jumbo > 0 { jumbo_body(message, false, context, cx) } else { text_body(message, false, false, context, &theme, window, cx) };
             // GPUI measures text's narrowest width as its whole line, so without a minimum of
             // its own the text couldn't shrink to wrap at the row's edge, and ran past it.
             let mut line = div().flex().flex_wrap().items_baseline().when(message.status == "failed", |el| el.text_color(theme.red)).child(named_div(SharedString::from(format!("cmsg-text-{}", message.id))).min_w_0().child(text));

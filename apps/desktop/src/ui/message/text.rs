@@ -485,8 +485,10 @@ pub(super) fn code_block(text: &str, language: Option<&str>, message_id: &str, i
         .into_any_element()
 }
 
-pub(in crate::ui) fn jumbo_body(message: &MessageView, context: &ChatContext, cx: &mut App) -> AnyElement {
-    let mut row = div().flex().flex_wrap().items_end().gap(px(2.));
+/// Large emoji and emotes, at the bubble's right edge in one's own message (`end`), where a wider
+/// reply or forwarded line above them would otherwise leave them on the left, away from the time.
+pub(in crate::ui) fn jumbo_body(message: &MessageView, end: bool, context: &ChatContext, cx: &mut App) -> AnyElement {
+    let mut row = div().flex().flex_wrap().items_end().gap(px(2.)).when(end, |el| el.justify_end());
     for (position, word) in message.text.split_whitespace().enumerate() {
         if let Some(emote) = message.emotes.get(word) {
             let url = crate::models::emote_url(&context.server_url, &emote.id);

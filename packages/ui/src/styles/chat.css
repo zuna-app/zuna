@@ -112,6 +112,8 @@
 
 .msg.is-jumbo .bubble { background: none; padding: 0; }
 .msg.is-jumbo .msg-text { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 2px; }
+/* At the bubble's right edge in one's own, under a wider reply or forwarded line, as the time is. */
+.msg.is-own.is-jumbo .msg-text { justify-content: flex-end; }
 .msg.is-jumbo .msg-meta { float: none; display: inline-flex; color: var(--text-3); }
 /* Below the emote, at its right edge, as under a sticker in Telegram. */
 .msg.is-jumbo .bubble > .msg-meta { display: flex; width: fit-content; margin: 1px 0 0 auto; }

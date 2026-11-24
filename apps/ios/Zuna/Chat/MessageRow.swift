@@ -576,6 +576,8 @@ private struct MessageItem: View {
                     if metaInText { meta }
                 }
                 .fixedSize(horizontal: true, vertical: false)
+                // In one's own, at the bubble's right edge under a wider reply or forwarded line, as the time is.
+                .frame(maxWidth: own && (message.reply != nil || message.forwarded != nil) ? .infinity : nil, alignment: .trailing)
             } else if !message.text.isEmpty {
                 MessageBodyView(message: message, style: style, server: server, reserveMeta: metaInText ? metaWidth : nil, revealed: revealed, actions: actions) {
                     revealed.insert($0)
