@@ -582,6 +582,8 @@ export class TelegramSession {
         return this.setLink({ step: "failed", reason: t("telegram.needsPremium") });
       case "authorizationStateReady":
         this.signedIn = true;
+        // An engine started again knows nothing of the chat open before, which stays open.
+        if (this.opened !== null) void this.engine.request({ "@type": "openChat", chat_id: this.opened }).catch(() => undefined);
         if (this.linking) {
           this.linking = false;
           this.options.onLinked();
@@ -1738,6 +1740,7 @@ export class TelegramSession {
    * fewer than asked for, so it's asked again until there are enough, or none left.
    */
   async loadMedia(groupId: string, kind: string, before?: number | null, limit = PAGE_SIZE): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     const filter = MEDIA_FILTERS[kind];
     if (!filter) return { messages: [], hasMore: false };
@@ -1784,8 +1787,13 @@ export class TelegramSession {
     return id;
   }
 
-  /** One page of history, newest last, as a server's session gives it. */
+  /**
+   * One page of history, newest last, as a server's session gives it. A chat opened while the
+   * engine starts, as on the iPhone from a notification while TDLib starts again after the app
+   * slept, waits for it to have read its database, rather than being answered with no history.
+   */
   async loadMessages(groupId: string, before?: number): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     if (before === undefined) await this.open(chatId);
     const found = await this.history(chatId, before ?? 0, 0, PAGE_SIZE);
@@ -1794,17 +1802,20 @@ export class TelegramSession {
   }
 
   async loadAround(groupId: string, seq: number): Promise<MessageView[]> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     return this.views(await this.history(chatId, seq, -Math.floor(PAGE_SIZE / 2), PAGE_SIZE));
   }
 
   async loadNewer(groupId: string, after: number): Promise<{ messages: MessageView[]; hasMore: boolean }> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     const found = (await this.history(chatId, after, -PAGE_SIZE, PAGE_SIZE + 1)).filter((message) => idOf(message.id)! > after);
     return { messages: this.views(found), hasMore: found.length >= PAGE_SIZE };
   }
 
   async messageById(groupId: string, id: string): Promise<MessageView | null> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     const messageId = Number(id);
     const known = this.find(chatId, messageId);
@@ -1819,6 +1830,7 @@ export class TelegramSession {
   }
 
   async loadPins(groupId: string): Promise<MessageView[]> {
+    await this.untilReady();
     const chatId = this.chatOf(groupId);
     const found = await this.engine
       .request({ "@type": "searchChatMessages", chat_id: chatId, topic_id: null, query: "", sender_id: null, from_message_id: 0, offset: 0, limit: 100, filter: { "@type": "searchMessagesFilterPinned" } })
@@ -1848,14 +1860,21 @@ export class TelegramSession {
     return results;
   }
 
-  /** TDLib gives fewer messages than asked for until it has them, so it's asked until it does. */
+  /**
+   * TDLib gives fewer messages than asked for until it has them, so it's asked until it does. A
+   * first ask that fails is an error, never a chat with nothing in it, which the apps would take
+   * for all of it and not ask again; one after it leaves what came before.
+   */
   private async history(chatId: number, from: number, offset: number, limit: number): Promise<TdObject[]> {
     const found = new Map<number, TdObject>();
     let cursor = from;
     for (let attempt = 0; attempt < 5 && found.size < limit; attempt++) {
       const page = await this.engine
         .request({ "@type": "getChatHistory", chat_id: chatId, from_message_id: cursor, offset: attempt === 0 ? offset : 0, limit: Math.min(100, limit - found.size + (attempt === 0 ? 0 : 1)), only_local: false })
-        .catch(() => null);
+        .catch((error) => {
+          if (attempt === 0) throw explain(error);
+          return null;
+        });
       const messages = list(page?.messages, 100).filter(isObject);
       let added = 0;
       for (const message of messages) {

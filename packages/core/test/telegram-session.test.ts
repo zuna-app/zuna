@@ -535,8 +535,48 @@ describe("history, media and search", () => {
     const page = await session.loadMessages(String(GRACE));
     expect(page.messages).toHaveLength(50);
     expect(page.hasMore).toBe(true);
+    // TDLib gives a few at a time, and then can't give more: what came is the page.
+    let asked = 0;
+    engine.answer("getChatHistory", (request) => {
+      if (asked++ > 0) return { "@type": "error", code: 500, message: "INTERNAL" };
+      const messages = engine.history.get(GRACE)!.filter((message) => message.id < request.from_message_id).sort((a, b) => b.id - a.id).slice(0, 3);
+      return { "@type": "messages", total_count: messages.length, messages };
+    });
+    const few = await session.loadMessages(String(GRACE), serverId(10));
+    expect(few.messages.map((message) => message.text)).toEqual(["n7", "n8", "n9"]);
+    // Nothing at all is an error, not a chat with nothing before, which the apps would ask nothing more of.
     engine.refuse("getChatHistory", "INTERNAL", 500);
-    expect(await session.loadMessages(String(GRACE), serverId(10))).toEqual({ messages: [], hasMore: false });
+    await expect(session.loadMessages(String(GRACE), serverId(10))).rejects.toThrow("INTERNAL");
+    await expect(session.loadMessages(String(GRACE))).rejects.toThrow("INTERNAL");
+    await expect(session.loadAround(String(GRACE), serverId(10))).rejects.toThrow("INTERNAL");
+    await expect(session.loadNewer(String(GRACE), serverId(10))).rejects.toThrow("INTERNAL");
+  });
+
+  it("waits for an engine started again before it reads a chat's history, and opens the chat again in it", async () => {
+    const { engine, session } = await ready();
+    const first = await session.loadMessages(String(GRACE));
+    expect(first.messages.length).toBeGreaterThan(0);
+    const asked = engine.requests("getChatHistory").length;
+    const opened = engine.requests("openChat").length;
+    // The app slept, and a notification's tap opens the chat as TDLib starts again: its broker
+    // refuses everything until the new one runs.
+    engine.emit({ "@type": "zunaRestarted" });
+    engine.refuse("getChatHistory", "Telegram isn't running.", 503);
+    let page: Awaited<ReturnType<typeof session.loadMessages>> | undefined;
+    const loading = session.loadMessages(String(GRACE)).then((loaded) => (page = loaded));
+    await settle();
+    expect(page).toBeUndefined();
+    expect(engine.requests("getChatHistory")).toHaveLength(asked);
+    engine.answer("getChatHistory", (request) => {
+      const messages = [...engine.history.get(request.chat_id)!].sort((a, b) => b.id - a.id).slice(0, request.limit);
+      return { "@type": "messages", total_count: messages.length, messages };
+    });
+    engine.auth("authorizationStateReady");
+    await loading;
+    expect(page!.messages.map((message) => message.id)).toEqual(first.messages.map((message) => message.id));
+    // The new TDLib is told the chat on screen is open, as the one before it was.
+    await until(() => engine.requests("openChat").length > opened, "the chat opened again");
+    expect(engine.requests("openChat").at(-1)).toMatchObject({ chat_id: GRACE });
   });
 
   it("closes the chat open before, and gets a message it hasn't seen from Telegram", async () => {

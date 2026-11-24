@@ -281,7 +281,9 @@ struct ChatScreen: View {
                 .accessibilityIdentifier(A11y.Chat.banner)
             }
             ZStack(alignment: .bottomTrailing) {
-                if let list, list.loaded || !list.items.isEmpty {
+                // Messages that came while the first page couldn't be loaded aren't the chat: it says
+                // it couldn't, with Try again, rather than showing them as all there is.
+                if let list, list.loaded || (!list.items.isEmpty && list.failed == nil) {
                     if list.items.isEmpty, let channel {
                         // At the bottom, where the first message will be, as in Discord.
                         ChannelWelcome(channel: channel, edit: editChannel(server, channel))
