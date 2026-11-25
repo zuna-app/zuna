@@ -3,11 +3,11 @@
 //! broker. The process ends when it's stopped, when its pipe closes, or when the app goes, as its
 //! standard input closes then.
 
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Sender;
 
-use super::protocol::{MAX_FROM_HOST, read_frame, write_frame};
+use super::protocol::{MAX_FROM_HOST, read_frame, write_frame_buffered};
 
 /// The most messages a plugin's host may send in a second.
 const MAX_PER_SECOND: u32 = 2000;
@@ -43,15 +43,24 @@ impl Process {
     fn run(mut command: Command, boot: String, heard: impl Fn(Option<String>) + Send + 'static) -> std::io::Result<Process> {
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         let mut child = command.spawn()?;
-        let mut stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no pipe to the host"))?;
+        let stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no pipe to the host"))?;
         let stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("no pipe from the host"))?;
         let (writer, outbox) = std::sync::mpsc::channel::<String>();
         writer.send(boot).ok();
         std::thread::Builder::new()
             .name("plugin-writer".into())
             .spawn(move || {
+                let mut stdin = BufWriter::new(stdin);
                 while let Ok(message) = outbox.recv() {
-                    if write_frame(&mut stdin, &message).is_err() {
+                    if write_frame_buffered(&mut stdin, &message).is_err() {
+                        break;
+                    }
+                    while let Ok(next) = outbox.try_recv() {
+                        if write_frame_buffered(&mut stdin, &next).is_err() {
+                            return;
+                        }
+                    }
+                    if stdin.flush().is_err() {
                         break;
                     }
                 }

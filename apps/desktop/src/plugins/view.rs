@@ -143,22 +143,40 @@ pub fn icon_name(value: Option<&Value>) -> Option<String> {
 
 impl Budget {
     fn text(&mut self, value: &str) -> Result<String, String> {
-        let text: String = value.chars().take(MAX_TEXT).collect();
-        self.text += text.len();
+        let slice = if value.len() <= MAX_TEXT {
+            value
+        } else {
+            match value.char_indices().nth(MAX_TEXT) {
+                Some((end, _)) => &value[..end],
+                None => value,
+            }
+        };
+        self.text += slice.len();
         if self.text > MAX_TOTAL_TEXT {
             return Err("The view has too much text.".into());
         }
-        Ok(text)
+        Ok(slice.to_string())
     }
 }
 
 /// Reads a view, or says why it's refused.
 pub fn parse(value: &Value) -> Result<Node, String> {
     let mut budget = Budget { nodes: 0, text: 0 };
-    node(value, 0, "0", &mut budget)?.ok_or_else(|| "The view is empty.".to_string())
+    let mut path = String::with_capacity(64);
+    path.push('0');
+    node(value, 0, &mut path, &mut budget)?.ok_or_else(|| "The view is empty.".to_string())
 }
 
 fn text_of(children: &[Value], budget: &mut Budget) -> Result<String, String> {
+    if children.len() == 1 {
+        let child = &children[0];
+        if child.get("type").and_then(Value::as_str) == Some("string") {
+            if let Some(part) = child.get("props").and_then(|props| props.get("text")).and_then(Value::as_str) {
+                return budget.text(part);
+            }
+        }
+        return budget.text("");
+    }
     let mut text = String::new();
     for child in children {
         if child.get("type").and_then(Value::as_str) == Some("string") {
@@ -170,24 +188,32 @@ fn text_of(children: &[Value], budget: &mut Budget) -> Result<String, String> {
     budget.text(&text)
 }
 
-fn children(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<Vec<Node>, String> {
-    let mut out = Vec::new();
-    if let Some(items) = value.get("children").and_then(Value::as_array) {
-        for (index, child) in items.iter().enumerate() {
-            let key = child.get("props").and_then(|props| props.get("key")).map(|key| match key {
-                Value::String(text) => text.clone(),
-                other => other.to_string(),
-            });
-            let child_path = format!("{path}.{}", key.unwrap_or_else(|| index.to_string()));
-            if let Some(node) = node(child, depth + 1, &child_path, budget)? {
-                out.push(node);
+fn children(value: &Value, depth: usize, path: &mut String, budget: &mut Budget) -> Result<Vec<Node>, String> {
+    let Some(items) = value.get("children").and_then(Value::as_array) else { return Ok(Vec::new()) };
+    let mut out = Vec::with_capacity(items.len());
+    let base_len = path.len();
+    for (index, child) in items.iter().enumerate() {
+        use std::fmt::Write;
+        path.push('.');
+        match child.get("props").and_then(|props| props.get("key")) {
+            Some(Value::String(text)) => path.push_str(text),
+            Some(other) => {
+                let _ = write!(path, "{other}");
             }
+            None => {
+                let _ = write!(path, "{index}");
+            }
+        }
+        let parsed = node(child, depth + 1, path, budget);
+        path.truncate(base_len);
+        if let Some(node) = parsed? {
+            out.push(node);
         }
     }
     Ok(out)
 }
 
-fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<Option<Node>, String> {
+fn node(value: &Value, depth: usize, path: &mut String, budget: &mut Budget) -> Result<Option<Node>, String> {
     if depth > MAX_DEPTH {
         return Err("The view is nested too deeply.".into());
     }
@@ -196,9 +222,8 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
         return Err("The view has too many elements.".into());
     }
     let kind = value.get("type").and_then(Value::as_str).unwrap_or_default();
-    let empty = serde_json::Map::new();
-    let props = value.get("props").and_then(Value::as_object).unwrap_or(&empty);
-    let prop = |name: &str| props.get(name);
+    let props = value.get("props").and_then(Value::as_object);
+    let prop = |name: &str| props.and_then(|map| map.get(name));
     let raw_children: &[Value] = value.get("children").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     let style = || BoxStyle {
         gap: space(prop("gap")),
@@ -210,13 +235,15 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
         rounded: prop("rounded").and_then(Value::as_bool).unwrap_or(false),
     };
     let text = |name: &str, budget: &mut Budget| -> Result<String, String> { budget.text(prop(name).and_then(Value::as_str).unwrap_or_default()) };
-    let path = path.to_string();
     Ok(Some(match kind {
         "string" => Node::Text { text: text("text", budget)?, size: 14., bold: None, medium: false, color: None, mono: false },
-        "column" => Node::Column(style(), children(value, depth, &path, budget)?),
-        "row" => Node::Row(style(), prop("wrap").and_then(Value::as_bool).unwrap_or(false), children(value, depth, &path, budget)?),
-        "stack" => Node::Stack(style(), children(value, depth, &path, budget)?),
-        "scroll" | "list" => Node::Scroll(style(), number(prop("height"), 40., 4000.), path.clone(), children(value, depth, &path, budget)?),
+        "column" => Node::Column(style(), children(value, depth, path, budget)?),
+        "row" => Node::Row(style(), prop("wrap").and_then(Value::as_bool).unwrap_or(false), children(value, depth, path, budget)?),
+        "stack" => Node::Stack(style(), children(value, depth, path, budget)?),
+        "scroll" | "list" => {
+            let own_path = path.clone();
+            Node::Scroll(style(), number(prop("height"), 40., 4000.), own_path, children(value, depth, path, budget)?)
+        }
         "text" => Node::Text {
             text: text_of(raw_children, budget)?,
             size: match prop("size").and_then(Value::as_str) {
@@ -238,17 +265,17 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
             icon: icon_name(prop("icon")),
             disabled: prop("disabled").and_then(Value::as_bool).unwrap_or(false),
             on_click: handler(prop("onClick")),
-            path,
+            path: path.clone(),
         },
         "iconButton" => Node::IconButton {
             icon: icon_name(prop("icon")).unwrap_or_else(|| "circle-question-mark".into()),
             title: prop("title").and_then(Value::as_str).map(|title| title.chars().take(80).collect()),
             active: prop("active").and_then(Value::as_bool).unwrap_or(false),
             on_click: handler(prop("onClick")),
-            path,
+            path: path.clone(),
         },
-        "switch" => Node::Switch { value: prop("value").and_then(Value::as_bool).unwrap_or(false), on_change: handler(prop("onChange")), path },
-        "slider" => Node::Slider { value: number(prop("value"), 0., 1.).unwrap_or(0.), on_change: handler(prop("onChange")), path },
+        "switch" => Node::Switch { value: prop("value").and_then(Value::as_bool).unwrap_or(false), on_change: handler(prop("onChange")), path: path.clone() },
+        "slider" => Node::Slider { value: number(prop("value"), 0., 1.).unwrap_or(0.), on_change: handler(prop("onChange")), path: path.clone() },
         "select" => {
             let mut options = Vec::new();
             for option in prop("options").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]).iter().take(200) {
@@ -262,7 +289,7 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
                     _ => {}
                 }
             }
-            Node::Select { value: text("value", budget)?, options, on_change: handler(prop("onChange")), path }
+            Node::Select { value: text("value", budget)?, options, on_change: handler(prop("onChange")), path: path.clone() }
         }
         "input" => Node::Input {
             value: prop("value").and_then(Value::as_str).map(|value| budget.text(value)).transpose()?,
@@ -271,9 +298,9 @@ fn node(value: &Value, depth: usize, path: &str, budget: &mut Budget) -> Result<
             masked: prop("masked").and_then(Value::as_bool).unwrap_or(false),
             on_change: handler(prop("onChange")),
             on_submit: handler(prop("onSubmit")),
-            path,
+            path: path.clone(),
         },
-        "field" => Node::Field { label: text("label", budget)?, hint: prop("hint").and_then(Value::as_str).map(|hint| budget.text(hint)).transpose()?, children: children(value, depth, &path, budget)? },
+        "field" => Node::Field { label: text("label", budget)?, hint: prop("hint").and_then(Value::as_str).map(|hint| budget.text(hint)).transpose()?, children: children(value, depth, path, budget)? },
         "notice" => Node::Notice {
             icon: icon_name(prop("icon")),
             tone: prop("tone").and_then(Value::as_str).filter(|tone| ["info", "warning", "danger"].contains(tone)).unwrap_or("info").to_string(),

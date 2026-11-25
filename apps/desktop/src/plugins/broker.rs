@@ -100,6 +100,21 @@ pub fn plugin_message(server_id: &str, message: &Value) -> Value {
     })
 }
 
+/// A message as a plugin with `messages.read` is told of it, directly from a `MessageView`.
+pub fn plugin_message_from_view(server_id: &str, message: &crate::models::MessageView) -> Value {
+    let attachments: Vec<Value> = message.attachments.iter().map(|item| json!({ "name": item.name, "mime": item.mime, "size": item.size })).collect();
+    json!({
+        "serverId": server_id,
+        "groupId": message.group_id,
+        "id": message.id,
+        "senderId": message.sender_id,
+        "text": message.text,
+        "createdAt": message.created_at,
+        "editedAt": message.edited_at,
+        "attachments": attachments,
+    })
+}
+
 /// The list of servers as plugins are given it: without the linked Telegram account.
 pub fn without_telegram(_: &str, value: Value) -> Value {
     match value {
@@ -115,14 +130,56 @@ pub fn for_plugins(event: &Value) -> Value {
     let server = event.get("serverId").and_then(Value::as_str).unwrap_or_default();
     match event.get("type").and_then(Value::as_str) {
         Some("message") | Some("message_moved") => {
-            let mut out = sanitize(event);
-            if let Some(message) = event.get("message") {
-                out["message"] = plugin_message(server, message);
+            if let Value::Object(map) = event {
+                if map.contains_key("$file") {
+                    return Value::Null;
+                }
+                let attachment = map.contains_key("fileId");
+                let mut out = serde_json::Map::with_capacity(map.len());
+                for (key, item) in map {
+                    if key == "message" {
+                        out.insert(key.clone(), plugin_message(server, item));
+                        continue;
+                    }
+                    if attachment && matches!(key.as_str(), "key" | "prefix") {
+                        continue;
+                    }
+                    if matches!(key.as_str(), "secret" | "itemSecret" | "sendKey" | "token" | "password" | "recoveryKey" | "seed") {
+                        continue;
+                    }
+                    out.insert(key.clone(), sanitize(item));
+                }
+                Value::Object(out)
+            } else {
+                sanitize(event)
             }
-            out
         }
         _ => sanitize(event),
     }
+}
+
+struct SizeLimit {
+    len: usize,
+    max: usize,
+}
+
+impl std::io::Write for SizeLimit {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.len = self.len.saturating_add(buf.len());
+        if self.len > self.max {
+            return Err(std::io::Error::other("too large"));
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn json_fits(value: &[Value], max: usize) -> bool {
+    let mut counter = SizeLimit { len: 0, max };
+    serde_json::to_writer(&mut counter, value).is_ok()
 }
 
 /// Whether a plugin granted these may call a method of the core, as the table says: of a server's
@@ -219,6 +276,7 @@ impl Plugins {
                 match (spec, self.storage()) {
                     (Some(spec), Some(storage)) if spec.takes(&value) => {
                         let saved = storage.set(uid, Kind::Settings, &key, &value).map(|_| Value::Null);
+                        self.invalidate_settings(uid);
                         self.forget_decorations();
                         cx.notify();
                         saved
@@ -275,7 +333,7 @@ impl Plugins {
             }
             "ui.close" => {
                 let kind = text(args, "kind");
-                let handles: Vec<u32> = (0..u32::MAX).map_while(|index| self.of_handle(index).map(|handle| (index, handle))).filter(|(_, (owner, k, _))| owner == uid && *k == kind).map(|(index, _)| index).collect();
+                let handles = self.handles_of(uid, &kind);
                 if let Some(state) = state {
                     cx.defer(move |cx| state.update(cx, |state, cx| state.close_plugin_views(&handles, cx)));
                 }
@@ -396,7 +454,7 @@ impl Plugins {
                     let local = loaded.record.origin == Origin::Folder;
                     let (owner, request) = (uid.to_string(), args.clone());
                     cx.spawn(async move |this, cx| {
-                        let result = super::net::fetch(request, hosts, local).await;
+                        let result = super::net::fetch_for(&owner, request, hosts, local).await;
                         this.update(cx, |plugins, _| {
                             if let Err(error) = &result {
                                 plugins.log(&owner, "warn", format!("A fetch failed: {error}"));
@@ -421,13 +479,18 @@ impl Plugins {
                         };
                         let answer = match picked {
                             None => Ok(Value::Null),
-                            Some(path) => match std::fs::metadata(&path) {
-                                Ok(meta) if meta.len() > 8 << 20 => Err("Plugins can only handle files up to 8 MB.".to_string()),
-                                Ok(_) => std::fs::read(&path)
-                                    .map(|bytes| json!({ "name": path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(), "bytes": base64::engine::general_purpose::STANDARD.encode(bytes) }))
-                                    .map_err(|error| error.to_string()),
-                                Err(error) => Err(error.to_string()),
-                            },
+                            Some(path) => cx
+                                .background_executor()
+                                .spawn(async move {
+                                    match std::fs::metadata(&path) {
+                                        Ok(meta) if meta.len() > 8 << 20 => Err("Plugins can only handle files up to 8 MB.".to_string()),
+                                        Ok(_) => std::fs::read(&path)
+                                            .map(|bytes| json!({ "name": path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(), "bytes": base64::engine::general_purpose::STANDARD.encode(bytes) }))
+                                            .map_err(|error| error.to_string()),
+                                        Err(error) => Err(error.to_string()),
+                                    }
+                                })
+                                .await,
                         };
                         this.update(cx, |plugins, _| plugins.reply(&owner, n, answer)).ok();
                     })
@@ -437,30 +500,33 @@ impl Plugins {
                 Err(error) => Err(error),
             },
             "files.save" => match self.may_draw(uid, cx) {
-                Ok(()) => match base64::engine::general_purpose::STANDARD.decode(text(args, "bytes")) {
-                    Ok(bytes) => {
-                        let name: String = text(args, "name").chars().filter(|c| !matches!(c, '/' | '\\' | ':' | '\0')).take(120).collect();
-                        let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
-                        let chosen = cx.prompt_for_new_path(&downloads, Some(if name.is_empty() { "file" } else { &name }));
-                        let owner = uid.to_string();
-                        cx.spawn(async move |this, cx| {
-                            let answer = match chosen.await {
-                                Ok(Ok(Some(path))) => std::fs::write(path, bytes).map(|_| json!(true)).map_err(|error| error.to_string()),
-                                _ => Ok(json!(false)),
-                            };
-                            this.update(cx, |plugins, _| plugins.reply(&owner, n, answer)).ok();
-                        })
-                        .detach();
-                        return None;
+                Ok(()) => {
+                    let encoded = text(args, "bytes");
+                    let name: String = text(args, "name").chars().filter(|c| !matches!(c, '/' | '\\' | ':' | '\0')).take(120).collect();
+                    let owner = uid.to_string();
+                    let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
+                    match base64::engine::general_purpose::STANDARD.decode(encoded) {
+                        Ok(bytes) => {
+                            let chosen = cx.prompt_for_new_path(&downloads, Some(if name.is_empty() { "file" } else { &name }));
+                            cx.spawn(async move |this, cx| {
+                                let answer = match chosen.await {
+                                    Ok(Ok(Some(path))) => cx.background_executor().spawn(async move { std::fs::write(path, bytes).map(|_| json!(true)).map_err(|error| error.to_string()) }).await,
+                                    _ => Ok(json!(false)),
+                                };
+                                this.update(cx, |plugins, _| plugins.reply(&owner, n, answer)).ok();
+                            })
+                            .detach();
+                            return None;
+                        }
+                        Err(_) => Err("The file couldn't be read.".into()),
                     }
-                    Err(_) => Err("The file couldn't be read.".into()),
-                },
+                }
                 Err(error) => Err(error),
             },
             "files.attachment" => return self.attachment(uid, n, args, cx),
             "files.asset" => {
                 let path = text(args, "path");
-                match self.loaded.get(uid).and_then(|loaded| loaded.package.asset(&path).map(<[u8]>::to_vec)) {
+                match self.loaded.get(uid).and_then(|loaded| loaded.package.asset(&path)) {
                     Some(bytes) => Ok(json!(base64::engine::general_purpose::STANDARD.encode(bytes))),
                     None => Err(format!("The package has no {path}.")),
                 }
@@ -550,9 +616,10 @@ impl Plugins {
             plugins.log(uid, "warn", format!("Refused core.call {method}: {error}"));
             Some(Err(error))
         };
-        let granted: Vec<Permission> = Permission::ALL.into_iter().filter(|permission| self.granted(uid, *permission)).collect();
-        if let Err(error) = may_call(&granted, server.is_some(), &method) {
-            return refused(self, error);
+        match surface().method(server.is_some(), &method) {
+            Rule::Never => return refused(self, format!("No plugin may call {method}.")),
+            Rule::Needs(permission) if !self.granted(uid, permission) => return refused(self, needs(permission)),
+            Rule::Needs(_) => {}
         }
         if let Some(server) = &server {
             if !self.server_known(server, cx) {
@@ -564,10 +631,10 @@ impl Plugins {
         if method == "forwardMessages" && ![0, 3].into_iter().all(|at| call_args.get(at).and_then(Value::as_str).is_some_and(|id| self.server_known(id, cx))) {
             return refused(self, "This device isn't on that server.".into());
         }
-        if call_args.len() > 16 || serde_json::to_vec(&call_args).map_or(true, |bytes| bytes.len() > MAX_ARGS) {
+        if call_args.len() > 16 || !json_fits(&call_args, MAX_ARGS) {
             return refused(self, "Those arguments are too large.".into());
         }
-        if holds_path(&Value::Array(call_args.clone())) {
+        if call_args.iter().any(holds_path) {
             return refused(self, "Plugins must pass a file's contents, not its path.".into());
         }
         // What a message may carry from a plugin: no buttons, no signal, nothing but what the person could write.

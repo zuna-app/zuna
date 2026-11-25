@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::Engine;
@@ -74,8 +74,48 @@ fn client(hosts: Vec<String>, local: bool) -> reqwest::Client {
         .expect("a client for plugins")
 }
 
+struct CachedClient {
+    generation: u64,
+    hosts: Vec<String>,
+    local: bool,
+    client: reqwest::Client,
+}
+
+fn clients() -> &'static Mutex<HashMap<String, CachedClient>> {
+    static CLIENTS: OnceLock<Mutex<HashMap<String, CachedClient>>> = OnceLock::new();
+    CLIENTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Drops a plugin's cached HTTP client pool when it stops.
+pub fn forget_client(uid: &str) {
+    clients().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(uid);
+}
+
+fn client_for(uid: Option<&str>, hosts: Vec<String>, local: bool) -> reqwest::Client {
+    let Some(uid) = uid else { return client(hosts, local) };
+    let generation = crate::host::net::generation();
+    let mut cache = clients().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(entry) = cache.get(uid) {
+        if entry.generation == generation && entry.local == local && entry.hosts == hosts {
+            return entry.client.clone();
+        }
+    }
+    let built = client(hosts.clone(), local);
+    cache.insert(uid.to_string(), CachedClient { generation, hosts, local, client: built.clone() });
+    built
+}
+
 /// Makes a plugin's request, answering as the plugin API's `Response` is made: status, headers, and the body in base64.
 pub async fn fetch(args: Value, hosts: Vec<String>, local: bool) -> Result<Value, String> {
+    fetch_inner(None, args, hosts, local).await
+}
+
+/// Makes a plugin's request reusing that plugin's own HTTP client pool until it stops or the network generation changes.
+pub async fn fetch_for(uid: &str, args: Value, hosts: Vec<String>, local: bool) -> Result<Value, String> {
+    fetch_inner(Some(uid), args, hosts, local).await
+}
+
+async fn fetch_inner(uid: Option<&str>, args: Value, hosts: Vec<String>, local: bool) -> Result<Value, String> {
     let url = Url::parse(args.get("url").and_then(Value::as_str).unwrap_or_default()).map_err(|_| "That isn't an address.".to_string())?;
     if !allowed(&url, &hosts) {
         return Err(format!("The plugin can only connect to {} over HTTPS.", hosts.join(", ")));
@@ -98,7 +138,7 @@ pub async fn fetch(args: Value, hosts: Vec<String>, local: bool) -> Result<Value
     if headers.len() > 40 {
         return Err("Too many headers.".into());
     }
-    let client = client(hosts, local);
+    let client = client_for(uid, hosts, local);
     let mut request = client.request(reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "That isn't a method.".to_string())?, url);
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();

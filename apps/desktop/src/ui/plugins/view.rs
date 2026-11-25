@@ -18,7 +18,11 @@ thread_local! {
     /// The text fields plugins' views hold, by plugin and place, so typing in one survives the
     /// view being sent again.
     static INPUTS: RefCell<HashMap<String, (Entity<TextInput>, Subscription)>> = RefCell::new(HashMap::new());
+    /// Decoded asset and data-URL images for plugin views, keyed by `uid|src`, bounded in size.
+    static IMAGES: RefCell<HashMap<String, Option<std::sync::Arc<gpui::Image>>>> = RefCell::new(HashMap::new());
 }
+
+const MAX_IMAGE_CACHE: usize = 64;
 
 /// The field a plugin's view holds at a place, for the tests.
 #[cfg(test)]
@@ -26,9 +30,11 @@ pub fn input_of(uid: &str, path: &str) -> Option<Entity<TextInput>> {
     INPUTS.with(|inputs| inputs.borrow().get(&format!("{uid}|{path}")).map(|(input, _)| input.clone()))
 }
 
-/// Forgets the fields of a plugin that stopped.
+/// Forgets the fields and cached images of a plugin that stopped.
 pub fn forget(uid: &str) {
-    INPUTS.with(|inputs| inputs.borrow_mut().retain(|key, _| !key.starts_with(&format!("{uid}|"))));
+    let prefix = format!("{uid}|");
+    INPUTS.with(|inputs| inputs.borrow_mut().retain(|key, _| !key.starts_with(&prefix)));
+    IMAGES.with(|images| images.borrow_mut().retain(|key, _| !key.starts_with(&prefix)));
 }
 
 fn color_of(color: &Color, theme: &Theme) -> Hsla {
@@ -321,23 +327,37 @@ fn leaf(uid: &str, node: &Node, cx: &mut App) -> AnyElement {
 /// A picture a view names: one of the plugin's assets, or a data URL. One from a host is drawn
 /// as an empty box for now, as the broker doesn't fetch pictures for views yet.
 fn image_source(uid: &str, src: &str, cx: &App) -> Option<std::sync::Arc<gpui::Image>> {
-    let bytes = if src.starts_with("assets/") {
-        let path = src;
-        let plugins = crate::plugins::get(cx)?;
-        let plugins = plugins.read(cx);
-        plugins.loaded.get(uid)?.package.asset(path)?.to_vec()
-    } else if let Some(data) = src.strip_prefix("data:") {
-        let (_, encoded) = data.split_once(";base64,")?;
-        use base64::Engine;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
-        if bytes.len() > 1 << 20 {
+    let cache_key = format!("{uid}|{src}");
+    if let Some(cached) = IMAGES.with(|images| images.borrow().get(&cache_key).cloned()) {
+        return cached;
+    }
+    let decoded = (|| {
+        let bytes = if src.starts_with("assets/") {
+            let path = src;
+            let plugins = crate::plugins::get(cx)?;
+            let plugins = plugins.read(cx);
+            plugins.loaded.get(uid)?.package.asset(path)?.to_vec()
+        } else if let Some(data) = src.strip_prefix("data:") {
+            let (_, encoded) = data.split_once(";base64,")?;
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+            if bytes.len() > 1 << 20 {
+                return None;
+            }
+            bytes
+        } else {
             return None;
+        };
+        crate::state::picture("", bytes).map(std::sync::Arc::new)
+    })();
+    IMAGES.with(|images| {
+        let mut cache = images.borrow_mut();
+        if cache.len() >= MAX_IMAGE_CACHE {
+            cache.clear();
         }
-        bytes
-    } else {
-        return None;
-    };
-    crate::state::picture("", bytes).map(std::sync::Arc::new)
+        cache.insert(cache_key, decoded.clone());
+    });
+    decoded
 }
 
 /// A canvas: its shapes, drawn freely inside its own box.

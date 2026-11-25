@@ -379,7 +379,9 @@ impl SettingsView {
         let (name, verified, specs, values, has_view) = {
             let plugins = plugins.read(cx);
             let Some(loaded) = plugins.loaded.get(uid) else { return vec![Self::heading(t("settings.plugins.plugin"), &theme)] };
-            (loaded.manifest().name.clone(), loaded.record.verified(), loaded.manifest().contributes.settings.clone(), plugins.settings_of(uid), plugins.slots.get(uid).is_some_and(|slots| slots.settings_view))
+            let has_view = plugins.slots.get(uid).is_some_and(|slots| slots.settings_view);
+            let values = if has_view { serde_json::Map::new() } else { plugins.settings_of(uid) };
+            (loaded.manifest().name.clone(), loaded.record.verified(), loaded.manifest().contributes.settings.clone(), values, has_view)
         };
         let mut parts = vec![div().flex().items_center().gap(px(8.)).child(Self::heading(&name, &theme)).when(!verified, |el| el.child(crate::ui::plugins::unverified_mark(cx))).into_any_element()];
         if has_view {

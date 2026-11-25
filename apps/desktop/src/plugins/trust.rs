@@ -27,12 +27,17 @@ pub const INDEX_LABEL: &str = "zuna-plugin-index/v1\n";
 /// marketplace check alone, the ones the check made for its run (`ZUNA_PLUGIN_KEYS`, separated by
 /// commas). No build anyone uses reads them, as that would let the environment swap the keys.
 pub fn keys() -> Vec<Vec<u8>> {
-    let decode = |key: &str| base64::engine::general_purpose::STANDARD.decode(key.trim()).ok();
     #[cfg(feature = "plugin-check")]
     if let Ok(keys) = std::env::var("ZUNA_PLUGIN_KEYS") {
+        let decode = |key: &str| base64::engine::general_purpose::STANDARD.decode(key.trim()).ok();
         return keys.split(',').filter_map(decode).collect();
     }
-    PLUGIN_KEYS.iter().filter_map(|key| decode(key)).collect()
+    default_keys().to_vec()
+}
+
+fn default_keys() -> &'static [Vec<u8>] {
+    static CACHE: std::sync::OnceLock<Vec<Vec<u8>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| PLUGIN_KEYS.iter().filter_map(|key| base64::engine::general_purpose::STANDARD.decode(key.trim()).ok()).collect())
 }
 
 fn signed_by_any(keys: &[Vec<u8>], message: &[u8], signature: &[u8]) -> bool {
@@ -42,7 +47,11 @@ fn signed_by_any(keys: &[Vec<u8>], message: &[u8], signature: &[u8]) -> bool {
 
 /// Whether a package is signed by one of the plugins' keys.
 pub fn verified(package: &Package) -> bool {
-    verified_with(package, &keys())
+    #[cfg(feature = "plugin-check")]
+    if std::env::var_os("ZUNA_PLUGIN_KEYS").is_some() {
+        return verified_with(package, &keys());
+    }
+    verified_with(package, default_keys())
 }
 
 pub fn verified_with(package: &Package, keys: &[Vec<u8>]) -> bool {

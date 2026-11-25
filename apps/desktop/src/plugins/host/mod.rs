@@ -15,8 +15,9 @@ use std::rc::Rc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use base64::Engine;
 use rquickjs::function::Rest;
-use rquickjs::{Context, Ctx, Function, Runtime, TypedArray, Value};
+use rquickjs::{Context, Ctx, Function, Persistent, Runtime, TypedArray, Value};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -144,31 +145,42 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
 
     // The prelude, the boot message, then the plugin's own script, each within the deadline.
     begin(&deadline);
-    let started = context.with(|ctx| -> Result<(), String> {
+    let started = context.with(|ctx| -> Result<(Persistent<Function<'static>>, Persistent<Function<'static>>), String> {
         install(&ctx, send.clone(), state.clone()).map_err(|_| "The host's functions couldn't be set up.".to_string())?;
         ctx.eval::<(), _>(PRELUDE).map_err(|_| format!("The prelude didn't load: {}", exception(&ctx)))?;
         let receive: Function = ctx.globals().get("__zunaReceive").map_err(|_| "The prelude is broken.".to_string())?;
+        let after: Function = ctx.globals().get("__zunaAfter").map_err(|_| "The prelude is broken.".to_string())?;
         receive.call::<_, ()>((boot.as_str(),)).map_err(|_| exception(&ctx))?;
         if let Some(source) = &parsed.source {
             ctx.eval::<(), _>(source.as_str()).map_err(|_| exception(&ctx))?;
         }
         let start: Function = ctx.globals().get("__zunaStart").map_err(|_| "The prelude is broken.".to_string())?;
-        start.call::<_, ()>(()).map_err(|_| exception(&ctx))
+        start.call::<_, ()>(()).map_err(|_| exception(&ctx))?;
+        Ok((Persistent::save(&ctx, receive), Persistent::save(&ctx, after)))
     });
     drop(boot);
     drain(&runtime, &say);
     deadline.set(None);
     // A setup that ran past its deadline was ended: the plugin doesn't run.
     let started = if interrupted.get() { Err("Its script took too long to start.".to_string()) } else { started };
-    if let Err(error) = started {
-        let error = if interrupted.get() { "Its script took too long to start.".to_string() } else { error };
-        say(json!({ "t": "failed", "error": error }));
-        return 1;
-    }
+    let (receive_fn, after_fn) = match started {
+        Ok(fns) => fns,
+        Err(error) => {
+            let error = if interrupted.get() { "Its script took too long to start.".to_string() } else { error };
+            say(json!({ "t": "failed", "error": error }));
+            return 1;
+        }
+    };
     if over_memory(&runtime, limits.memory) {
         say(json!({ "t": "fault", "reason": "memory" }));
         return 3;
     }
+
+    let is_stop = |json: &str| {
+        json.len() < 64
+            && json.contains("\"stop\"")
+            && serde_json::from_str::<serde_json::Value>(json).ok().and_then(|value| value.get("t").cloned()) == Some(json!("stop"))
+    };
 
     loop {
         let next = state.borrow().timers.values().map(|timer| timer.due).min();
@@ -187,19 +199,46 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
         interrupted.set(false);
         match frame {
             Some(None) => return 0,
-            Some(Some(json)) => {
-                if json.len() < 64 && serde_json::from_str::<serde_json::Value>(&json).ok().and_then(|value| value.get("t").cloned()) == Some(json!("stop")) {
+            Some(Some(first)) => {
+                if is_stop(&first) {
                     return 0;
                 }
                 begin(&deadline);
-                context.with(|ctx| {
-                    if let Ok(receive) = ctx.globals().get::<_, Function>("__zunaReceive") {
-                        if receive.call::<_, ()>((json.as_str(),)).is_err() {
-                            let problem = exception(&ctx);
-                            say(json!({ "t": "log", "level": "error", "text": problem }));
+                let mut stop_now = false;
+                let mut current = Some(first);
+                let mut batch = 0usize;
+                while let Some(json) = current.take() {
+                    context.with(|ctx| {
+                        if let Ok(receive) = receive_fn.clone().restore(&ctx) {
+                            if receive.call::<_, ()>((json.as_str(),)).is_err() {
+                                let problem = exception(&ctx);
+                                say(json!({ "t": "log", "level": "error", "text": problem }));
+                            }
                         }
+                    });
+                    drain(&runtime, &say);
+                    if interrupted.get() || batch >= 63 {
+                        break;
                     }
-                });
+                    batch += 1;
+                    match frames.try_recv() {
+                        Ok(None) => {
+                            stop_now = true;
+                            break;
+                        }
+                        Ok(Some(next_json)) => {
+                            if is_stop(&next_json) {
+                                stop_now = true;
+                                break;
+                            }
+                            current = Some(next_json);
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if stop_now {
+                    return 0;
+                }
             }
             None => {
                 // Every timer that's due, oldest first.
@@ -219,17 +258,17 @@ pub fn serve(frames: Receiver<Option<String>>, send: impl FnMut(&str) -> bool + 
                         }
                     }
                     context.with(|ctx| {
-                        if let Ok(receive) = ctx.globals().get::<_, Function>("__zunaReceive") {
+                        if let Ok(receive) = receive_fn.clone().restore(&ctx) {
                             let message = json!({ "t": "event", "name": "timer", "data": { "id": id } }).to_string();
                             receive.call::<_, ()>((message.as_str(),)).ok();
                         }
                     });
                 }
+                drain(&runtime, &say);
             }
         }
-        drain(&runtime, &say);
         context.with(|ctx| {
-            if let Ok(after) = ctx.globals().get::<_, Function>("__zunaAfter") {
+            if let Ok(after) = after_fn.clone().restore(&ctx) {
                 after.call::<_, ()>(()).ok();
             }
         });
@@ -317,22 +356,39 @@ fn install<'js>(ctx: &Ctx<'js>, send: Rc<RefCell<impl FnMut(&str) -> bool + 'sta
     globals.set(
         "__zunaUtf8Decode",
         Function::new(ctx.clone(), |Rest(args): Rest<Value<'js>>| -> String {
-            let bytes = args.first().and_then(read_bytes).unwrap_or_default();
-            String::from_utf8_lossy(&bytes).into_owned()
+            args.first().and_then(|value| with_bytes(value, |bytes| String::from_utf8_lossy(bytes).into_owned())).unwrap_or_default()
+        })?,
+    )?;
+    globals.set(
+        "__zunaBase64Encode",
+        Function::new(ctx.clone(), |Rest(args): Rest<Value<'js>>| -> String {
+            args.first()
+                .and_then(|value| with_bytes(value, |bytes| base64::engine::general_purpose::STANDARD.encode(bytes)))
+                .unwrap_or_default()
+        })?,
+    )?;
+    globals.set(
+        "__zunaBase64Decode",
+        Function::new(ctx.clone(), |ctx: Ctx<'js>, text: String| {
+            let decoded = base64::engine::general_purpose::STANDARD.decode(text.as_bytes()).unwrap_or_else(|_| {
+                let clean: Vec<u8> = text.bytes().filter(|b| b.is_ascii_alphanumeric() || *b == b'+' || *b == b'/').collect();
+                base64::engine::general_purpose::STANDARD_NO_PAD.decode(&clean).unwrap_or_default()
+            });
+            TypedArray::<u8>::new_copy(ctx, &decoded)
         })?,
     )?;
     Ok(())
 }
 
-/// The bytes of a typed array or an array buffer.
-fn read_bytes(value: &Value<'_>) -> Option<Vec<u8>> {
+/// Borrows the bytes of a typed array or an array buffer without copying.
+fn with_bytes<R>(value: &Value<'_>, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
     let object = value.as_object()?;
     // SAFETY (each as_bytes): no JavaScript runs while the slice is alive.
     if let Some(array) = object.as_typed_array::<u8>() {
-        return unsafe { array.as_bytes() }.map(<[u8]>::to_vec);
+        return unsafe { array.as_bytes() }.map(f);
     }
     if let Some(buffer) = object.as_array_buffer() {
-        return unsafe { buffer.as_bytes() }.map(<[u8]>::to_vec);
+        return unsafe { buffer.as_bytes() }.map(f);
     }
     None
 }

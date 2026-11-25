@@ -212,6 +212,8 @@ pub struct Plugins {
     heard: mpsc::UnboundedSender<(String, u64, Option<String>)>,
     next_generation: u64,
     started: bool,
+    /// Cached decrypted settings per plugin, invalidated on change or reload.
+    settings_cache: RefCell<HashMap<String, serde_json::Map<String, Value>>>,
     /// When each folder's files last changed, to load it again when they do.
     folder_stamps: HashMap<String, std::time::SystemTime>,
     pub market: market::Market,
@@ -244,6 +246,7 @@ pub fn init(device_key: Option<&[u8]>, no_plugins: bool, cx: &mut App) -> Entity
 thread_local! {
     /// Messages a view drew whose decorations aren't known yet, gathered for the next ask.
     static WANTED: RefCell<Vec<(String, String, Value)>> = const { RefCell::new(Vec::new()) };
+    static WANTED_KEYS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
     static WAKE: RefCell<Option<mpsc::UnboundedSender<()>>> = const { RefCell::new(None) };
 }
 
@@ -302,6 +305,7 @@ impl Plugins {
             heard,
             next_generation: 1,
             started: false,
+            settings_cache: RefCell::new(HashMap::new()),
             folder_stamps: HashMap::new(),
             market: market::Market::default(),
             proposal: None,
@@ -499,6 +503,7 @@ impl Plugins {
             }
         }
         self.slots.remove(uid);
+        net::forget_client(uid);
         crate::ui::plugins::view::forget(uid);
         self.bound.retain(|(_, owner, _)| owner != uid);
         self.decorations.retain(|_, list| {
@@ -572,6 +577,7 @@ impl Plugins {
         self.loaded.remove(uid);
         self.problems.remove(uid);
         self.logs.remove(uid);
+        self.invalidate_settings(uid);
         if let Some(storage) = &self.storage {
             storage.remove_all(uid);
         }
@@ -644,6 +650,7 @@ impl Plugins {
         self.record.plugins.push(record.clone());
         self.save();
         self.problems.remove(&uid);
+        self.invalidate_settings(&uid);
         self.loaded.insert(uid.clone(), Loaded { record, package: Arc::new(package) });
         if self.started && !turned_off {
             self.start(&uid, cx);
@@ -679,6 +686,7 @@ impl Plugins {
         self.record.plugins.push(record.clone());
         self.save();
         self.problems.remove(&uid);
+        self.invalidate_settings(&uid);
         self.loaded.insert(uid.clone(), Loaded { record, package: Arc::new(package) });
         self.folder_stamps.insert(uid.clone(), folder_stamp(dir));
         if self.started {
@@ -690,38 +698,56 @@ impl Plugins {
     }
 
     fn watch_folders(&mut self, cx: &mut Context<Self>) {
-        let folders: Vec<(String, PathBuf)> = self.record.plugins.iter().filter(|plugin| plugin.origin == Origin::Folder && plugin.enabled).map(|plugin| (plugin.uid(), PathBuf::from(&plugin.path))).collect();
-        for (uid, dir) in folders {
-            let stamp = folder_stamp(&dir);
-            match self.folder_stamps.get(&uid) {
-                Some(seen) if *seen == stamp => continue,
-                None => {
-                    self.folder_stamps.insert(uid, stamp);
-                    continue;
-                }
-                _ => {}
-            }
-            self.folder_stamps.insert(uid.clone(), stamp);
-            match Package::open_folder(&dir) {
-                Ok(package) => {
-                    self.log(&uid, "info", "Its files changed, so it was reloaded.".into());
-                    self.stop(&uid, cx);
-                    if let Some(loaded) = self.loaded.get_mut(&uid) {
-                        loaded.package = Arc::new(package);
-                    }
-                    self.problems.remove(&uid);
-                    if self.started {
-                        self.start(&uid, cx);
-                    }
-                }
-                Err(problem) => {
-                    self.log(&uid, "error", problem.clone());
-                    self.problems.insert(uid, problem);
-                }
-            }
-            self.refresh_theme(cx);
-            cx.notify();
+        if !self.record.plugins.iter().any(|plugin| plugin.origin == Origin::Folder && plugin.enabled) {
+            return;
         }
+        let folders: Vec<(String, PathBuf)> = self.record.plugins.iter().filter(|plugin| plugin.origin == Origin::Folder && plugin.enabled).map(|plugin| (plugin.uid(), PathBuf::from(&plugin.path))).collect();
+        cx.spawn(async move |this, cx| {
+            let stamped: Vec<(String, PathBuf, std::time::SystemTime)> = cx
+                .background_executor()
+                .spawn(async move {
+                    folders.into_iter().map(|(uid, dir)| {
+                        let stamp = folder_stamp(&dir);
+                        (uid, dir, stamp)
+                    }).collect()
+                })
+                .await;
+            this.update(cx, |plugins, cx| {
+                for (uid, dir, stamp) in stamped {
+                    match plugins.folder_stamps.get(&uid) {
+                        Some(seen) if *seen == stamp => continue,
+                        None => {
+                            plugins.folder_stamps.insert(uid, stamp);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    plugins.folder_stamps.insert(uid.clone(), stamp);
+                    match Package::open_folder(&dir) {
+                        Ok(package) => {
+                            plugins.log(&uid, "info", "Its files changed, so it was reloaded.".into());
+                            plugins.stop(&uid, cx);
+                            plugins.invalidate_settings(&uid);
+                            if let Some(loaded) = plugins.loaded.get_mut(&uid) {
+                                loaded.package = Arc::new(package);
+                            }
+                            plugins.problems.remove(&uid);
+                            if plugins.started {
+                                plugins.start(&uid, cx);
+                            }
+                        }
+                        Err(problem) => {
+                            plugins.log(&uid, "error", problem.clone());
+                            plugins.problems.insert(uid, problem);
+                        }
+                    }
+                    plugins.refresh_theme(cx);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn set_allow_unverified(&mut self, allow: bool, cx: &mut Context<Self>) {
@@ -779,6 +805,10 @@ impl Plugins {
     /// Whose panel, page or dialog a number is: the plugin, the kind and the id.
     pub fn of_handle(&self, handle: u32) -> Option<(String, String, String)> {
         self.handles.get(handle as usize).cloned()
+    }
+
+    pub(crate) fn handles_of(&self, uid: &str, kind: &str) -> Vec<u32> {
+        self.handles.iter().enumerate().filter(|(_, (owner, k, _))| owner == uid && k == kind).map(|(index, _)| index as u32).collect()
     }
 
     /// A handler in a plugin's view was used: a click, a change, Enter.
@@ -960,7 +990,7 @@ impl Plugins {
             }
             return;
         };
-        let Ok(message) = serde_json::from_str::<Value>(&message) else {
+        let Ok(mut message) = serde_json::from_str::<Value>(&message) else {
             self.turn_off(uid, t("plugins.off.badMessage"), cx);
             return;
         };
@@ -980,13 +1010,13 @@ impl Plugins {
             "ask" => {
                 let n = message.get("n").and_then(Value::as_u64).unwrap_or(0);
                 let op = message.get("op").and_then(Value::as_str).unwrap_or_default().to_string();
-                let args = message.get("args").cloned().unwrap_or(Value::Null);
+                let args = message.get_mut("args").map(Value::take).unwrap_or(Value::Null);
                 self.ask(uid, n, &op, args, cx);
             }
             "done" => {
                 let n = message.get("n").and_then(Value::as_u64).unwrap_or(0);
                 let result = if message.get("ok").and_then(Value::as_bool) == Some(true) {
-                    Ok(message.get("value").cloned().unwrap_or(Value::Null))
+                    Ok(message.get_mut("value").map(Value::take).unwrap_or(Value::Null))
                 } else {
                     Err(message.get("error").and_then(|error| error.get("message")).and_then(Value::as_str).unwrap_or("It failed.").chars().take(500).collect())
                 };
@@ -1019,25 +1049,37 @@ impl Plugins {
 
     // --- The plugin's own data ---
 
+    fn settings_for_manifest(&self, uid: &str, manifest: &Manifest) -> serde_json::Map<String, Value> {
+        if let Some(cached) = self.settings_cache.borrow().get(uid) {
+            return cached.clone();
+        }
+        let mut settings = serde_json::Map::new();
+        if let Some(storage) = &self.storage {
+            let saved = if manifest.contributes.settings.is_empty() { BTreeMap::new() } else { storage.load(uid, store::Kind::Settings) };
+            for spec in &manifest.contributes.settings {
+                let value = saved.get(spec.key()).filter(|value| spec.takes(value)).cloned().unwrap_or_else(|| spec.default_value());
+                settings.insert(spec.key().to_string(), value);
+            }
+        }
+        self.settings_cache.borrow_mut().insert(uid.to_string(), settings.clone());
+        settings
+    }
+
+    pub(crate) fn invalidate_settings(&self, uid: &str) {
+        self.settings_cache.borrow_mut().remove(uid);
+    }
+
     fn data_of(&self, uid: &str, manifest: &Manifest) -> (Value, Value) {
         let Some(storage) = &self.storage else { return (json!({}), json!({})) };
         let kept = storage.load(uid, store::Kind::Storage);
-        let saved = storage.load(uid, store::Kind::Settings);
-        let mut settings = serde_json::Map::new();
-        for spec in &manifest.contributes.settings {
-            let value = saved.get(spec.key()).filter(|value| spec.takes(value)).cloned().unwrap_or_else(|| spec.default_value());
-            settings.insert(spec.key().to_string(), value);
-        }
+        let settings = self.settings_for_manifest(uid, manifest);
         (json!(kept), Value::Object(settings))
     }
 
     /// A plugin's settings, as its section in Settings draws them.
     pub fn settings_of(&self, uid: &str) -> serde_json::Map<String, Value> {
         let Some(loaded) = self.loaded.get(uid) else { return serde_json::Map::new() };
-        match self.data_of(uid, loaded.manifest()).1 {
-            Value::Object(map) => map,
-            _ => serde_json::Map::new(),
-        }
+        self.settings_for_manifest(uid, loaded.manifest())
     }
 
     /// The person changed a plugin's setting in Settings.
@@ -1052,6 +1094,7 @@ impl Plugins {
                 return;
             }
         }
+        self.invalidate_settings(uid);
         self.event(uid, "settings", json!({ "key": key, "value": value }));
         self.forget_decorations();
         cx.notify();
@@ -1113,8 +1156,11 @@ impl Plugins {
             return;
         }
         let shared = broker::for_plugins(event);
+        let serialized = json!({ "t": "event", "name": "core", "data": { "event": shared } }).to_string();
         for uid in listeners {
-            self.event(&uid, "core", json!({ "event": shared }));
+            if let Some(running) = self.running.get(&uid) {
+                running.process.send(serialized.clone());
+            }
         }
         // A message changed: its decorations are asked for again.
         if kind == "message" {
@@ -1149,6 +1195,7 @@ impl Plugins {
 
     fn ask_decorations(&mut self, cx: &mut Context<Self>) {
         let wanted: Vec<(String, String, Value)> = WANTED.with(|wanted| std::mem::take(&mut *wanted.borrow_mut()));
+        WANTED_KEYS.with(|keys| keys.borrow_mut().clear());
         let decorators: Vec<String> = self.running.iter().filter(|(uid, running)| running.ready && running.decorates && self.granted(uid, Permission::MessagesDecorate)).map(|(uid, _)| uid.clone()).collect();
         if wanted.is_empty() || decorators.is_empty() {
             return;
@@ -1206,13 +1253,23 @@ impl Plugins {
             return found.iter().filter(|decoration| self.running(&decoration.uid)).cloned().collect();
         }
         if !self.asked.contains(&key) {
-            let shared = broker::plugin_message(server_id, &serde_json::to_value(message).unwrap_or_default());
-            WANTED.with(|wanted| wanted.borrow_mut().push((key, server_id.to_string(), shared)));
-            WAKE.with(|wake| {
-                if let Some(wake) = wake.borrow().as_ref() {
-                    wake.unbounded_send(()).ok();
+            let inserted = WANTED_KEYS.with(|keys| keys.borrow_mut().insert(key.clone()));
+            if inserted {
+                let shared = broker::plugin_message_from_view(server_id, message);
+                let first = WANTED.with(|wanted| {
+                    let mut list = wanted.borrow_mut();
+                    let was_empty = list.is_empty();
+                    list.push((key, server_id.to_string(), shared));
+                    was_empty
+                });
+                if first {
+                    WAKE.with(|wake| {
+                        if let Some(wake) = wake.borrow().as_ref() {
+                            wake.unbounded_send(()).ok();
+                        }
+                    });
                 }
-            });
+            }
         }
         Vec::new()
     }

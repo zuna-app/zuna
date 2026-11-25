@@ -111,7 +111,7 @@ pub fn composer_buttons(cx: &mut App) -> Vec<AnyElement> {
 fn message_target(uid: &str, server_id: &str, message: &MessageView, cx: &App) -> Value {
     let reads = with_plugins(cx, |plugins| plugins.granted(uid, crate::plugins::manifest::Permission::MessagesRead)).unwrap_or(false);
     if reads {
-        crate::plugins::broker::plugin_message(server_id, &serde_json::to_value(message).unwrap_or_default())
+        crate::plugins::broker::plugin_message_from_view(server_id, message)
     } else {
         json!({ "serverId": server_id, "groupId": message.group_id, "id": message.id })
     }

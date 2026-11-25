@@ -64,7 +64,15 @@ pub fn bad_path(name: &str) -> Option<String> {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::digest(bytes);
+    let mut out = [0u8; 64];
+    for (i, &byte) in digest.iter().enumerate() {
+        out[i * 2] = HEX[(byte >> 4) as usize];
+        out[i * 2 + 1] = HEX[(byte & 0x0f) as usize];
+    }
+    // Every byte is an ASCII hex digit.
+    String::from_utf8(out.to_vec()).expect("valid ascii hex")
 }
 
 impl Package {

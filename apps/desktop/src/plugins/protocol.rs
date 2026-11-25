@@ -16,11 +16,16 @@ pub const MAX_FROM_HOST: usize = 4 << 20;
 /// The largest a host takes from the app: `boot` carries a script of up to 8 MB.
 pub const MAX_TO_HOST: usize = 24 << 20;
 
-/// Writes one message.
-pub fn write_frame(out: &mut impl Write, json: &str) -> std::io::Result<()> {
+/// Writes one message without flushing, for callers that batch flushes.
+pub fn write_frame_buffered(out: &mut impl Write, json: &str) -> std::io::Result<()> {
     let length = u32::try_from(json.len()).map_err(|_| std::io::Error::other("too large a message"))?;
     out.write_all(&length.to_le_bytes())?;
-    out.write_all(json.as_bytes())?;
+    out.write_all(json.as_bytes())
+}
+
+/// Writes one message.
+pub fn write_frame(out: &mut impl Write, json: &str) -> std::io::Result<()> {
+    write_frame_buffered(out, json)?;
     out.flush()
 }
 
