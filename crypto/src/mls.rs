@@ -5,9 +5,10 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use openmls::prelude::*;
-use openmls_rust_crypto::{MemoryStorage, RustCrypto};
+use openmls_rust_crypto::RustCrypto;
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::signatures::{Signer, SignerError};
 use openmls_traits::types::{CryptoError, ExporterSecret, HashType, HpkeCiphertext, HpkeConfig, HpkeKeyPair, KemOutput};
@@ -16,6 +17,9 @@ use tls_codec::{Deserialize as _, Serialize as _, SecretVLBytes};
 
 use crate::hybrid;
 use crate::primitives::Result;
+
+mod storage;
+use storage::JournalingStorage;
 
 /// The one suite every group is made with, and the only one this takes, from
 /// draft-ietf-mls-pq-ciphersuites: ML-KEM-768 and X25519 together (X-Wing) to agree
@@ -46,8 +50,59 @@ const MAX_LOADED: usize = 32;
 /// small ones there are. One larger than this is still kept, alone.
 const MAX_LOADED_LEAVES: usize = 4_000;
 
-/// Groups as they were loaded, each with how many leaves it has.
-type Loaded = RefCell<HashMap<Vec<u8>, (MlsGroup, usize)>>;
+/// Groups kept loaded in memory, with LRU eviction bounded by both count and total leaves.
+#[derive(Default)]
+struct LoadedCache {
+    tick: u64,
+    total_leaves: usize,
+    groups: HashMap<Vec<u8>, (MlsGroup, usize, u64)>,
+}
+
+impl LoadedCache {
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    fn remove(&mut self, group_id: &[u8]) -> Option<MlsGroup> {
+        let (group, leaves, _) = self.groups.remove(group_id)?;
+        self.total_leaves = self.total_leaves.saturating_sub(leaves);
+        Some(group)
+    }
+
+    fn clear(&mut self) {
+        self.groups.clear();
+        self.total_leaves = 0;
+    }
+
+    fn insert(&mut self, group_id: Vec<u8>, group: MlsGroup) {
+        if let Some((_, old_leaves, _)) = self.groups.remove(&group_id) {
+            self.total_leaves = self.total_leaves.saturating_sub(old_leaves);
+        }
+        let leaves = group.members().count();
+        while !self.groups.is_empty()
+            && (self.groups.len() >= MAX_LOADED || self.total_leaves + leaves > MAX_LOADED_LEAVES)
+        {
+            let Some(oldest) = self
+                .groups
+                .iter()
+                .min_by_key(|(_, (_, _, stamp))| *stamp)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            if let Some((_, evicted_leaves, _)) = self.groups.remove(&oldest) {
+                self.total_leaves = self.total_leaves.saturating_sub(evicted_leaves);
+            }
+        }
+        self.tick = self.tick.wrapping_add(1);
+        let stamp = self.tick;
+        self.total_leaves += leaves;
+        self.groups.insert(group_id, (group, leaves, stamp));
+    }
+}
+
+type Loaded = RefCell<LoadedCache>;
 
 /// What every leaf says it supports. A group requires the roster's extension, so a
 /// leaf that didn't list it couldn't be added.
@@ -164,15 +219,15 @@ impl OpenMlsCrypto for Crypto {
 pub(crate) struct Provider {
     crypto: Crypto,
     rand: RustCrypto,
-    storage: MemoryStorage,
+    storage: JournalingStorage,
 }
 
 impl OpenMlsProvider for Provider {
     type CryptoProvider = Crypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = MemoryStorage;
+    type StorageProvider = JournalingStorage;
 
-    fn storage(&self) -> &MemoryStorage {
+    fn storage(&self) -> &JournalingStorage {
         &self.storage
     }
 
@@ -185,17 +240,28 @@ impl OpenMlsProvider for Provider {
     }
 }
 
-/// Signs as this device, with its hybrid key.
+/// Signs as this device, with its pre-expanded hybrid key.
 struct DeviceSigner {
-    secret: Vec<u8>,
+    expanded: Option<Arc<hybrid::ExpandedKeys>>,
+}
+
+impl DeviceSigner {
+    fn new(secret: &[u8]) -> Self {
+        let expanded = if secret.first() == Some(&hybrid::DEVICE) {
+            hybrid::expand_cached(secret).ok()
+        } else {
+            None
+        };
+        Self { expanded }
+    }
 }
 
 impl Signer for DeviceSigner {
     fn sign(&self, payload: &[u8]) -> std::result::Result<Vec<u8>, SignerError> {
-        if self.secret.first() != Some(&hybrid::DEVICE) {
+        let Some(keys) = &self.expanded else {
             return Err(SignerError::SigningError);
-        }
-        hybrid::sign(&self.secret, payload).map_err(|_| SignerError::SigningError)
+        };
+        keys.sign(payload).map_err(|_| SignerError::SigningError)
     }
 
     fn signature_scheme(&self) -> SignatureScheme {
@@ -255,33 +321,10 @@ pub struct MlsClient {
     provider: Provider,
     signer: DeviceSigner,
     credential: CredentialWithKey,
-    /// Last persisted copy of the storage, used to work out what changed.
-    checkpoint: HashMap<Vec<u8>, Vec<u8>>,
-    /// Groups as last loaded from storage, for reading. Loading one parses all of
-    /// its state, tree and all, and the core reads a group's epoch, members and
-    /// keys around ten times for each message it sends: in a group of 100 that
-    /// came to 4 ms a message, and of 1,000 to 40 ms. Whatever changes a group's
-    /// state forgets it here once it's done, through [`Changing`].
+    /// Groups kept loaded in memory across reads and mutations. Loading one parses
+    /// all of its state, tree and all, and the core reads a group's epoch, members
+    /// and keys repeatedly around every send and commit.
     loaded: Loaded,
-}
-
-/// Forgets what's loaded of one group, or of all of them, as it goes, so that
-/// whatever changed storage meanwhile, and however it ended, is read afresh.
-struct Changing<'a> {
-    loaded: &'a Loaded,
-    group: Option<Vec<u8>>,
-}
-
-impl Drop for Changing<'_> {
-    fn drop(&mut self) {
-        let mut loaded = self.loaded.borrow_mut();
-        match &self.group {
-            Some(group) => {
-                loaded.remove(group);
-            }
-            None => loaded.clear(),
-        }
-    }
 }
 
 impl MlsClient {
@@ -294,10 +337,12 @@ impl MlsClient {
         credential: Vec<u8>,
         state: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Self {
-        let provider = Provider::default();
-        let checkpoint: HashMap<_, _> = state.into_iter().collect();
-        *provider.storage().values.write().unwrap() = checkpoint.clone();
-        let signer = DeviceSigner { secret: device_secret };
+        let provider = Provider {
+            crypto: Crypto::default(),
+            rand: RustCrypto::default(),
+            storage: JournalingStorage::from_entries(state),
+        };
+        let signer = DeviceSigner::new(&device_secret);
         let credential = CredentialWithKey {
             credential: BasicCredential::new(credential).into(),
             signature_key: device_public.into(),
@@ -306,26 +351,22 @@ impl MlsClient {
             provider,
             signer,
             credential,
-            checkpoint,
             loaded: RefCell::default(),
         }
     }
 
-    /// Marks a group's state as about to change, until what this returns goes.
-    fn changing(&self, group_id: &[u8]) -> Changing<'_> {
-        Changing { loaded: &self.loaded, group: Some(group_id.to_vec()) }
-    }
-
-    /// Marks every group's state as about to change, as a join may replace any.
-    fn changing_all(&self) -> Changing<'_> {
-        Changing { loaded: &self.loaded, group: None }
-    }
-
     /// Reads a group as it's stored, or None if there isn't one, loading it only
-    /// the first time until something changes it.
+    /// the first time until evicted or replaced.
     fn read<T>(&self, group_id: &[u8], read: impl FnOnce(&MlsGroup) -> T) -> Result<Option<T>> {
-        if let Some((group, _)) = self.loaded.borrow().get(group_id) {
-            return Ok(Some(read(group)));
+        {
+            let mut loaded = self.loaded.borrow_mut();
+            let next = loaded.tick.wrapping_add(1);
+            if let Some((group, _, stamp)) = loaded.groups.get_mut(group_id) {
+                *stamp = next;
+                let value = read(group);
+                loaded.tick = next;
+                return Ok(Some(value));
+            }
         }
         let Some(group) = MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
             .map_err(err("load group"))?
@@ -333,14 +374,33 @@ impl MlsClient {
             return Ok(None);
         };
         let value = read(&group);
-        let leaves = group.members().count();
-        let mut loaded = self.loaded.borrow_mut();
-        while !loaded.is_empty() && (loaded.len() >= MAX_LOADED || loaded.values().map(|(_, held)| held).sum::<usize>() + leaves > MAX_LOADED_LEAVES) {
-            let Some(other) = loaded.keys().next().cloned() else { break };
-            loaded.remove(&other);
-        }
-        loaded.insert(group_id.to_vec(), (group, leaves));
+        self.loaded.borrow_mut().insert(group_id.to_vec(), group);
         Ok(Some(value))
+    }
+
+    /// Takes a group out of the cache for mutation (or loads it from storage on miss).
+    /// Callers re-insert via `cache_group` only on success, so failed mutations never
+    /// leave stale in-memory state behind.
+    fn take_group(&self, group_id: &[u8]) -> Result<MlsGroup> {
+        if let Some(group) = self.loaded.borrow_mut().remove(group_id) {
+            return Ok(group);
+        }
+        self.load(group_id)
+    }
+
+    #[cfg(test)]
+    fn changing(&self, group_id: &[u8]) -> impl Drop + '_ {
+        struct Evict<'a>(&'a Loaded, Vec<u8>);
+        impl Drop for Evict<'_> {
+            fn drop(&mut self) {
+                self.0.borrow_mut().remove(&self.1);
+            }
+        }
+        Evict(&self.loaded, group_id.to_vec())
+    }
+
+    fn cache_group(&self, group_id: &[u8], group: MlsGroup) {
+        self.loaded.borrow_mut().insert(group_id.to_vec(), group);
     }
 
     /// Reads a group that has to be there.
@@ -351,20 +411,7 @@ impl MlsClient {
     /// Returns what changed in storage since the last call, so the caller can
     /// write it atomically to its database.
     pub fn take_changes(&mut self) -> StateChanges {
-        let values = self.provider.storage().values.read().unwrap();
-        let mut changes = StateChanges::default();
-        for (key, value) in values.iter() {
-            if self.checkpoint.get(key) != Some(value) {
-                changes.set.push((key.clone(), value.clone()));
-            }
-        }
-        for key in self.checkpoint.keys() {
-            if !values.contains_key(key) {
-                changes.deleted.push(key.clone());
-            }
-        }
-        self.checkpoint = values.clone();
-        changes
+        self.provider.storage().take_changes()
     }
 
     /// Replaces the device certificate this client uses from now on: in new key
@@ -376,8 +423,8 @@ impl MlsClient {
     /// Goes back to the state of the last `take_changes`, undoing whatever
     /// happened since, such as a join the server then refused.
     pub fn rollback(&self) {
-        let _changing = self.changing_all();
-        *self.provider.storage().values.write().unwrap() = self.checkpoint.clone();
+        self.loaded.borrow_mut().clear();
+        self.provider.storage().rollback();
     }
 
     fn create_config(roster: Option<&[u8]>) -> Result<MlsGroupCreateConfig> {
@@ -432,7 +479,7 @@ impl MlsClient {
 
     /// Starts a group, with a roster if it's to have one.
     pub fn create_group(&self, group_id: &[u8], roster: Option<&[u8]>) -> Result<u64> {
-        let _changing = self.changing(group_id);
+        self.loaded.borrow_mut().remove(group_id);
         let group = MlsGroup::new_with_group_id(
             &self.provider,
             &self.signer,
@@ -441,39 +488,40 @@ impl MlsClient {
             self.credential.clone(),
         )
         .map_err(err("create group"))?;
-        Ok(group.epoch().as_u64())
+        let epoch = group.epoch().as_u64();
+        self.cache_group(group_id, group);
+        Ok(epoch)
+    }
+
+    fn parse_key_package(&self, bytes: &[u8]) -> Result<KeyPackage> {
+        // A key package starts with its version and its suite (RFC 9420, section 10):
+        // one of another suite is refused before any of it is read, or checked under
+        // that suite's scheme.
+        if bytes.get(2..4).is_some_and(|suite| suite != u16::from(CIPHERSUITE).to_be_bytes()) {
+            return Err("key package of another suite".to_string());
+        }
+        KeyPackageIn::tls_deserialize_exact(bytes)
+            .map_err(err("key package decode"))?
+            .validate(self.provider.crypto(), ProtocolVersion::Mls10)
+            .map_err(err("key package invalid"))
     }
 
     fn parse_key_packages(&self, key_packages: &[Vec<u8>]) -> Result<Vec<KeyPackage>> {
-        key_packages
-            .iter()
-            .map(|bytes| {
-                // A key package starts with its version and its suite (RFC 9420, section 10):
-                // one of another suite is refused before any of it is read, or checked under
-                // that suite's scheme.
-                if bytes.get(2..4).is_some_and(|suite| suite != u16::from(CIPHERSUITE).to_be_bytes()) {
-                    return Err("key package of another suite".to_string());
-                }
-                KeyPackageIn::tls_deserialize_exact(bytes)
-                    .map_err(err("key package decode"))?
-                    .validate(self.provider.crypto(), ProtocolVersion::Mls10)
-                    .map_err(err("key package invalid"))
-            })
-            .collect()
+        key_packages.iter().map(|bytes| self.parse_key_package(bytes)).collect()
     }
 
     /// Credential carried by a key package, so a caller can verify the device
     /// certificate before adding that device to a group.
     pub fn key_package_credential(&self, key_package: &[u8]) -> Result<Vec<u8>> {
-        let parsed = self.parse_key_packages(&[key_package.to_vec()])?;
-        credential_bytes(parsed[0].leaf_node().credential())
+        let parsed = self.parse_key_package(key_package)?;
+        credential_bytes(parsed.leaf_node().credential())
     }
 
     /// The signing key a key package's leaf really uses. The credential only
     /// claims one, so the two have to be compared before trusting the device.
     pub fn key_package_signature_key(&self, key_package: &[u8]) -> Result<Vec<u8>> {
-        let parsed = self.parse_key_packages(&[key_package.to_vec()])?;
-        Ok(parsed[0].leaf_node().signature_key().as_slice().to_vec())
+        let parsed = self.parse_key_package(key_package)?;
+        Ok(parsed.leaf_node().signature_key().as_slice().to_vec())
     }
 
     /// Builds one commit that adds and removes members, and replaces the roster if
@@ -485,8 +533,7 @@ impl MlsClient {
         remove_leaves: &[u32],
         roster: Option<&[u8]>,
     ) -> Result<PendingCommit> {
-        let _changing = self.changing(group_id);
-        let mut group = self.load(group_id)?;
+        let mut group = self.take_group(group_id)?;
         let adds = self.parse_key_packages(key_packages)?;
         let removes = remove_leaves.iter().map(|i| LeafNodeIndex::new(*i));
         let leaf_is_behind = group
@@ -520,28 +567,32 @@ impl MlsClient {
             .stage_commit(&self.provider)
             .map_err(err("commit stage"))?;
         let (commit, welcome, group_info) = bundle.into_messages();
-        Ok(PendingCommit {
+        let pending = PendingCommit {
             commit: encode(&commit)?,
             welcome: welcome.as_ref().map(encode).transpose()?,
             group_info: group_info.as_ref().map(encode).transpose()?,
-        })
+        };
+        self.cache_group(group_id, group);
+        Ok(pending)
     }
 
     pub fn merge_pending(&self, group_id: &[u8]) -> Result<u64> {
-        let _changing = self.changing(group_id);
-        let mut group = self.load(group_id)?;
+        let mut group = self.take_group(group_id)?;
         group
             .merge_pending_commit(&self.provider)
             .map_err(err("merge commit"))?;
-        Ok(group.epoch().as_u64())
+        let epoch = group.epoch().as_u64();
+        self.cache_group(group_id, group);
+        Ok(epoch)
     }
 
     pub fn clear_pending(&self, group_id: &[u8]) -> Result<()> {
-        let _changing = self.changing(group_id);
-        let mut group = self.load(group_id)?;
+        let mut group = self.take_group(group_id)?;
         group
             .clear_pending_commit(self.provider.storage())
-            .map_err(err("clear commit"))
+            .map_err(err("clear commit"))?;
+        self.cache_group(group_id, group);
+        Ok(())
     }
 
     pub fn has_pending(&self, group_id: &[u8]) -> Result<bool> {
@@ -550,8 +601,7 @@ impl MlsClient {
 
     /// Applies a commit from another device.
     pub fn process_commit(&self, group_id: &[u8], bytes: &[u8]) -> Result<ProcessedCommit> {
-        let _changing = self.changing(group_id);
-        let mut group = self.load(group_id)?;
+        let mut group = self.take_group(group_id)?;
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(err("commit decode"))?;
         let protocol = message
             .try_into_protocol_message()
@@ -580,8 +630,10 @@ impl MlsClient {
         group
             .merge_staged_commit(&self.provider, *staged)
             .map_err(err("commit merge"))?;
+        let epoch = group.epoch().as_u64();
+        self.cache_group(group_id, group);
         Ok(ProcessedCommit {
-            epoch: group.epoch().as_u64(),
+            epoch,
             sender_credential,
             is_external,
             added_credentials,
@@ -592,7 +644,7 @@ impl MlsClient {
 
     /// Joins from a Welcome. Returns the group ID and epoch.
     pub fn join_from_welcome(&self, bytes: &[u8], group_id: &[u8]) -> Result<(Vec<u8>, u64)> {
-        let _changing = self.changing_all();
+        self.loaded.borrow_mut().remove(group_id);
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(err("welcome decode"))?;
         let MlsMessageBodyIn::Welcome(welcome) = message.extract() else {
             return Err("expected a welcome".into());
@@ -614,18 +666,23 @@ impl MlsClient {
             .map_err(err("welcome stage"))?
             .into_group(&self.provider)
             .map_err(err("welcome join"))?;
-        Ok((group.group_id().to_vec(), group.epoch().as_u64()))
+        let id = group.group_id().to_vec();
+        let epoch = group.epoch().as_u64();
+        self.cache_group(&id, group);
+        Ok((id, epoch))
     }
 
     /// Joins via an external commit, used for new devices and for repairing a
     /// device whose group state was lost. The old state is replaced if present,
     /// and kept if the group info turns out to be unusable.
     pub fn join_external(&self, group_id: &[u8], group_info: &[u8]) -> Result<(Vec<u8>, u64)> {
-        let _changing = self.changing_all();
-        let before = self.provider.storage().values.read().unwrap().clone();
+        self.loaded.borrow_mut().remove(group_id);
+        self.provider.storage().begin_savepoint();
         let joined = self.replace_by_external_join(group_id, group_info);
         if joined.is_err() {
-            *self.provider.storage().values.write().unwrap() = before;
+            self.provider.storage().rollback_savepoint();
+        } else {
+            self.provider.storage().commit_savepoint();
         }
         joined
     }
@@ -670,7 +727,10 @@ impl MlsClient {
             .finalize(&self.provider)
             .map_err(err("external finalize"))?;
         let (commit, _, _) = bundle.into_messages();
-        Ok((encode(&commit)?, group.epoch().as_u64()))
+        let encoded = encode(&commit)?;
+        let epoch = group.epoch().as_u64();
+        self.cache_group(group_id, group);
+        Ok((encoded, epoch))
     }
 
     /// Exports a group info usable for external joins at the current epoch.
@@ -700,7 +760,7 @@ impl MlsClient {
                 .members()
                 .map(|m| MemberInfo {
                     leaf_index: m.index.u32(),
-                    credential: credential_or_empty(&m.credential),
+                    credential: credential_into_or_empty(m.credential),
                     signature_key: m.signature_key,
                 })
                 .collect()
@@ -739,11 +799,12 @@ impl MlsClient {
 
     /// Forgets a group completely, for example after being removed from it.
     pub fn delete_group(&self, group_id: &[u8]) -> Result<()> {
-        let _changing = self.changing(group_id);
-        if let Some(mut group) =
-            MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
-                .map_err(err("load group"))?
-        {
+        let existing = match self.loaded.borrow_mut().remove(group_id) {
+            Some(group) => Some(group),
+            None => MlsGroup::load(self.provider.storage(), &GroupId::from_slice(group_id))
+                .map_err(err("load group"))?,
+        };
+        if let Some(mut group) = existing {
             group
                 .delete(self.provider.storage())
                 .map_err(err("delete group"))?;
@@ -762,6 +823,12 @@ fn encode(message: &MlsMessageOut) -> Result<Vec<u8>> {
 /// fails every check on it, so one odd leaf can't make a whole group unreadable.
 fn credential_or_empty(credential: &Credential) -> Vec<u8> {
     credential_bytes(credential).unwrap_or_default()
+}
+
+fn credential_into_or_empty(credential: Credential) -> Vec<u8> {
+    BasicCredential::try_from(credential)
+        .map(|basic| basic.identity().to_vec())
+        .unwrap_or_default()
 }
 
 fn credential_bytes(credential: &Credential) -> Result<Vec<u8>> {

@@ -38,11 +38,15 @@ fn byte_array(items: &[Vec<u8>]) -> Array {
     items.iter().map(|item| bytes(item)).collect()
 }
 
+fn to_vec_bytes(val: JsValue) -> Vec<u8> {
+    match val.dyn_into::<Uint8Array>() {
+        Ok(arr) => arr.to_vec(),
+        Err(other) => Uint8Array::new(&other).to_vec(),
+    }
+}
+
 fn from_byte_array(array: &Array) -> Vec<Vec<u8>> {
-    array
-        .iter()
-        .map(|item| Uint8Array::new(&item).to_vec())
-        .collect()
+    array.iter().map(to_vec_bytes).collect()
 }
 
 #[wasm_bindgen(start)]
@@ -220,11 +224,11 @@ impl MlsClient {
         let state = state
             .iter()
             .map(|entry| {
-                let pair = Array::from(&entry);
-                (
-                    Uint8Array::new(&pair.get(0)).to_vec(),
-                    Uint8Array::new(&pair.get(1)).to_vec(),
-                )
+                let pair = match entry.dyn_into::<Array>() {
+                    Ok(arr) => arr,
+                    Err(other) => Array::from(&other),
+                };
+                (to_vec_bytes(pair.get(0)), to_vec_bytes(pair.get(1)))
             })
             .collect();
         MlsClient {

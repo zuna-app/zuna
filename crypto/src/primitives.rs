@@ -7,12 +7,14 @@
 //! here only for a Telegram call's signalling, which is sealed as Telegram's
 //! apps seal it.
 
+use std::sync::OnceLock;
+
 use aes::Aes256;
 use argon2::{Algorithm, Argon2, Params, Version};
 use ctr::cipher::{KeyIvInit as _, StreamCipher as _};
 use ed25519_dalek::Signer as _;
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, Payload},
+    aead::{Aead, AeadInPlace, KeyInit, Payload},
     XChaCha20Poly1305, XNonce,
 };
 use hkdf::Hkdf;
@@ -51,10 +53,21 @@ fn err<E: std::fmt::Debug>(context: &'static str) -> impl FnOnce(E) -> String {
     move |e| format!("{context}: {e:?}")
 }
 
+pub(crate) fn random_array<const N: usize>() -> Result<[u8; N]> {
+    let mut out = [0u8; N];
+    getrandom::getrandom(&mut out).map_err(err("random"))?;
+    Ok(out)
+}
+
 pub fn random_bytes(len: usize) -> Result<Vec<u8>> {
     let mut out = vec![0u8; len];
     getrandom::getrandom(&mut out).map_err(err("random"))?;
     Ok(out)
+}
+
+fn shared_crypto() -> &'static RustCrypto {
+    static CRYPTO: OnceLock<RustCrypto> = OnceLock::new();
+    CRYPTO.get_or_init(RustCrypto::default)
 }
 
 pub fn argon2id(
@@ -109,18 +122,14 @@ fn cipher(key: &[u8]) -> Result<XChaCha20Poly1305> {
 
 /// Encrypts with a fresh random nonce. Output: `nonce || ciphertext`.
 pub fn aead_seal(key: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
-    let nonce = random_bytes(NONCE_LEN)?;
-    let ct = cipher(key)?
-        .encrypt(
-            XNonce::from_slice(&nonce),
-            Payload {
-                msg: plaintext,
-                aad,
-            },
-        )
+    let nonce = random_array::<NONCE_LEN>()?;
+    let mut out = Vec::with_capacity(NONCE_LEN + plaintext.len() + 16);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(plaintext);
+    let tag = cipher(key)?
+        .encrypt_in_place_detached(XNonce::from_slice(&nonce), aad, &mut out[NONCE_LEN..])
         .map_err(err("aead seal"))?;
-    let mut out = nonce;
-    out.extend_from_slice(&ct);
+    out.extend_from_slice(&tag);
     Ok(out)
 }
 
@@ -245,7 +254,7 @@ pub fn token_blind(count: usize) -> Result<Vec<u8>> {
     }
     let mut out = Vec::with_capacity(count * TOKEN_BLIND_LEN);
     for _ in 0..count {
-        let input = random_bytes(TOKEN_INPUT_LEN)?;
+        let input = random_array::<TOKEN_INPUT_LEN>()?;
         let blinded = voprf::VoprfClient::<TokenSuite>::blind(&input, &mut rand_core::OsRng).map_err(err("token blind"))?;
         out.extend_from_slice(&input);
         out.extend_from_slice(&blinded.state.serialize());
@@ -292,8 +301,8 @@ fn finalize_tokens(inputs: &[&[u8]], states: &[&[u8]], evaluated: &[u8], proof: 
 
 /// Returns `(public, secret)` of a fresh X25519 HPKE key.
 pub fn hpke_keygen() -> Result<(Vec<u8>, Vec<u8>)> {
-    let ikm = random_bytes(32)?;
-    let pair = RustCrypto::default()
+    let ikm = random_array::<32>()?;
+    let pair = shared_crypto()
         .derive_hpke_keypair(HPKE_CONFIG, &ikm)
         .map_err(err("hpke keygen"))?;
     Ok((pair.public, pair.private.as_ref().to_vec()))
@@ -301,7 +310,7 @@ pub fn hpke_keygen() -> Result<(Vec<u8>, Vec<u8>)> {
 
 /// Seals `plaintext` to `recipient` (HPKE base mode, RFC 9180).
 pub fn hpke_seal(recipient: &[u8], info: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let sealed = RustCrypto::default()
+    let sealed = shared_crypto()
         .hpke_seal(HPKE_CONFIG, recipient, info, aad, plaintext)
         .map_err(err("hpke seal"))?;
     sealed.tls_serialize_detached().map_err(err("hpke encode"))
@@ -310,7 +319,7 @@ pub fn hpke_seal(recipient: &[u8], info: &[u8], aad: &[u8], plaintext: &[u8]) ->
 pub fn hpke_open(secret: &[u8], info: &[u8], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>> {
     let parsed =
         HpkeCiphertext::tls_deserialize_exact(sealed).map_err(err("hpke decode"))?;
-    RustCrypto::default()
+    shared_crypto()
         .hpke_open(HPKE_CONFIG, &parsed, secret, info, aad)
         .map_err(err("hpke open"))
 }
