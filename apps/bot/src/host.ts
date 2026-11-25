@@ -53,15 +53,35 @@ export function dataFolder(dir: string): string {
   return dir;
 }
 
+const MAX_STMT_CACHE = 256;
+type Statement = ReturnType<InstanceType<typeof DatabaseSync>["prepare"]>;
+
 class DiskDb implements LocalDb {
   private depth = 0;
+  private runStmts = new Map<string, Statement>();
+  private queryStmts = new Map<string, Statement>();
 
   constructor(private readonly db: InstanceType<typeof DatabaseSync>) {}
+
+  private prepareCached(cache: Map<string, Statement>, sql: string, readBigInts: boolean): Statement {
+    let stmt = cache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      if (readBigInts) stmt.setReadBigInts(true);
+      if (cache.size >= MAX_STMT_CACHE) cache.delete(cache.keys().next().value!);
+      cache.set(sql, stmt);
+    }
+    return stmt;
+  }
 
   private convert<T>(row: T): T {
     if (!row || typeof row !== "object") return row;
     const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(row as object)) out[key] = value instanceof Uint8Array ? new Uint8Array(value) : value;
+    const record = row as Record<string, unknown>;
+    for (const key in record) {
+      const value = record[key];
+      out[key] = value instanceof Uint8Array ? new Uint8Array(value) : value;
+    }
     return out as T;
   }
 
@@ -70,18 +90,19 @@ class DiskDb implements LocalDb {
       this.db.exec(sql);
       return;
     }
-    const statement = this.db.prepare(sql);
     // run() reports the last row added, and FTS5 numbers its own rows past 2^53, which only a BigInt holds.
-    statement.setReadBigInts(true);
-    statement.run(...(params as never[]));
+    this.prepareCached(this.runStmts, sql, true).run(...(params as never[]));
   }
 
   all<T>(sql: string, params: SqlValue[] = []): T[] {
-    return (this.db.prepare(sql).all(...(params as never[])) as T[]).map((row) => this.convert(row));
+    const rows = this.prepareCached(this.queryStmts, sql, false).all(...(params as never[])) as T[];
+    const out = new Array<T>(rows.length);
+    for (let i = 0; i < rows.length; i++) out[i] = this.convert(rows[i]!);
+    return out;
   }
 
   get<T>(sql: string, params: SqlValue[] = []): T | undefined {
-    const row = this.db.prepare(sql).get(...(params as never[])) as T | undefined;
+    const row = this.prepareCached(this.queryStmts, sql, false).get(...(params as never[])) as T | undefined;
     return row ? this.convert(row) : undefined;
   }
 
@@ -102,6 +123,8 @@ class DiskDb implements LocalDb {
   }
 
   close(): void {
+    this.runStmts.clear();
+    this.queryStmts.clear();
     this.db.close();
   }
 }

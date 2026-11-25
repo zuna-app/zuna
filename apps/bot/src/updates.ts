@@ -24,6 +24,8 @@ export class Updates {
   private retryDelay = FIRST_RETRY_MS;
   private lastError: { at: number; message: string } | null = null;
   private stopped = false;
+  private webhookCache: { url: string; secret: string } | null | undefined = undefined;
+  private allowedCache: Set<string> | null | undefined = undefined;
 
   /** `call` runs a method, for a webhook's answer that asks for one. */
   constructor(
@@ -42,20 +44,26 @@ export class Updates {
   }
 
   private get webhook(): { url: string; secret: string } | null {
-    const url = this.store.get("webhook_url");
-    return url ? { url, secret: this.store.get("webhook_secret") ?? "" } : null;
+    if (this.webhookCache === undefined) {
+      const url = this.store.get("webhook_url");
+      this.webhookCache = url ? { url, secret: this.store.get("webhook_secret") ?? "" } : null;
+    }
+    return this.webhookCache;
   }
 
   private allowed(kind: string): boolean {
-    const allowed = this.store.get("allowed_updates");
-    return !allowed || (JSON.parse(allowed) as string[]).includes(kind);
+    if (this.allowedCache === undefined) {
+      const raw = this.store.get("allowed_updates");
+      this.allowedCache = raw ? new Set(JSON.parse(raw) as string[]) : null;
+    }
+    return !this.allowedCache || this.allowedCache.has(kind);
   }
 
   /** Keeps an update for the bot's code, unless it said it doesn't want that kind. */
   push(kind: (typeof UPDATE_KINDS)[number], body: Record<string, unknown>): void {
     if (!this.allowed(kind)) return;
-    this.store.pushUpdate({ [kind]: body });
-    if (this.waiting) this.finishWaiting(this.store.updates(0, MOST_AT_ONCE));
+    const id = this.store.pushUpdate({ [kind]: body });
+    if (this.waiting) this.finishWaiting([{ update_id: id, [kind]: body }]);
     this.deliverSoon();
   }
 
@@ -69,7 +77,10 @@ export class Updates {
 
   private setAllowed(params: Params): void {
     const kinds = strings(params, "allowed_updates");
-    if (kinds) this.store.set("allowed_updates", kinds.length > 0 ? JSON.stringify(kinds) : null);
+    if (kinds) {
+      this.store.set("allowed_updates", kinds.length > 0 ? JSON.stringify(kinds) : null);
+      this.allowedCache = kinds.length > 0 ? new Set(kinds) : null;
+    }
   }
 
   // --- getUpdates ---
@@ -118,6 +129,7 @@ export class Updates {
     this.setAllowed(params);
     this.store.set("webhook_url", parsed.href);
     this.store.set("webhook_secret", secret || null);
+    this.webhookCache = { url: parsed.href, secret };
     this.lastError = null;
     this.finishWaiting([]);
     this.deliverSoon();
@@ -128,6 +140,7 @@ export class Updates {
     if (params.drop_pending_updates === true || params.drop_pending_updates === "true") this.store.dropUpdates();
     this.store.set("webhook_url", null);
     this.store.set("webhook_secret", null);
+    this.webhookCache = null;
     clearTimeout(this.retry);
     return true;
   }

@@ -22,50 +22,135 @@ export interface Formatted {
 // --- Zuna's markup, to Telegram's text and entities ---
 
 // As the apps read them (packages/ui/src/lib/markup.tsx).
-const INLINE: { type: string; pattern: RegExp }[] = [
-  { type: "code", pattern: /`([^`\n]+)`/ },
-  { type: "spoiler", pattern: /\|\|([^\n]+?)\|\|/ },
-  { type: "bold", pattern: /\*\*([^\n]+?)\*\*/ },
-  { type: "strikethrough", pattern: /~~([^\n]+?)~~/ },
-  { type: "italic", pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/ },
+const INLINE: { type: string; token: string; pattern: RegExp }[] = [
+  { type: "code", token: "`", pattern: /`([^`\n]+)`/g },
+  { type: "spoiler", token: "||", pattern: /\|\|([^\n]+?)\|\|/g },
+  { type: "bold", token: "**", pattern: /\*\*([^\n]+?)\*\*/g },
+  { type: "strikethrough", token: "~~", pattern: /~~([^\n]+?)~~/g },
+  { type: "italic", token: "*", pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/g },
 ];
+const ITALIC_AT_START = /^\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/;
+const HAS_INLINE = /[`|*~]/;
+const FENCE_RE = /```([^\s`]*)\n?([\s\S]*?)```/g;
+const QUOTE_RE = /^>\s?/;
+const NON_NL_RE = /[^\n]/;
 const MAX_DEPTH = 8;
 const URL = /\bhttps?:\/\/(?:[^\s<>"'()]|\([^\s<>"'()]*\))*(?:[^\s<>"'.,;:!?()\]}]|\([^\s<>"'()]*\))/gi;
 const MENTION = /(?<![\w@])@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})/g;
 const COMMAND = /(?<![^\s])\/([A-Za-z0-9_]{1,32})(@[A-Za-z0-9_][A-Za-z0-9_.-]{1,31})?(?![^\s])/g;
+const HTML_ENTITY_RE = /&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g;
+const HTML_TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:\s[^<>]*)?)>/g;
+const HTML_HREF_RE = /href\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+const HTML_LANG_RE = /class\s*=\s*["']language-([^"'\s]+)["']/i;
+const LANG_LINE_RE = /^[^\s`]+$/;
+const UNESCAPE_RE = /\\(.)/g;
+
+interface CachedMatch {
+  index: number;
+  end: number;
+  inner: string;
+}
 
 function inline(source: string, out: Formatted, depth: number): void {
+  if (depth >= MAX_DEPTH || !HAS_INLINE.test(source)) {
+    out.text += source;
+    return;
+  }
+  const active: number[] = [];
+  for (let r = 0; r < INLINE.length; r++) {
+    if (source.includes(INLINE[r]!.token)) active.push(r);
+  }
+  if (active.length === 0) {
+    out.text += source;
+    return;
+  }
+  const cache: (CachedMatch | null | undefined)[] = new Array(INLINE.length);
   let position = 0;
   while (position < source.length) {
-    const rest = source.slice(position);
-    let first: { type: string; match: RegExpExecArray } | null = null;
-    for (const rule of depth < MAX_DEPTH ? INLINE : []) {
-      const match = rule.pattern.exec(rest);
-      if (match && (!first || match.index < first.match.index)) first = { type: rule.type, match };
+    let bestRule = -1;
+    let best: CachedMatch | null = null;
+    for (let i = 0; i < active.length; i++) {
+      const r = active[i]!;
+      const rule = INLINE[r]!;
+      let match = cache[r];
+      // For italic, a match starting right at `position` ignores what preceded `position` (matching slice(position) semantics).
+      if (r === 4 && position > 0 && source.charCodeAt(position) === 42) {
+        const atPos = ITALIC_AT_START.exec(source.slice(position));
+        if (atPos) {
+          const direct: CachedMatch = { index: position, end: position + atPos[0].length, inner: atPos[1]! };
+          if (!best || direct.index < best.index) {
+            best = direct;
+            bestRule = r;
+          }
+          continue;
+        }
+      }
+      if (match === undefined || (match !== null && match.index < position)) {
+        rule.pattern.lastIndex = position;
+        const exec = rule.pattern.exec(source);
+        match = exec ? { index: exec.index, end: exec.index + exec[0].length, inner: exec[1]! } : null;
+        cache[r] = match;
+      }
+      if (match !== null && (!best || match.index < best.index)) {
+        best = match;
+        bestRule = r;
+      }
     }
-    if (!first) {
-      out.text += rest;
+    if (!best) {
+      out.text += position === 0 ? source : source.slice(position);
       return;
     }
-    out.text += rest.slice(0, first.match.index);
+    if (best.index > position) out.text += source.slice(position, best.index);
     const start = out.text.length;
-    if (first.type === "code") out.text += first.match[1]!;
-    else inline(first.match[1]!, out, depth + 1);
-    out.entities.push({ type: first.type, offset: start, length: out.text.length - start });
-    position += first.match.index + first.match[0].length;
+    const type = INLINE[bestRule]!.type;
+    if (type === "code") out.text += best.inner;
+    else inline(best.inner, out, depth + 1);
+    out.entities.push({ type, offset: start, length: out.text.length - start });
+    position = best.end;
   }
 }
 
 /** What Telegram finds in any text by itself: addresses, mentions and commands, outside code. */
 function found(text: string, taken: Entity[]): Entity[] {
-  const inCode = (offset: number) => taken.some((entity) => (entity.type === "code" || entity.type === "pre") && offset >= entity.offset && offset < entity.offset + entity.length);
+  const codeStarts: number[] = [];
+  const codeEnds: number[] = [];
+  for (let i = 0; i < taken.length; i++) {
+    const entity = taken[i]!;
+    if (entity.type === "code" || entity.type === "pre") {
+      codeStarts.push(entity.offset);
+      codeEnds.push(entity.offset + entity.length);
+    }
+  }
+  const inCode = (offset: number): boolean => {
+    for (let i = 0; i < codeStarts.length; i++) if (offset >= codeStarts[i]! && offset < codeEnds[i]!) return true;
+    return false;
+  };
   const entities: Entity[] = [];
-  for (const [type, pattern] of [["url", URL], ["mention", MENTION], ["bot_command", COMMAND]] as const) {
-    for (const match of text.matchAll(pattern)) {
+  const urlStarts: number[] = [];
+  const urlEnds: number[] = [];
+  if (text.includes("://")) {
+    for (const match of text.matchAll(URL)) {
       if (inCode(match.index)) continue;
-      // An address holds what would read as a mention or a command inside it.
-      if (type !== "url" && entities.some((entity) => entity.type === "url" && match.index >= entity.offset && match.index < entity.offset + entity.length)) continue;
-      entities.push({ type, offset: match.index, length: match[0].length });
+      const len = match[0].length;
+      entities.push({ type: "url", offset: match.index, length: len });
+      urlStarts.push(match.index);
+      urlEnds.push(match.index + len);
+    }
+  }
+  const inUrl = (offset: number): boolean => {
+    for (let i = 0; i < urlStarts.length; i++) if (offset >= urlStarts[i]! && offset < urlEnds[i]!) return true;
+    return false;
+  };
+  if (text.includes("@")) {
+    for (const match of text.matchAll(MENTION)) {
+      if (inCode(match.index) || inUrl(match.index)) continue;
+      entities.push({ type: "mention", offset: match.index, length: match[0].length });
+    }
+  }
+  if (text.includes("/")) {
+    for (const match of text.matchAll(COMMAND)) {
+      if (inCode(match.index) || inUrl(match.index)) continue;
+      entities.push({ type: "bot_command", offset: match.index, length: match[0].length });
     }
   }
   return entities;
@@ -91,35 +176,44 @@ export function toTelegram(markup: string): Formatted {
     out.text += start;
   };
   const prose = (chunk: string) => {
-    if (!chunk.replace(/\n/g, "")) return;
+    if (!NON_NL_RE.test(chunk)) return;
     let quote: number | null = null;
     const endQuote = () => {
       if (quote !== null) out.entities.push({ type: "blockquote", offset: quote, length: out.text.length - quote });
       quote = null;
     };
-    for (const line of trimNewlines(chunk).split("\n")) {
-      const quoted = /^>\s?/.test(line);
+    const lines = trimNewlines(chunk).split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const quoted = line.charCodeAt(0) === 62; // '>'
       if (!quoted) endQuote();
       block("");
       if (quoted && quote === null) quote = out.text.length;
-      inline(quoted ? line.replace(/^>\s?/, "") : line, out, 0);
+      const content = quoted ? line.replace(QUOTE_RE, "") : line;
+      inline(content, out, 0);
       // An empty line is still a line.
-      if (line === "" || (quoted && line.replace(/^>\s?/, "") === "")) out.text += "\n";
+      if (line === "" || (quoted && content === "")) out.text += "\n";
     }
     endQuote();
   };
-  let last = 0;
-  for (const match of markup.matchAll(/```([^\s`]*)\n?([\s\S]*?)```/g)) {
-    prose(markup.slice(last, match.index));
-    block("");
-    const code = match[2]!.replace(/\n$/, "");
-    out.entities.push({ type: "pre", offset: out.text.length, length: code.length, ...(match[1] ? { language: match[1] } : {}) });
-    out.text += code;
-    last = match.index + match[0].length;
+  if (markup.includes("```")) {
+    let last = 0;
+    for (const match of markup.matchAll(FENCE_RE)) {
+      prose(markup.slice(last, match.index));
+      block("");
+      const code = match[2]!.replace(/\n$/, "");
+      out.entities.push({ type: "pre", offset: out.text.length, length: code.length, ...(match[1] ? { language: match[1] } : {}) });
+      out.text += code;
+      last = match.index + match[0].length;
+    }
+    prose(markup.slice(last));
+  } else {
+    prose(markup);
   }
-  prose(markup.slice(last));
   out.text = trimNewlines(out.text, false);
-  out.entities = [...out.entities, ...found(out.text, out.entities)]
+  const auto = found(out.text, out.entities);
+  if (auto.length > 0) for (let i = 0; i < auto.length; i++) out.entities.push(auto[i]!);
+  out.entities = out.entities
     .filter((entity) => entity.length > 0 && entity.offset + entity.length <= out.text.length)
     .sort((a, b) => a.offset - b.offset || b.length - a.length);
   return out;
@@ -212,7 +306,8 @@ const HTML_TAGS: Record<string, string> = {
 const HTML_NAMED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"' };
 
 function decodeHtml(text: string): string {
-  return text.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, name: string) => {
+  if (!text.includes("&")) return text;
+  return text.replace(HTML_ENTITY_RE, (whole, name: string) => {
     if (name.startsWith("#x")) return String.fromCodePoint(Number.parseInt(name.slice(2), 16) || 0xfffd);
     if (name.startsWith("#")) return String.fromCodePoint(Number.parseInt(name.slice(1), 10) || 0xfffd);
     return HTML_NAMED[name.toLowerCase()] ?? whole;
@@ -223,7 +318,7 @@ function parseHtml(source: string): Formatted {
   const out: Formatted = { text: "", entities: [] };
   const open: { tag: string; entity: Entity }[] = [];
   let position = 0;
-  for (const match of source.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:\s[^<>]*)?)>/g)) {
+  for (const match of source.matchAll(HTML_TAG_RE)) {
     out.text += decodeHtml(source.slice(position, match.index));
     position = match.index + match[0].length;
     const tag = match[2]!.toLowerCase();
@@ -238,8 +333,8 @@ function parseHtml(source: string): Formatted {
     }
     const attributes = match[3] ?? "";
     const entity: Entity = { type, offset: out.text.length, length: 0 };
-    if (tag === "a") entity.url = decodeHtml(/href\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attributes)?.slice(1).find((value) => value !== undefined) ?? "");
-    const language = /class\s*=\s*["']language-([^"'\s]+)["']/i.exec(attributes)?.[1];
+    if (tag === "a") entity.url = decodeHtml(HTML_HREF_RE.exec(attributes)?.slice(1).find((value) => value !== undefined) ?? "");
+    const language = HTML_LANG_RE.exec(attributes)?.[1];
     const parent = open.at(-1);
     if (tag === "code" && parent?.tag === "pre") {
       // The code inside a block says which language the block is in, and is no entity of its own.
@@ -257,9 +352,11 @@ function parseHtml(source: string): Formatted {
 
 /** Where a character next stands that no backslash escapes, or -1. */
 function unescaped(source: string, wanted: string, from: number): number {
+  const code = wanted.charCodeAt(0);
   for (let index = from; index < source.length; index++) {
-    if (source[index] === "\\") index++;
-    else if (source.startsWith(wanted, index)) return index;
+    const ch = source.charCodeAt(index);
+    if (ch === 92) index++;
+    else if (ch === code) return index;
   }
   return -1;
 }
@@ -268,8 +365,20 @@ function parseMarkdown(source: string, v2: boolean): Formatted {
   const out: Formatted = { text: "", entities: [] };
   const open: Entity[] = [];
   let quote: number | null = null;
+  let plainStart = 0;
+  let noFence = false;
+  let noBacktick = false;
+  const flushPlain = (to: number) => {
+    if (to > plainStart) out.text += source.slice(plainStart, to);
+  };
   const toggle = (type: string) => {
-    const at = open.findLastIndex((entity) => entity.type === type);
+    let at = -1;
+    for (let i = open.length - 1; i >= 0; i--) {
+      if (open[i]!.type === type) {
+        at = i;
+        break;
+      }
+    }
     if (at < 0) {
       open.push({ type, offset: out.text.length, length: 0 });
       return;
@@ -279,70 +388,115 @@ function parseMarkdown(source: string, v2: boolean): Formatted {
     out.entities.push(entity!);
   };
   for (let index = 0; index < source.length; ) {
-    const char = source[index]!;
-    const lineStart = index === 0 || source[index - 1] === "\n";
+    const code = source.charCodeAt(index);
+    const lineStart = index === 0 || source.charCodeAt(index - 1) === 10;
     if (v2 && lineStart) {
-      if (char === ">") {
+      if (code === 62) {
+        flushPlain(index);
         if (quote === null) quote = out.text.length;
         index++;
+        plainStart = index;
         continue;
       }
       if (quote !== null) {
+        flushPlain(index);
+        plainStart = index;
         // The line break that ended the quote isn't part of it.
         out.entities.push({ type: "blockquote", offset: quote, length: Math.max(0, out.text.length - 1 - quote) });
         quote = null;
       }
     }
-    if (char === "\\" && index + 1 < source.length) {
+    if (code === 92 && index + 1 < source.length) {
+      flushPlain(index);
       out.text += source[index + 1];
       index += 2;
-    } else if (source.startsWith("```", index) && source.indexOf("```", index + 3) > 0) {
-      const end = source.indexOf("```", index + 3);
-      let code = source.slice(index + 3, end);
-      const firstLine = code.indexOf("\n");
-      let language = "";
-      if (firstLine > 0 && /^[^\s`]+$/.test(code.slice(0, firstLine))) {
-        language = code.slice(0, firstLine);
-        code = code.slice(firstLine + 1);
-      } else if (code.startsWith("\n")) {
-        code = code.slice(1);
+      plainStart = index;
+    } else if (code === 96) {
+      let handled = false;
+      if (!noFence && source.charCodeAt(index + 1) === 96 && source.charCodeAt(index + 2) === 96) {
+        const end = source.indexOf("```", index + 3);
+        if (end > 0) {
+          flushPlain(index);
+          let snippet = source.slice(index + 3, end);
+          const firstLine = snippet.indexOf("\n");
+          let language = "";
+          if (firstLine > 0 && LANG_LINE_RE.test(snippet.slice(0, firstLine))) {
+            language = snippet.slice(0, firstLine);
+            snippet = snippet.slice(firstLine + 1);
+          } else if (snippet.startsWith("\n")) {
+            snippet = snippet.slice(1);
+          }
+          if (snippet.endsWith("\n")) snippet = snippet.slice(0, -1);
+          out.entities.push({ type: "pre", offset: out.text.length, length: snippet.length, ...(language ? { language } : {}) });
+          out.text += snippet;
+          index = end + 3;
+          plainStart = index;
+          handled = true;
+        } else {
+          noFence = true;
+        }
       }
-      code = code.replace(/\n$/, "");
-      out.entities.push({ type: "pre", offset: out.text.length, length: code.length, ...(language ? { language } : {}) });
-      out.text += code;
-      index = end + 3;
-    } else if (char === "`" && source.indexOf("`", index + 1) > 0) {
-      const end = source.indexOf("`", index + 1);
-      out.entities.push({ type: "code", offset: out.text.length, length: end - index - 1 });
-      out.text += source.slice(index + 1, end);
-      index = end + 1;
-    } else if (char === "[" && linkAt(source, index)) {
-      const { close, end } = linkAt(source, index)!;
-      const inner = parseMarkdown(source.slice(index + 1, close), v2);
-      for (const entity of inner.entities) out.entities.push({ ...entity, offset: entity.offset + out.text.length });
-      out.entities.push({ type: "text_link", offset: out.text.length, length: inner.text.length, url: source.slice(close + 2, end).replace(/\\(.)/g, "$1") });
-      out.text += inner.text;
-      index = end + 1;
-    } else if (v2 && source.startsWith("||", index)) {
+      if (!handled && !noBacktick) {
+        const end = source.indexOf("`", index + 1);
+        if (end > 0) {
+          flushPlain(index);
+          out.entities.push({ type: "code", offset: out.text.length, length: end - index - 1 });
+          out.text += source.slice(index + 1, end);
+          index = end + 1;
+          plainStart = index;
+          handled = true;
+        } else {
+          noBacktick = true;
+        }
+      }
+      if (!handled) index++;
+    } else if (code === 91) {
+      const link = linkAt(source, index);
+      if (link) {
+        flushPlain(index);
+        const inner = parseMarkdown(source.slice(index + 1, link.close), v2);
+        const base = out.text.length;
+        for (let i = 0; i < inner.entities.length; i++) {
+          const entity = inner.entities[i]!;
+          out.entities.push({ ...entity, offset: entity.offset + base });
+        }
+        out.entities.push({ type: "text_link", offset: base, length: inner.text.length, url: source.slice(link.close + 2, link.end).replace(UNESCAPE_RE, "$1") });
+        out.text += inner.text;
+        index = link.end + 1;
+        plainStart = index;
+      } else {
+        index++;
+      }
+    } else if (v2 && code === 124 && source.charCodeAt(index + 1) === 124) {
+      flushPlain(index);
       toggle("spoiler");
       index += 2;
-    } else if (v2 && source.startsWith("__", index)) {
+      plainStart = index;
+    } else if (v2 && code === 95 && source.charCodeAt(index + 1) === 95) {
+      flushPlain(index);
       toggle("underline");
       index += 2;
-    } else if (char === "*") {
+      plainStart = index;
+    } else if (code === 42) {
+      flushPlain(index);
       toggle("bold");
       index++;
-    } else if (char === "_") {
+      plainStart = index;
+    } else if (code === 95) {
+      flushPlain(index);
       toggle("italic");
       index++;
-    } else if (v2 && char === "~") {
+      plainStart = index;
+    } else if (v2 && code === 126) {
+      flushPlain(index);
       toggle("strikethrough");
       index++;
+      plainStart = index;
     } else {
-      out.text += char;
       index++;
     }
   }
+  flushPlain(source.length);
   if (quote !== null) out.entities.push({ type: "blockquote", offset: quote, length: out.text.length - quote });
   if (open.length > 0) throw new ParseError(`Bad Request: can't parse entities: Can't find end of ${open.at(-1)!.type} entity at byte offset ${open.at(-1)!.offset}`);
   return out;

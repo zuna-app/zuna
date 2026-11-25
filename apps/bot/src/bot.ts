@@ -40,6 +40,7 @@ interface Chat {
   members: ConversationView["members"];
 }
 
+const MENTION_RE = /(?<![\w@])@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})/g;
 const base64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
 export class Bot {
@@ -52,7 +53,11 @@ export class Bot {
   private handling: Promise<void> = Promise.resolve();
   private listeners = new Set<(event: CoreEvent) => void>();
   private users = new Map<string, UserView>();
+  private usersByName = new Map<string, string>();
   private chats = new Map<string, Chat>();
+  private dmByPeer = new Map<string, Chat>();
+  private joinedChatsCache: Set<string> | null = null;
+  private savedTitles = new Map<string, string>();
 
   private constructor(dataDir: string) {
     this.db = new DiskDbProvider(dataDir);
@@ -144,7 +149,7 @@ export class Bot {
   // --- What the core says happened ---
 
   private onEvent(event: CoreEvent): void {
-    for (const listener of [...this.listeners]) listener(event);
+    if (this.listeners.size > 0) for (const listener of [...this.listeners]) listener(event);
     // One at a time, in the order they came, so that updates are in order too.
     this.handling = this.handling.then(() => this.handle(event)).catch((error) => console.warn("[zuna-bot] couldn't take in an event:", error));
   }
@@ -153,10 +158,12 @@ export class Bot {
     switch (event.type) {
       case "users":
         this.users.clear();
+        this.usersByName.clear();
         break;
       case "conversations":
       case "channels":
         this.chats.clear();
+        this.dmByPeer.clear();
         this.noteChats();
         break;
       case "message":
@@ -201,8 +208,9 @@ export class Bot {
 
   /** Tells the bot's code which groups and channels it came into, and which it's out of. */
   private noteChats(): void {
-    const now = new Set([...this.chatList().values()].filter((chat) => chat.kind !== "dm").map((chat) => chat.groupId));
-    const before = new Set(this.store.joinedChats());
+    const now = new Set<string>();
+    for (const chat of this.chatList().values()) if (chat.kind !== "dm") now.add(chat.groupId);
+    const before = (this.joinedChatsCache ??= new Set(this.store.joinedChats()));
     const self = this.user(this.session.getSelf().userId);
     const date = Math.floor(Date.now() / 1000);
     const change = (groupId: string, from: string, to: string) => {
@@ -210,7 +218,7 @@ export class Bot {
       // Who brought it in or took it out isn't something a bot is told for certain, so it's the group's first admin, or the bot.
       const actor = chat?.members.find((member) => member.role === "admin")?.userId;
       this.updates.push("my_chat_member", {
-        chat: chat ? this.chatOf(chat) : { id: this.store.chatNumber(groupId), type: "group", title: this.store.get(`title/${groupId}`) ?? "" },
+        chat: chat ? this.chatOf(chat) : { id: this.store.chatNumber(groupId), type: "group", title: this.savedTitles.get(groupId) ?? this.store.get(`title/${groupId}`) ?? "" },
         from: actor ? this.user(actor) : self,
         date,
         old_chat_member: { user: self, status: from },
@@ -218,14 +226,20 @@ export class Bot {
       });
     };
     for (const groupId of now) {
-      this.store.set(`title/${groupId}`, this.chats.get(groupId)?.title ?? "");
+      const title = this.chats.get(groupId)?.title ?? "";
+      if (this.savedTitles.get(groupId) !== title) {
+        this.store.set(`title/${groupId}`, title);
+        this.savedTitles.set(groupId, title);
+      }
       if (before.has(groupId)) continue;
       this.store.setJoined(groupId, true);
+      before.add(groupId);
       change(groupId, "left", "member");
     }
-    for (const groupId of before) {
+    for (const groupId of [...before]) {
       if (now.has(groupId)) continue;
       this.store.setJoined(groupId, false);
+      before.delete(groupId);
       change(groupId, "member", "left");
     }
   }
@@ -233,7 +247,12 @@ export class Bot {
   // --- People and chats, as Telegram shapes them ---
 
   private userList(): Map<string, UserView> {
-    if (this.users.size === 0) for (const user of this.session.getUsers()) this.users.set(user.id, user);
+    if (this.users.size === 0) {
+      for (const user of this.session.getUsers()) {
+        this.users.set(user.id, user);
+        if (user.username) this.usersByName.set(user.username.toLowerCase(), user.id);
+      }
+    }
     return this.users;
   }
 
@@ -243,7 +262,9 @@ export class Bot {
       // A chat is one the bot is in once it holds its keys, which is when it can read what it's called too.
       if (!conversation.groupId || conversation.removed || !conversation.ready || !this.session.holdsKeys(conversation.groupId)) return;
       const { groupId, kind, title, description, peerId, members } = conversation;
-      this.chats.set(groupId, { groupId, kind, title, description, peerId, members });
+      const chat: Chat = { groupId, kind, title, description, peerId, members };
+      this.chats.set(groupId, chat);
+      if (kind === "dm" && peerId) this.dmByPeer.set(peerId, chat);
     };
     for (const conversation of this.session.getConversations()) add(conversation);
     for (const channel of this.session.getChannels()) if (channel.conversation) add({ ...channel.conversation, title: channel.name || "Channel", description: channel.topic });
@@ -280,7 +301,8 @@ export class Bot {
     if (id > 0) {
       const userId = this.store.userId(id);
       if (!userId) throw new ApiFailure(400, "Bad Request: chat not found");
-      const chat = [...this.chatList().values()].find((item) => item.kind === "dm" && item.peerId === userId);
+      this.chatList();
+      const chat = this.dmByPeer.get(userId);
       // Someone writes to a bot before it can write to them.
       if (!chat) throw new ApiFailure(403, "Forbidden: bot can't initiate conversation with a user");
       return { ...chat, key: `user:${userId}` };
@@ -408,9 +430,11 @@ export class Bot {
   }
 
   private mentionsIn(markup: string): string[] {
-    const names = new Map([...this.userList().values()].filter((user) => user.username).map((user) => [user.username.toLowerCase(), user.id]));
+    if (!markup.includes("@")) return [];
+    this.userList();
+    const names = this.usersByName;
     const found = new Set<string>();
-    for (const match of markup.matchAll(/(?<![\w@])@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})/g)) {
+    for (const match of markup.matchAll(MENTION_RE)) {
       const id = names.get(match[1]!.toLowerCase()) ?? names.get(match[1]!.replace(/[.,:;!?]+$/, "").toLowerCase());
       if (id) found.add(id);
     }
@@ -463,8 +487,9 @@ export class Bot {
       mime = given.type;
     } else if (typeof given === "string" && /^https?:\/\//i.test(given)) {
       throw new ApiFailure(400, "Bad Request: zuna-bot doesn't fetch files from addresses, which would tell that site where the bot runs. Upload the file with the call");
-    } else if (typeof given === "string" && this.store.file(given)) {
-      const stored = this.store.file(given)!;
+    } else if (typeof given === "string") {
+      const stored = this.store.file(given);
+      if (!stored) throw new ApiFailure(400, `Bad Request: there is no ${field} in the request`);
       blob = await this.session.downloadFile(stored);
       ({ name, mime } = stored);
     } else {
@@ -499,8 +524,9 @@ export class Bot {
   }
 
   private member(chat: Chat, userId: string): Json {
-    const listed = chat.kind === "dm" ? userId === chat.peerId || userId === this.session.getSelf().userId : chat.members.some((member) => member.userId === userId);
-    const admin = chat.kind !== "dm" && chat.members.find((member) => member.userId === userId)?.role === "admin";
+    const found = chat.kind === "dm" ? null : chat.members.find((member) => member.userId === userId);
+    const listed = chat.kind === "dm" ? userId === chat.peerId || userId === this.session.getSelf().userId : !!found;
+    const admin = found?.role === "admin";
     if (!listed) return { user: this.user(userId), status: "left" };
     if (!admin) return { user: this.user(userId), status: "member" };
     return { user: this.user(userId), status: "administrator", can_be_edited: false, is_anonymous: false, can_manage_chat: true, can_delete_messages: true, can_restrict_members: true, can_invite_users: true, can_pin_messages: true, can_change_info: true, can_promote_members: true, can_manage_video_chats: false, can_post_stories: false, can_edit_stories: false, can_delete_stories: false };

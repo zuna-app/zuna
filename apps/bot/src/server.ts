@@ -17,7 +17,20 @@ export interface Served {
   close(): Promise<void>;
 }
 
-const same = (a: string, b: string): boolean => timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
+const METHOD_RE = /^\/bot([^/]+)\/([A-Za-z_]+)\/?$/;
+const FILE_RE = /^\/file\/bot([^/]+)\/files\/([0-9a-f]+)(?:\/.*)?$/;
+
+async function readText(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const buf = typeof chunk === "string" ? Buffer.from(chunk) : (chunk as Buffer);
+    total += buf.length;
+    if (total > LARGEST_BODY) throw new ApiFailure(413, "Request Entity Too Large");
+    chunks.push(buf);
+  }
+  return chunks.length === 1 ? chunks[0]!.toString("utf8") : Buffer.concat(chunks, total).toString("utf8");
+}
 
 function answer(response: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
@@ -35,12 +48,15 @@ async function readParams(request: IncomingMessage, url: URL): Promise<Params> {
   if (request.method !== "POST") return params;
   if (Number(request.headers["content-length"] ?? 0) > LARGEST_BODY) throw new ApiFailure(413, "Request Entity Too Large");
   const type = request.headers["content-type"] ?? "";
-  const body = new Response(Readable.toWeb(request) as ReadableStream, { headers: { "content-type": type } });
   try {
     if (type.startsWith("application/json")) {
-      const parsed: unknown = await body.json();
+      const parsed: unknown = JSON.parse(await readText(request));
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) Object.assign(params, parsed);
-    } else if (type.startsWith("multipart/form-data") || type.startsWith("application/x-www-form-urlencoded")) {
+    } else if (type.startsWith("application/x-www-form-urlencoded")) {
+      const form = new URLSearchParams(await readText(request));
+      for (const [name, value] of form) params[name] = value;
+    } else if (type.startsWith("multipart/form-data")) {
+      const body = new Response(Readable.toWeb(request) as ReadableStream, { headers: { "content-type": type } });
       const form = await body.formData();
       for (const [name, value] of form) params[name] = value;
       // A file may be named by another field, as attach://name says.
@@ -49,7 +65,7 @@ async function readParams(request: IncomingMessage, url: URL): Promise<Params> {
         if (attached) params[name] = attached;
       }
     } else {
-      await body.arrayBuffer();
+      request.resume();
     }
   } catch (error) {
     if (error instanceof ApiFailure) throw error;
@@ -63,21 +79,27 @@ async function readParams(request: IncomingMessage, url: URL): Promise<Params> {
  * bot's token in its path, as Telegram's do: /bot<token>/<method>.
  */
 export function serve(bot: Bot, options: { host?: string; port?: number } = {}): Promise<Served> {
+  const expectedTokenHash = createHash("sha256").update(bot.token).digest();
   const server = createServer((request, response) => {
     void (async () => {
       const url = new URL(request.url ?? "/", "http://zuna-bot");
-      const method = /^\/bot([^/]+)\/([A-Za-z_]+)\/?$/.exec(url.pathname);
-      const file = /^\/file\/bot([^/]+)\/files\/([0-9a-f]+)(?:\/.*)?$/.exec(url.pathname);
+      const method = METHOD_RE.exec(url.pathname);
+      const file = method ? null : FILE_RE.exec(url.pathname);
       const token = decodeURIComponent((method ?? file)?.[1] ?? "");
       try {
         if (!method && !file) throw new ApiFailure(404, "Not Found");
-        if (!same(token, bot.token)) throw new ApiFailure(401, "Unauthorized");
+        if (!timingSafeEqual(createHash("sha256").update(token).digest(), expectedTokenHash)) throw new ApiFailure(401, "Unauthorized");
         if (file) {
           const found = await bot.download(file[2]!);
           if (!found) throw new ApiFailure(404, "Not Found: file not found");
-          const bytes = Buffer.from(await found.blob.arrayBuffer());
-          response.writeHead(200, { "Content-Type": found.file.mime || "application/octet-stream", "Content-Length": bytes.length });
-          response.end(bytes);
+          response.writeHead(200, { "Content-Type": found.file.mime || "application/octet-stream", "Content-Length": found.blob.size });
+          const stream = Readable.fromWeb(found.blob.stream() as Parameters<typeof Readable.fromWeb>[0]);
+          await new Promise<void>((resolve, reject) => {
+            stream.on("error", reject);
+            response.on("error", reject);
+            response.on("finish", resolve);
+            stream.pipe(response);
+          });
           return;
         }
         const result = await bot.call(method![2]!, await readParams(request, url));
