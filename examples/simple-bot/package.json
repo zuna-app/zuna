@@ -1,6 +1,6 @@
 {
   "name": "zuna-simple-bot",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "A small Zuna bot, written with grammY against zuna-bot's API.",

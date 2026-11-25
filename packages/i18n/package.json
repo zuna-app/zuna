@@ -1,6 +1,6 @@
 {
   "name": "@zuna/i18n",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "Interface text in every language: the catalogs, the template made from every app's text, and the lookups the core and the web app use.",
