@@ -47,17 +47,16 @@ function fail(message) {
 function readManifest(dir) {
   const path = join(dir, "plugin.json");
   if (!existsSync(path)) fail(`${dir} has no plugin.json.`);
-  return { raw: readFileSync(path), manifest: JSON.parse(readFileSync(path, "utf8")) };
+  const raw = readFileSync(path);
+  return { raw, manifest: JSON.parse(raw.toString("utf8")) };
 }
 
-/** Every file under a folder, by its path from `root`. @param {string} root @param {string} dir */
-function walk(root, dir) {
-  /** @type {string[]} */
-  const out = [];
+/** Every file under a folder, by its path from `root`. @param {string} root @param {string} dir @param {string[]} [out] */
+function walk(root, dir, out = []) {
   if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) out.push(...walk(root, path));
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) walk(root, path, out);
     else out.push(relative(root, path).split("\\").join("/"));
   }
   return out;
@@ -239,6 +238,11 @@ const commands = {
       if (!existsSync(sig) || !indexSigned(readFileSync(flags.previous), readFileSync(sig, "utf8"), [publicKey])) fail("the previous index isn't signed with this key.");
     }
     const packages = flags.packages ? readdirSync(flags.packages).filter((name) => name.endsWith(".zunaplugin")) : [];
+    const keep = Number(flags.keep ?? 5);
+    /** @type {Map<string, any>} */
+    const byId = new Map(index.plugins.map((/** @type {any} */ p) => [p.id, p]));
+    /** @type {Map<string, Map<string, any>>} */
+    const versionsById = new Map(index.plugins.map((/** @type {any} */ p) => [p.id, new Map(p.versions.map((/** @type {any} */ v) => [v.version, v]))]));
     for (const name of packages) {
       const bytes = readFileSync(join(flags.packages, name));
       const { files, signedBy } = openPackage(bytes, [publicKey]);
@@ -246,14 +250,24 @@ const commands = {
       const { problems, manifest } = checkFiles(files);
       if (problems.length) fail(`${name} wouldn't load:\n  ${problems.join("\n  ")}`);
       if (name !== `${manifest.id}-${manifest.version}.zunaplugin`) fail(`${name} should be called ${manifest.id}-${manifest.version}.zunaplugin.`);
-      let plugin = index.plugins.find((/** @type {any} */ p) => p.id === manifest.id);
-      if (!plugin) index.plugins.push((plugin = { id: manifest.id, versions: [] }));
+      let plugin = byId.get(manifest.id);
+      let versions = versionsById.get(manifest.id);
+      if (!plugin || !versions) {
+        plugin = { id: manifest.id, versions: [] };
+        versions = new Map();
+        index.plugins.push(plugin);
+        byId.set(manifest.id, plugin);
+        versionsById.set(manifest.id, versions);
+      }
       const entry = { version: manifest.version, api: manifest.api, minBuild: manifest.minBuild ?? 0, file: name, size: bytes.length, sha256: sha256(bytes), permissions: manifest.permissions, hosts: manifest.hosts ?? [] };
-      const published = plugin.versions.find((/** @type {any} */ v) => v.version === manifest.version);
+      const published = versions.get(manifest.version);
       if (published && published.sha256 !== entry.sha256) fail(`${manifest.id} ${manifest.version} is published already, with other bytes. A new version needs a new number.`);
-      if (!published) plugin.versions.push(entry);
+      if (!published) {
+        plugin.versions.push(entry);
+        versions.set(manifest.version, entry);
+      }
       plugin.versions.sort((/** @type {any} */ a, /** @type {any} */ b) => compareVersions(b.version, a.version));
-      plugin.versions = plugin.versions.slice(0, Number(flags.keep ?? 5));
+      if (plugin.versions.length > keep) plugin.versions.length = keep;
       if (plugin.versions[0].version === manifest.version) {
         const icon = manifest.icon ? files.get(manifest.icon) : undefined;
         const mime = manifest.icon?.endsWith(".svg") ? "image/svg+xml" : "image/png";

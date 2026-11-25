@@ -93,6 +93,16 @@ const HOST = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}
 const KEY = /^[a-zA-Z][a-zA-Z0-9_.-]{0,39}$/;
 const COLOR = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const ASSET = /^assets\/[a-zA-Z0-9_.\/-]{1,200}$/;
+const COMMAND_KEYS = /^[a-z0-9-]{1,40}$/;
+const COMMAND_SLASH = /^[a-z0-9-]{1,32}$/;
+
+const KNOWN_MANIFEST_KEYS = new Set([
+  "manifest", "id", "name", "version", "description", "author", "license", "source", "icon",
+  "main", "api", "minBuild", "permissions", "hosts", "contributes",
+]);
+const PERMISSION_IDS = new Set<string>(PERMISSIONS.map((p) => p.id));
+const CONTRIBUTES_KEYS = new Set(["settings", "commands", "themes"]);
+const THEME_TOKEN_SET = new Set<string>(THEME_TOKENS);
 
 /** Everything wrong with a manifest, as the app would refuse it: an empty list when nothing is. */
 export function checkManifest(value: unknown): string[] {
@@ -100,8 +110,7 @@ export function checkManifest(value: unknown): string[] {
   const fail = (problem: string) => problems.push(problem);
   if (typeof value !== "object" || value === null || Array.isArray(value)) return ["plugin.json isn't an object."];
   const m = value as Record<string, unknown>;
-  const known = new Set(["manifest", "id", "name", "version", "description", "author", "license", "source", "icon", "main", "api", "minBuild", "permissions", "hosts", "contributes"]);
-  for (const key of Object.keys(m)) if (!known.has(key)) fail(`plugin.json has "${key}", which a manifest doesn't.`);
+  for (const key of Object.keys(m)) if (!KNOWN_MANIFEST_KEYS.has(key)) fail(`plugin.json has "${key}", which a manifest doesn't.`);
   if (m.manifest !== 1) fail(`"manifest" is 1.`);
   if (typeof m.id !== "string" || !ID.test(m.id)) fail(`"id" is 3 to 40 lower-case letters, digits and hyphens.`);
   if (typeof m.name !== "string" || !m.name.trim() || m.name.length > 40) fail(`"name" is 1 to 40 characters.`);
@@ -117,10 +126,9 @@ export function checkManifest(value: unknown): string[] {
   if (m.api !== API_VERSION) fail(`"api" is ${API_VERSION}, the plugin API this SDK is for.`);
   if (m.minBuild !== undefined && (!Number.isInteger(m.minBuild) || (m.minBuild as number) < 0)) fail(`"minBuild" is a build number.`);
   const permissions = m.permissions;
-  const ids = new Set<string>(PERMISSIONS.map((p) => p.id));
   if (!Array.isArray(permissions)) fail(`"permissions" is a list, empty if it needs none.`);
   else {
-    for (const p of permissions) if (typeof p !== "string" || !ids.has(p)) fail(`"${String(p)}" isn't a permission.`);
+    for (const p of permissions) if (typeof p !== "string" || !PERMISSION_IDS.has(p)) fail(`"${String(p)}" isn't a permission.`);
     if (new Set(permissions).size !== permissions.length) fail(`"permissions" names one twice.`);
     if (permissions.includes("messages.decorate") && !permissions.includes("messages.read")) fail(`"messages.decorate" needs "messages.read", as a decoration is made from the message.`);
     if (permissions.length > 0 && m.main === undefined) fail(`A plugin with no main.js asks for no permissions.`);
@@ -136,7 +144,7 @@ export function checkManifest(value: unknown): string[] {
   if (contributes !== undefined) {
     if (typeof contributes !== "object" || contributes === null) fail(`"contributes" is an object.`);
     else {
-      for (const key of Object.keys(contributes)) if (!["settings", "commands", "themes"].includes(key)) fail(`"contributes" has "${key}", which it doesn't take.`);
+      for (const key of Object.keys(contributes)) if (!CONTRIBUTES_KEYS.has(key)) fail(`"contributes" has "${key}", which it doesn't take.`);
       checkSettings(contributes.settings, fail);
       checkCommands(contributes.commands, m.main !== undefined, fail);
       checkThemes(contributes.themes, fail);
@@ -181,15 +189,14 @@ function checkCommands(commands: unknown, scripted: boolean, fail: (problem: str
   for (const c of commands as Record<string, unknown>[]) {
     if (typeof c?.id !== "string" || !KEY.test(c.id)) fail(`A command's "id" is a name of its own.`);
     if (typeof c?.title !== "string" || !c.title.trim() || c.title.length > 80) fail(`A command has a "title".`);
-    if (c?.keys !== undefined && (typeof c.keys !== "string" || !/^[a-z0-9-]{1,40}$/.test(c.keys))) fail(`A command's "keys" are one keystroke as GPUI writes it, such as ctrl-shift-t.`);
-    if (c?.slash !== undefined && (typeof c.slash !== "string" || !/^[a-z0-9-]{1,32}$/.test(c.slash))) fail(`A command's "slash" is 1 to 32 lower-case letters, digits and hyphens.`);
+    if (c?.keys !== undefined && (typeof c.keys !== "string" || !COMMAND_KEYS.test(c.keys))) fail(`A command's "keys" are one keystroke as GPUI writes it, such as ctrl-shift-t.`);
+    if (c?.slash !== undefined && (typeof c.slash !== "string" || !COMMAND_SLASH.test(c.slash))) fail(`A command's "slash" is 1 to 32 lower-case letters, digits and hyphens.`);
   }
 }
 
 function checkThemes(themes: unknown, fail: (problem: string) => void): void {
   if (themes === undefined) return;
   if (!Array.isArray(themes) || themes.length > 10) return void fail(`"contributes.themes" is a list of at most 10.`);
-  const tokens = new Set<string>(THEME_TOKENS);
   for (const t of themes as Record<string, unknown>[]) {
     if (typeof t?.id !== "string" || !KEY.test(t.id)) fail(`A theme's "id" is a name of its own.`);
     if (typeof t?.name !== "string" || !t.name.trim() || t.name.length > 40) fail(`A theme has a "name".`);
@@ -197,7 +204,7 @@ function checkThemes(themes: unknown, fail: (problem: string) => void): void {
     if (typeof colors !== "object" || colors === null) fail(`A theme has "colors".`);
     else
       for (const [token, color] of Object.entries(colors)) {
-        if (!tokens.has(token)) fail(`"${token}" isn't a color a theme sets.`);
+        if (!THEME_TOKEN_SET.has(token)) fail(`"${token}" isn't a color a theme sets.`);
         if (typeof color !== "string" || !COLOR.test(color)) fail(`A theme's colors are #rrggbb or #rrggbbaa.`);
       }
   }

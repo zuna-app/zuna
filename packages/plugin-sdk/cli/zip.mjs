@@ -3,24 +3,10 @@
 // back, for `check`. The app reads packages with the zip crate, and refuses anything
 // apps/desktop/src/plugins/package.rs doesn't expect.
 
-import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { crc32 as zlibCrc32, deflateRawSync, inflateRawSync } from "node:zlib";
 
-const TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-
-/** @param {Uint8Array} bytes */
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) crc = TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
+/** @param {Uint8Array} u8 */
+const asBuffer = (u8) => (Buffer.isBuffer(u8) ? u8 : Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength));
 
 // 1980-01-01 00:00, the earliest time zip can say.
 const DOS_TIME = 0;
@@ -31,13 +17,14 @@ export function writeZip(files) {
   const locals = [];
   const centrals = [];
   let offset = 0;
+  let dirLength = 0;
   for (const file of files) {
     const name = Buffer.from(file.name, "utf8");
-    const data = Buffer.from(file.data);
+    const data = asBuffer(file.data);
     const deflated = deflateRawSync(data, { level: 9 });
     const stored = deflated.length >= data.length;
     const body = stored ? data : deflated;
-    const crc = crc32(data);
+    const crc = zlibCrc32(data) >>> 0;
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
@@ -66,20 +53,20 @@ export function writeZip(files) {
     central.writeUInt32LE(offset, 42);
     centrals.push(central, name);
     offset += local.length + name.length + body.length;
+    dirLength += central.length + name.length;
   }
-  const directory = Buffer.concat(centrals);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
   end.writeUInt16LE(files.length, 8);
   end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(dirLength, 12);
   end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, directory, end]);
+  return Buffer.concat([...locals, ...centrals, end], offset + dirLength + 22);
 }
 
 /** The files of a zip, by name, from its central directory. @param {Uint8Array} zip */
 export function readZip(zip) {
-  const bytes = Buffer.from(zip);
+  const bytes = asBuffer(zip);
   let end = -1;
   for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 0xffff); at--) {
     if (bytes.readUInt32LE(at) === 0x06054b50) {

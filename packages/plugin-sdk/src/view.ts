@@ -79,12 +79,15 @@ export interface ViewNode {
 export type Child = ViewNode | string | number | boolean | null | undefined | Child[];
 
 function flatten(children: Child[], out: ViewNode[]): ViewNode[] {
-  for (const child of children) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
     if (child === null || child === undefined || child === false || child === true) continue;
     if (Array.isArray(child)) flatten(child, out);
     else if (typeof child === "string" || typeof child === "number") out.push({ type: "string", props: { text: String(child) }, children: [] });
-    else if (child.type === "fragment") out.push(...child.children);
-    else out.push(child);
+    else if (child.type === "fragment") {
+      const sub = child.children;
+      for (let j = 0; j < sub.length; j++) out.push(sub[j]!);
+    } else out.push(child);
   }
   return out;
 }
@@ -94,10 +97,18 @@ export const Fragment = "fragment" as const;
 
 /** The JSX factory: `h("button", { onClick }, "Reset")`, or written as JSX. */
 export function h<T extends NodeType>(type: T | typeof Fragment | ((props: any) => ViewNode), props: (Nodes[T] & { children?: Child }) | null, ...children: Child[]): ViewNode {
-  if (typeof type === "function") return type({ ...(props ?? {}), children });
-  const { children: inline, ...rest } = (props ?? {}) as Record<string, unknown>;
-  const all = children.length > 0 ? children : inline === undefined ? [] : [inline as Child];
-  return { type, props: rest, children: flatten(all, []) };
+  if (typeof type === "function") return type(props ? { ...props, children } : { children });
+  let rest: Record<string, unknown>;
+  let inline: unknown;
+  if (props === null || props === undefined) {
+    rest = {};
+  } else if ("children" in props) {
+    ({ children: inline, ...rest } = props as Record<string, unknown>);
+  } else {
+    rest = { ...(props as Record<string, unknown>) };
+  }
+  const out = children.length > 0 ? flatten(children, []) : inline === undefined ? [] : flatten([inline as Child], []);
+  return { type, props: rest, children: out };
 }
 
 /** What a view is drawn from: the plugin's storage as it is now. */
