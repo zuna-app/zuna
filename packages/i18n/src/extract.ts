@@ -53,31 +53,45 @@ function* files(dir: string, kind: Kind, root: string): Generator<string> {
   }
 }
 
+const ESCAPES: Record<string, string> = { n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "'": "'", "\\": "\\" };
+const BRACED_U = /^\{([0-9a-fA-F]{1,6})\}/;
+const BARE_U = /^[0-9a-fA-F]{4}/;
+
+function isSpace(source: string, index: number): boolean {
+  const code = source.charCodeAt(index);
+  if (code <= 32) return code === 32 || code === 10 || code === 13 || code === 9 || code === 11 || code === 12;
+  return code > 127 && /\s/.test(source[index]!);
+}
+
 /** A literal in double quotes from `at`, past any space before it: its text and where it ends. */
 function literal(source: string, at: number, kind: Kind): { text: string; end: number } | { problem: string } | null {
   let i = at;
-  while (/\s/.test(source[i] ?? "")) i++;
-  if (source[i] !== '"') return null;
+  while (i < source.length && isSpace(source, i)) i++;
+  if (source.charCodeAt(i) !== 34) return null;
   if (source.startsWith('"""', i)) return { problem: "a literal is one line in double quotes" };
   let text = "";
+  let segStart = i + 1;
   for (i++; i < source.length; i++) {
-    const char = source[i]!;
-    if (char === '"') return { text, end: i + 1 };
-    if (char === "\n" && kind !== "rust") return { problem: "a literal is one line" };
-    if (char !== "\\") {
-      text += char;
-      continue;
+    const code = source.charCodeAt(i);
+    if (code === 34) {
+      const tail = source.slice(segStart, i);
+      return { text: text ? text + tail : tail, end: i + 1 };
     }
+    if (code === 10 && kind !== "rust") return { problem: "a literal is one line" };
+    if (code !== 92) continue;
+    if (i > segStart) text += source.slice(segStart, i);
     const next = source[++i]!;
     if (next === "\n" && kind === "rust") {
       // Rust's line continuation, which drops the next line's leading space.
-      while (/\s/.test(source[i + 1] ?? "")) i++;
+      while (i + 1 < source.length && isSpace(source, i + 1)) i++;
+      segStart = i + 1;
       continue;
     }
     if (next === "(" && kind === "swift") return { problem: "a key can't interpolate" };
     if (next === "u") {
-      const braced = /^\{([0-9a-fA-F]{1,6})\}/.exec(source.slice(i + 1));
-      const bare = /^[0-9a-fA-F]{4}/.exec(source.slice(i + 1));
+      const head = source.slice(i + 1, i + 9);
+      const braced = BRACED_U.exec(head);
+      const bare = BARE_U.exec(head);
       if (braced) {
         text += String.fromCodePoint(parseInt(braced[1]!, 16));
         i += braced[0].length;
@@ -85,16 +99,15 @@ function literal(source: string, at: number, kind: Kind): { text: string; end: n
         text += String.fromCharCode(parseInt(bare[0], 16));
         i += 4;
       } else return { problem: "a \\u escape can't be read" };
+      segStart = i + 1;
       continue;
     }
-    const escapes: Record<string, string> = { n: "\n", t: "\t", r: "\r", "0": "\0", '"': '"', "'": "'", "\\": "\\" };
-    if (!(next in escapes)) return { problem: `\\${next} can't be read` };
-    text += escapes[next];
+    if (!(next in ESCAPES)) return { problem: `\\${next} can't be read` };
+    text += ESCAPES[next];
+    segStart = i + 1;
   }
   return { problem: "a literal isn't closed" };
 }
-
-const lineOf = (source: string, at: number) => source.slice(0, at).split("\n").length;
 
 /** Whether a match is in a comment, or where a lookup is itself defined. */
 function skipped(source: string, at: number): boolean {
@@ -121,28 +134,39 @@ export function find(root: string): Found {
     for (const path of files(join(root, dir), kind, root)) {
       const source = readFileSync(path, "utf8");
       const file = relative(root, path).replace(/\\/g, "/");
+      let linePos = 0;
+      let lineNum = 1;
+      const lineAt = (at: number): number => {
+        while (true) {
+          const nl = source.indexOf("\n", linePos);
+          if (nl === -1 || nl >= at) break;
+          lineNum++;
+          linePos = nl + 1;
+        }
+        return lineNum;
+      };
       if (kind === "go") {
+        if (!source.includes("writeError(")) continue;
         for (const match of source.matchAll(MESSAGE)) {
           const found = literal(source, match.index! + match[0].length, kind);
-          if (found && !("problem" in found) && !messages.has(found.text)) messages.set(found.text, `${file}:${lineOf(source, match.index!)}`);
+          if (found && !("problem" in found) && !messages.has(found.text)) messages.set(found.text, `${file}:${lineAt(match.index!)}`);
         }
         continue;
       }
       for (const match of source.matchAll(CALLS[kind])) {
         if (skipped(source, match.index!)) continue;
-        const at = `${file}:${lineOf(source, match.index!)}`;
         const found = literal(source, match.index! + match[0].length, kind);
         // A key held in a variable, which mark() names where it's kept.
         if (found === null) continue;
         if ("problem" in found) {
-          problems.push(`${at}: ${found.problem}.`);
+          problems.push(`${file}:${lineAt(match.index!)}: ${found.problem}.`);
           continue;
         }
         if (!KEY.test(found.text)) {
-          problems.push(`${at}: "${found.text}" isn't a key. Keys are dotted names, such as chat.composer.send.`);
+          problems.push(`${file}:${lineAt(match.index!)}: "${found.text}" isn't a key. Keys are dotted names, such as chat.composer.send.`);
           continue;
         }
-        if (!keys.has(found.text)) keys.set(found.text, at);
+        if (!keys.has(found.text)) keys.set(found.text, `${file}:${lineAt(match.index!)}`);
       }
     }
   }

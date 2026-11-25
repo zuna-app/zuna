@@ -47,7 +47,7 @@ export function placeholders(text: string): string[] {
 
 /** A text with its {name}s filled in. A name it isn't given stays as written. */
 export function fill(text: string, vars?: Vars): string {
-  if (!vars) return text;
+  if (!vars || !text.includes("{")) return text;
   return text.replace(PLACEHOLDER, (whole, name: string) => (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : whole));
 }
 
@@ -65,6 +65,13 @@ export function countOf(vars?: Vars): number | null {
 
 // --- Plural rules ---
 
+interface CompiledRelation {
+  divisor: number;
+  eq: boolean;
+  /** Interleaved [low0, high0, low1, high1, ...] inclusive integer bounds. */
+  ranges: number[];
+}
+
 /**
  * A CLDR plural rule (https://unicode.org/reports/tr35/tr35-numbers.html#Language_Plural_Rules),
  * for whole numbers, which are all the apps count: n and i are the number, and v, w, f, t, c and
@@ -77,33 +84,100 @@ export function compileRule(source: string): Rule {
   // rule, so that no expression here has two ways to match the same spaces: one that did took time
   // growing with the square of a rule's length.
   const words = text.split(/\s/).filter(Boolean).join(" ");
-  const ors = words.split(" or ").map((part) =>
-    part.split(" and ").map((relation) => {
+  const ors: CompiledRelation[][] = [];
+  let alwaysTrue = false;
+  for (const part of words.split(" or ")) {
+    const ands: CompiledRelation[] = [];
+    let branchFalse = false;
+    for (const relation of part.split(" and ")) {
       const match = /^([niwvftce])(?:%(\d+))?(!=|=)([\d.,]+)$/.exec(relation.replace(/ /g, ""));
       if (!match) throw new Error(`A plural rule can't be read: ${source}`);
       const [, operand, modulo, operator, list] = match;
-      const ranges = list!.split(",").map((item) => {
+      const ranges: number[] = [];
+      for (const item of list!.split(",")) {
         const bounds = item.trim().split("..");
         if (bounds.length > 2 || bounds.some((bound) => !/^\d+$/.test(bound))) throw new Error(`A plural rule can't be read: ${source}`);
-        return [Number(bounds[0]), Number(bounds[bounds.length - 1])] as const;
-      });
+        ranges.push(Number(bounds[0]), Number(bounds[bounds.length - 1]));
+      }
       const whole = operand === "n" || operand === "i";
       const divisor = modulo === undefined ? 0 : Number(modulo);
       if (modulo !== undefined && divisor === 0) throw new Error(`A plural rule can't be read: ${source}`);
-      return (count: number) => {
-        const value = whole ? (divisor ? count % divisor : count) : 0;
-        const within = ranges.some(([low, high]) => value >= low && value <= high);
-        return operator === "=" ? within : !within;
-      };
-    }),
-  );
-  return (count) => ors.some((ands) => ands.every((relation) => relation(count)));
+      const eq = operator === "=";
+      if (!whole) {
+        let within = false;
+        for (let r = 0; r < ranges.length; r += 2) {
+          if (0 >= ranges[r]! && 0 <= ranges[r + 1]!) {
+            within = true;
+            break;
+          }
+        }
+        if (eq ? !within : within) branchFalse = true;
+      } else {
+        ands.push({ divisor, eq, ranges });
+      }
+    }
+    if (!branchFalse) {
+      if (ands.length === 0) alwaysTrue = true;
+      else ors.push(ands);
+    }
+  }
+  if (alwaysTrue) return () => true;
+  if (ors.length === 0) return () => false;
+  if (ors.length === 1 && ors[0]!.length === 1 && ors[0]![0]!.ranges.length === 2) {
+    const { divisor, eq, ranges } = ors[0]![0]!;
+    const low = ranges[0]!;
+    const high = ranges[1]!;
+    if (divisor === 0) {
+      if (low === high) return eq ? (count) => count === low : (count) => count !== low;
+      return eq ? (count) => count >= low && count <= high : (count) => count < low || count > high;
+    }
+    if (low === high) {
+      return eq ? (count) => count % divisor === low : (count) => count % divisor !== low;
+    }
+    return eq
+      ? (count) => {
+          const v = count % divisor;
+          return v >= low && v <= high;
+        }
+      : (count) => {
+          const v = count % divisor;
+          return v < low || v > high;
+        };
+  }
+  return (count) => {
+    for (let o = 0; o < ors.length; o++) {
+      const ands = ors[o]!;
+      let matched = true;
+      for (let a = 0; a < ands.length; a++) {
+        const rel = ands[a]!;
+        const value = rel.divisor ? count % rel.divisor : count;
+        const ranges = rel.ranges;
+        let within = false;
+        for (let r = 0; r < ranges.length; r += 2) {
+          if (value >= ranges[r]! && value <= ranges[r + 1]!) {
+            within = true;
+            break;
+          }
+        }
+        if (rel.eq ? !within : within) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return true;
+    }
+    return false;
+  };
 }
 
 /** Which form a count takes under some rules. */
 export function pluralCategory(rules: Catalog["rules"], count: number): Category {
   const whole = Math.abs(Math.trunc(count));
-  for (const category of CATEGORIES) if (category !== "other" && rules[category]?.(whole)) return category;
+  if (rules.zero?.(whole)) return "zero";
+  if (rules.one?.(whole)) return "one";
+  if (rules.two?.(whole)) return "two";
+  if (rules.few?.(whole)) return "few";
+  if (rules.many?.(whole)) return "many";
   return "other";
 }
 
@@ -198,14 +272,16 @@ export class Translator {
    * no catalog has is shown as it is, so that it's noticed.
    */
   t(key: string, vars?: Vars): string {
-    for (const catalog of [this.catalog, this.english]) {
-      const entry = catalog?.entries.get(key);
-      if (entry === undefined) continue;
-      if (typeof entry === "string") return fill(entry, vars);
-      const count = countOf(vars);
-      return fill((count === null ? undefined : entry[pluralCategory(catalog!.rules, count)]) ?? entry.other, vars);
+    let catalog = this.catalog;
+    let entry = catalog?.entries.get(key);
+    if (entry === undefined) {
+      catalog = this.english;
+      entry = catalog.entries.get(key);
+      if (entry === undefined) return key;
     }
-    return key;
+    if (typeof entry === "string") return fill(entry, vars);
+    const count = countOf(vars);
+    return fill((count === null ? undefined : entry[pluralCategory(catalog!.rules, count)]) ?? entry.other, vars);
   }
 
   /**
