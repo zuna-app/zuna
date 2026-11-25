@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -48,7 +49,13 @@ type Event struct {
 // for what a room watches together, and the number the ping came with, which says which
 // of the app's pings it answers.
 func pongFrame(n int64) []byte {
-	return encodeEvent(Event{Type: "pong", Data: map[string]int64{"now": time.Now().UnixMilli(), "n": n}})
+	buf := make([]byte, 0, 64)
+	buf = append(buf, `{"t":"pong","d":{"n":`...)
+	buf = strconv.AppendInt(buf, n, 10)
+	buf = append(buf, `,"now":`...)
+	buf = strconv.AppendInt(buf, time.Now().UnixMilli(), 10)
+	buf = append(buf, `}}`...)
+	return buf
 }
 
 type conn struct {
@@ -59,6 +66,8 @@ type conn struct {
 	close    context.CancelFunc
 	// bye is closed when the server is shutting down, to close the socket saying so.
 	bye chan struct{}
+	// allIdx is this connection's slot in Hub.allConns (-1 if not inserted). Guarded by h.mu.
+	allIdx int
 	// active is set while the person is using this device: the desktop's
 	// window in front with input in the last 30 s, the phone app on screen.
 	// Guarded by the hub's lock.
@@ -68,16 +77,25 @@ type conn struct {
 	quiet bool
 }
 
+// deviceTarget identifies one connected device for batched Hub fanouts.
+type deviceTarget struct {
+	userID   string
+	deviceID string
+}
+
 // Hub tracks live connections and fans events out to them.
 type Hub struct {
-	mu     sync.RWMutex
-	conns  map[string]map[*conn]struct{}
-	hidden map[string]bool
+	mu       sync.RWMutex
+	conns    map[string]map[*conn]struct{}
+	allConns []*conn
+	hidden   map[string]bool
 	// online is who shows as online: those using one of their devices, and
 	// those who stopped less than linger ago, who are away.
-	online map[string]bool
-	away   map[string]*absence
-	linger time.Duration
+	online      map[string]bool
+	onlineCache []string
+	onlineDirty bool
+	away        map[string]*absence
+	linger      time.Duration
 	// lastUsed is when each of someone's devices was last in use, for those
 	// used in the last few minutes but not now: user -> device -> time.
 	lastUsed map[string]map[string]time.Time
@@ -93,13 +111,14 @@ func newHub(db *store.DB, linger time.Duration) *Hub {
 		linger = presenceLinger
 	}
 	return &Hub{
-		conns:    map[string]map[*conn]struct{}{},
-		hidden:   map[string]bool{},
-		online:   map[string]bool{},
-		away:     map[string]*absence{},
-		linger:   linger,
-		lastUsed: map[string]map[string]time.Time{},
-		db:       db,
+		conns:       map[string]map[*conn]struct{}{},
+		hidden:      map[string]bool{},
+		online:      map[string]bool{},
+		onlineDirty: true,
+		away:        map[string]*absence{},
+		linger:      linger,
+		lastUsed:    map[string]map[string]time.Time{},
+		db:          db,
 	}
 }
 
@@ -174,6 +193,26 @@ func (h *Hub) ToDevice(userID, deviceID string, event Event) {
 	}
 }
 
+// ToDevices sends one encoded event to many (user, device) targets under a single read lock.
+func (h *Hub) ToDevices(targets []deviceTarget, event Event) {
+	if len(targets) == 0 {
+		return
+	}
+	frame := encodeEvent(event)
+	if frame == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, target := range targets {
+		for c := range h.conns[target.userID] {
+			if c.deviceID == target.deviceID {
+				c.deliver(frame)
+			}
+		}
+	}
+}
+
 // DeviceConnected reports whether a device has a live connection.
 func (h *Hub) DeviceConnected(userID, deviceID string) bool {
 	h.mu.RLock()
@@ -194,10 +233,8 @@ func (h *Hub) ToAll(event Event) {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for _, conns := range h.conns {
-		for c := range conns {
-			c.deliver(frame)
-		}
+	for _, c := range h.allConns {
+		c.deliver(frame)
 	}
 }
 
@@ -209,11 +246,8 @@ func (h *Hub) ToAllExcept(exceptUser string, event Event) {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for user, conns := range h.conns {
-		if user == exceptUser {
-			continue
-		}
-		for c := range conns {
+	for _, c := range h.allConns {
+		if c.userID != exceptUser {
 			c.deliver(frame)
 		}
 	}
@@ -239,11 +273,9 @@ func (h *Hub) CloseAll() {
 		return
 	}
 	h.closing = true
-	for _, conns := range h.conns {
-		for c := range conns {
-			if c.bye != nil {
-				close(c.bye)
-			}
+	for _, c := range h.allConns {
+		if c.bye != nil {
+			close(c.bye)
 		}
 	}
 }
@@ -262,13 +294,26 @@ func (c *conn) closeAfterQueued() {
 // Online lists users who show as online and haven't hidden their presence.
 func (h *Hub) Online() []string {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	if !h.onlineDirty {
+		cached := h.onlineCache
+		h.mu.RUnlock()
+		return cached
+	}
+	h.mu.RUnlock()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.onlineDirty {
+		return h.onlineCache
+	}
 	users := make([]string, 0, len(h.online))
 	for user := range h.online {
 		if !h.hidden[user] {
 			users = append(users, user)
 		}
 	}
+	h.onlineCache = users
+	h.onlineDirty = false
 	return users
 }
 
@@ -283,6 +328,7 @@ func (h *Hub) SetHidden(userID string, hidden bool) {
 		h.hidden[userID] = hidden
 	}
 	if hidden != wasHidden && h.online[userID] {
-		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: !hidden}})
+		h.onlineDirty = true
+		h.toAllFrame(encodePresence(userID, !hidden, nil))
 	}
 }

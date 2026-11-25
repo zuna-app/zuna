@@ -56,8 +56,10 @@ type seenProofs struct {
 	most      int
 	mostOfOne int
 	seen      map[[sha256.Size]byte]struct{}
-	// In the order they came, which is the order they grow old in.
+	// Ring buffer in arrival order (which is expiration order); avoids O(N) prefix copies and dead-string retention.
 	order []seenProof
+	head  int
+	count int
 	held  map[string]int
 }
 
@@ -69,38 +71,68 @@ type seenProof struct {
 
 // forgetOldest lets the oldest signature go. Callers hold the lock.
 func (p *seenProofs) forgetOldest() {
-	oldest := p.order[0]
-	p.order = p.order[1:]
+	oldest := p.order[p.head]
+	p.order[p.head] = seenProof{}
+	p.head++
+	if p.head == len(p.order) {
+		p.head = 0
+	}
+	p.count--
 	delete(p.seen, oldest.key)
 	if p.held[oldest.owner]--; p.held[oldest.owner] <= 0 {
 		delete(p.held, oldest.owner)
 	}
 }
 
+func (p *seenProofs) push(entry seenProof) {
+	if p.count == len(p.order) {
+		nextCap := len(p.order) * 2
+		if nextCap < 64 {
+			nextCap = 64
+		}
+		if p.most > 0 && nextCap > p.most {
+			nextCap = p.most
+		}
+		grown := make([]seenProof, nextCap)
+		if p.count > 0 {
+			n := copy(grown, p.order[p.head:])
+			copy(grown[n:], p.order[:p.head])
+		}
+		p.order = grown
+		p.head = 0
+	}
+	tail := p.head + p.count
+	if tail >= len(p.order) {
+		tail -= len(p.order)
+	}
+	p.order[tail] = entry
+	p.count++
+}
+
 // first reports whether a signature hasn't been seen, and remembers it as its owner's.
 // flooded says its owner already holds its whole share, and it wasn't taken.
 func (p *seenProofs) first(owner string, signature []byte, now time.Time) (fresh, flooded bool) {
+	key := sha256.Sum256(signature)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.seen == nil {
 		p.seen = map[[sha256.Size]byte]struct{}{}
 		p.held = map[string]int{}
 	}
-	for len(p.order) > 0 && now.Sub(p.order[0].at) > 2*proofWindow {
+	for p.count > 0 && now.Sub(p.order[p.head].at) > 2*proofWindow {
 		p.forgetOldest()
 	}
-	key := sha256.Sum256(signature)
 	if _, ok := p.seen[key]; ok {
 		return false, false
 	}
 	if p.mostOfOne > 0 && p.held[owner] >= p.mostOfOne {
 		return false, true
 	}
-	if p.most > 0 && len(p.order) >= p.most {
+	if p.most > 0 && p.count >= p.most {
 		p.forgetOldest()
 	}
 	p.seen[key] = struct{}{}
-	p.order = append(p.order, seenProof{key: key, owner: owner, at: now})
+	p.push(seenProof{key: key, owner: owner, at: now})
 	p.held[owner]++
 	return true, false
 }

@@ -17,21 +17,31 @@ const (
 	idleAfter  = 10 * time.Minute
 	// The table never grows beyond this, however many keys someone makes up.
 	maxKeys = 100_000
+
+	keyedShards          = 64
+	pruneAbovePerShard   = (pruneAbove + keyedShards - 1) / keyedShards
+	maxKeysPerShard      = maxKeys / keyedShards
+	evictTargetPerShard  = maxKeysPerShard - maxKeysPerShard/10
 )
 
 // Keyed keeps a token bucket per key, forgetting keys unused for a while.
 type Keyed struct {
+	shards [keyedShards]keyedShard
+	limit  rate.Limit
+	burst  int
+	idle   time.Duration
+}
+
+type keyedShard struct {
 	mu        sync.Mutex
 	limiters  map[string]*entry
-	limit     rate.Limit
-	burst     int
-	idle      time.Duration
 	lastPrune time.Time
 }
 
 type entry struct {
-	limiter *rate.Limiter
-	seen    time.Time
+	tokens float64
+	last   time.Time
+	seen   time.Time
 }
 
 func NewKeyed(limit rate.Limit, burst int) *Keyed {
@@ -40,47 +50,106 @@ func NewKeyed(limit rate.Limit, burst int) *Keyed {
 	if limit > 0 {
 		idle = max(idle, time.Duration(float64(burst)/float64(limit)*float64(time.Second)))
 	}
-	return &Keyed{limiters: map[string]*entry{}, limit: limit, burst: burst, idle: idle}
+	k := &Keyed{limit: limit, burst: burst, idle: idle}
+	for i := range k.shards {
+		k.shards[i].limiters = map[string]*entry{}
+	}
+	return k
+}
+
+func shardIndex(key string) uint64 {
+	// FNV-1a 64-bit, zero-alloc on string.
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	h := uint64(offset64)
+	for i := 0; i < len(key); i++ {
+		h ^= uint64(key[i])
+		h *= prime64
+	}
+	return h & (keyedShards - 1)
+}
+
+func (l *Keyed) shard(key string) *keyedShard {
+	return &l.shards[shardIndex(key)]
+}
+
+func (l *Keyed) refill(e *entry, now time.Time) float64 {
+	if l.limit == rate.Inf {
+		return float64(l.burst)
+	}
+	tokens := e.tokens
+	if elapsed := now.Sub(e.last); elapsed > 0 && l.limit > 0 {
+		tokens += elapsed.Seconds() * float64(l.limit)
+		if maxTokens := float64(l.burst); tokens > maxTokens {
+			tokens = maxTokens
+		}
+	}
+	return tokens
 }
 
 func (l *Keyed) Allow(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	e, ok := l.limiters[key]
-	if !ok {
-		l.makeRoom(now)
-		e = &entry{limiter: rate.NewLimiter(l.limit, l.burst)}
-		l.limiters[key] = e
+	if l.limit == rate.Inf {
+		return true
 	}
+	s := l.shard(key)
+	now := time.Now()
+	s.mu.Lock()
+	e, ok := s.limiters[key]
+	if !ok {
+		l.makeRoom(s, now)
+		if l.burst <= 0 {
+			s.limiters[key] = &entry{tokens: 0, last: now, seen: now}
+			s.mu.Unlock()
+			return false
+		}
+		s.limiters[key] = &entry{tokens: float64(l.burst - 1), last: now, seen: now}
+		s.mu.Unlock()
+		return true
+	}
+	tokens := l.refill(e, now)
+	e.last = now
 	e.seen = now
-	return e.limiter.Allow()
+	if tokens < 1 {
+		e.tokens = tokens
+		s.mu.Unlock()
+		return false
+	}
+	e.tokens = tokens - 1
+	s.mu.Unlock()
+	return true
 }
 
 // Tokens is how many times a key may do something now, without using any of them.
 func (l *Keyed) Tokens(key string) float64 {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if e, ok := l.limiters[key]; ok {
-		return e.limiter.Tokens()
+	s := l.shard(key)
+	now := time.Now()
+	s.mu.Lock()
+	e, ok := s.limiters[key]
+	if !ok {
+		s.mu.Unlock()
+		return float64(l.burst)
 	}
-	return float64(l.burst)
+	tokens := l.refill(e, now)
+	s.mu.Unlock()
+	return tokens
 }
 
-func (l *Keyed) makeRoom(now time.Time) {
-	if len(l.limiters) > pruneAbove && now.Sub(l.lastPrune) > pruneEvery {
-		l.lastPrune = now
-		for k, e := range l.limiters {
+func (l *Keyed) makeRoom(s *keyedShard, now time.Time) {
+	if len(s.limiters) > pruneAbovePerShard && now.Sub(s.lastPrune) > pruneEvery {
+		s.lastPrune = now
+		for k, e := range s.limiters {
 			if now.Sub(e.seen) > l.idle {
-				delete(l.limiters, k)
+				delete(s.limiters, k)
 			}
 		}
 	}
-	if len(l.limiters) >= maxKeys {
+	if len(s.limiters) >= maxKeysPerShard {
 		// Whichever comes first: being full mustn't become a way to refuse everyone.
-		for k := range l.limiters {
-			delete(l.limiters, k)
-			if len(l.limiters) < maxKeys-maxKeys/10 {
+		for k := range s.limiters {
+			delete(s.limiters, k)
+			if len(s.limiters) < evictTargetPerShard {
 				break
 			}
 		}

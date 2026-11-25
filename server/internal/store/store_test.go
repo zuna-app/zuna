@@ -426,6 +426,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 	}
 	// Back to how it was before file_refs, with a message using two files and a group picture.
 	if _, err := db.sql.ExecContext(ctx, `
+		DROP INDEX IF EXISTS users_last_seen;
+		DROP INDEX IF EXISTS push_registrations_user_filters;
 		DROP TABLE file_refs;
 		ALTER TABLE users ADD COLUMN wrapped_key_password BLOB NOT NULL DEFAULT X'';
 		ALTER TABLE users ADD COLUMN wrapped_key_recovery BLOB NOT NULL DEFAULT X'';

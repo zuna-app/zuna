@@ -55,8 +55,14 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	}
 }
 
+var okResponseJSON = []byte("{\"ok\":true}\n")
+
 func writeOK(w http.ResponseWriter) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(okResponseJSON); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+		slog.Debug("writing response", "error", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

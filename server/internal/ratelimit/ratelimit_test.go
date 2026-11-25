@@ -28,7 +28,11 @@ func TestTheTableCantGrowWithoutLimit(t *testing.T) {
 	for i := range maxKeys + 500 {
 		limiter.Allow(fmt.Sprint("spoofed-", i))
 	}
-	if size := len(limiter.limiters); size > maxKeys {
+	size := 0
+	for i := range limiter.shards {
+		size += len(limiter.shards[i].limiters)
+	}
+	if size > maxKeys {
 		t.Fatalf("the table reached %d keys", size)
 	}
 }
@@ -41,12 +45,23 @@ func TestASlowKeyIsntForgottenBeforeItWouldHaveFilledAgain(t *testing.T) {
 		limiter := NewKeyed(c.limit, 5)
 		for limiter.Allow("caller") {
 		}
-		for i := range pruneAbove {
-			limiter.Allow(fmt.Sprint("other-", i))
+		callerShard := limiter.shard("caller")
+		for i := 0; len(callerShard.limiters) <= pruneAbovePerShard; i++ {
+			k := fmt.Sprint("other-", i)
+			if limiter.shard(k) == callerShard {
+				limiter.Allow(k)
+			}
 		}
-		limiter.limiters["caller"].seen = time.Now().Add(-time.Hour)
-		limiter.Allow("someone new")
-		if _, kept := limiter.limiters["caller"]; kept == c.forgotten {
+		callerShard.limiters["caller"].seen = time.Now().Add(-time.Hour)
+		callerShard.lastPrune = time.Time{}
+		for i := 0; ; i++ {
+			k := fmt.Sprint("someone-new-", i)
+			if limiter.shard(k) == callerShard {
+				limiter.Allow(k)
+				break
+			}
+		}
+		if _, kept := callerShard.limiters["caller"]; kept == c.forgotten {
 			t.Fatalf("at %v a second, a key idle for an hour was kept: %v", c.limit, kept)
 		}
 		if !c.forgotten && limiter.Allow("caller") {

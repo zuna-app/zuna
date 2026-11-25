@@ -21,10 +21,22 @@ type Hash = [HashSize]byte
 // Empty is the root of a tree with nothing in it, as RFC 6962 section 2.1 has it.
 var Empty = sha256.Sum256(nil)
 
+var (
+	bodyPrefix = []byte("zuna/log/body/v1|")
+	headPrefix = "zuna/log/head/v2|"
+)
+
 // Leaf is the hash a record goes into the tree as.
 func Leaf(data []byte) Hash {
+	if len(data) <= RecordSize {
+		var buf [1 + RecordSize]byte
+		buf[0] = 0
+		copy(buf[1:], data)
+		return sha256.Sum256(buf[:1+len(data)])
+	}
 	h := sha256.New()
-	h.Write([]byte{0})
+	var zero [1]byte
+	h.Write(zero[:])
 	h.Write(data)
 	var out Hash
 	h.Sum(out[:0])
@@ -33,13 +45,11 @@ func Leaf(data []byte) Hash {
 
 // Node is the hash of two subtrees side by side.
 func Node(left, right Hash) Hash {
-	h := sha256.New()
-	h.Write([]byte{1})
-	h.Write(left[:])
-	h.Write(right[:])
-	var out Hash
-	h.Sum(out[:0])
-	return out
+	var buf [1 + 2*HashSize]byte
+	buf[0] = 1
+	copy(buf[1:], left[:])
+	copy(buf[1+HashSize:], right[:])
+	return sha256.Sum256(buf[:])
 }
 
 // Frontier is a tree of some size, kept as the roots of the full subtrees it's made
@@ -107,10 +117,29 @@ const (
 )
 
 func tag(label, value string, nonce []byte) []byte {
-	h := sha256.New()
-	h.Write([]byte(label + value + "|"))
-	h.Write(nonce)
-	return h.Sum(nil)[:TagSize]
+	need := len(label) + len(value) + 1 + len(nonce)
+	var sum [sha256.Size]byte
+	if need <= 192 {
+		var buf [192]byte
+		n := copy(buf[:], label)
+		n += copy(buf[n:], value)
+		buf[n] = '|'
+		n++
+		n += copy(buf[n:], nonce)
+		sum = sha256.Sum256(buf[:n])
+	} else {
+		h := sha256.New()
+		h.Write([]byte(label))
+		h.Write([]byte(value))
+		var sep [1]byte
+		sep[0] = '|'
+		h.Write(sep[:])
+		h.Write(nonce)
+		h.Sum(sum[:0])
+	}
+	out := make([]byte, TagSize)
+	copy(out, sum[:TagSize])
+	return out
 }
 
 // UserTag is what says a record is about an account, to whoever knows its ID.
@@ -126,7 +155,7 @@ func NameTag(username string, nonce []byte) []byte {
 // BodyHash is what a record holds of the body it's for.
 func BodyHash(nonce, body []byte) Hash {
 	h := sha256.New()
-	h.Write([]byte("zuna/log/body/v1|"))
+	h.Write(bodyPrefix)
 	h.Write(nonce)
 	h.Write(body)
 	var out Hash
@@ -145,7 +174,8 @@ func Record(nonce, userTag, nameTag []byte, bodyHash Hash) []byte {
 
 // HeadInput is what the log key signs of a head, with both halves of its hybrid key.
 func HeadInput(era, size uint64, root Hash) []byte {
-	out := []byte("zuna/log/head/v2|")
+	out := make([]byte, 0, len(headPrefix)+16+HashSize)
+	out = append(out, headPrefix...)
 	out = binary.BigEndian.AppendUint64(out, era)
 	out = binary.BigEndian.AppendUint64(out, size)
 	return append(out, root[:]...)

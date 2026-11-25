@@ -195,7 +195,7 @@ func (d *DB) CreateGroup(ctx context.Context, creator string, historyVisible boo
 }
 
 func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
-	g, err := scanGroup(d.sql.QueryRowContext(ctx, `SELECT `+groupColumns+` FROM groups g WHERE g.id = ?`, id))
+	g, err := scanGroup(d.sql.QueryRowContext(ctx, `SELECT `+groupColumns+` FROM groups g LEFT JOIN group_infos i ON i.group_id = g.id WHERE g.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -220,8 +220,7 @@ func (d *DB) GroupKind(ctx context.Context, id string) (string, error) {
 	return kind, err
 }
 
-const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at,
-	(SELECT i.send_key FROM group_infos i WHERE i.group_id = g.id)`
+const groupColumns = `g.id, g.kind, g.dm_key, g.epoch, g.seq, g.meta, g.meta_epoch, g.history_visible, g.created_by, g.created_at, i.send_key`
 
 // scanGroup reads a group's row, as groupColumns lists it, without its members.
 func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
@@ -298,7 +297,7 @@ func (d *DB) UserGroupIDs(ctx context.Context, userID string) ([]string, error) 
 // however many groups that is, as every app asks for it each time it connects.
 func (d *DB) UserGroups(ctx context.Context, userID string) ([]*Group, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT `+groupColumns+` FROM groups g JOIN group_members m ON m.group_id = g.id
-		WHERE m.user_id = ? ORDER BY g.id`, userID)
+		LEFT JOIN group_infos i ON i.group_id = g.id WHERE m.user_id = ? ORDER BY g.id`, userID)
 	if err != nil {
 		return nil, err
 	}

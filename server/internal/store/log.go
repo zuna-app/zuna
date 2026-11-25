@@ -197,17 +197,13 @@ func readLogState(ctx context.Context, q handle) (logState, error) {
 }
 
 func writeLogState(ctx context.Context, tx handle, state logState) error {
-	for key, value := range map[string]string{
-		settingLogEra:      strconv.FormatInt(state.era, 10),
-		settingLogSize:     strconv.FormatUint(state.frontier.Size, 10),
-		settingLogFrontier: base64.StdEncoding.EncodeToString(state.frontier.Bytes()),
-	} {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?)
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?, ?), (?, ?), (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		settingLogEra, strconv.FormatInt(state.era, 10),
+		settingLogSize, strconv.FormatUint(state.frontier.Size, 10),
+		settingLogFrontier, base64.StdEncoding.EncodeToString(state.frontier.Bytes()),
+	)
+	return err
 }
 
 // appendLog adds an entry about an account, inside the transaction that makes the
@@ -297,6 +293,13 @@ func (d *DB) LogPublicKey(ctx context.Context) ([]byte, error) {
 }
 
 func (d *DB) signHead(ctx context.Context, era, size int64, root merkle.Hash) (LogHead, error) {
+	cacheKey := logHeadKey{era: era, size: size, root: root}
+	d.logHeadsMu.RLock()
+	cached, ok := d.logHeads[cacheKey]
+	d.logHeadsMu.RUnlock()
+	if ok {
+		return cached, nil
+	}
 	key, err := d.LogKey(ctx)
 	if err != nil {
 		return LogHead{}, err
@@ -305,13 +308,49 @@ func (d *DB) signHead(ctx context.Context, era, size int64, root merkle.Hash) (L
 	if err != nil {
 		return LogHead{}, err
 	}
-	return LogHead{Era: era, Size: size, Root: root[:], Sig: sig}, nil
+	rootCopy := make([]byte, merkle.HashSize)
+	copy(rootCopy, root[:])
+	head := LogHead{Era: era, Size: size, Root: rootCopy, Sig: sig}
+	d.logHeadsMu.Lock()
+	if len(d.logHeads) >= 64 {
+		clear(d.logHeads)
+	}
+	d.logHeads[cacheKey] = head
+	d.logHeadsMu.Unlock()
+	return head, nil
 }
 
 // LogStatus is the log's era and size now, which tells a device whether it has all of it.
 func (d *DB) LogStatus(ctx context.Context) (era, size int64, err error) {
-	state, err := readLogState(ctx, d.sql)
-	return state.era, int64(state.frontier.Size), err
+	rows, err := d.sql.QueryContext(ctx, `SELECT key, value FROM settings WHERE key IN (?, ?)`, settingLogEra, settingLogSize)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	var eraStr, sizeStr string
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return 0, 0, err
+		}
+		if key == settingLogEra {
+			eraStr = value
+		} else if key == settingLogSize {
+			sizeStr = value
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	era, err1 := strconv.ParseInt(eraStr, 10, 64)
+	sz, err2 := strconv.ParseUint(sizeStr, 10, 64)
+	if err := errors.Join(err1, err2); err != nil {
+		return 0, 0, errors.New("the log of keys isn't set up")
+	}
+	if sz > math.MaxInt64 {
+		return 0, 0, errors.New("the log of keys is too long")
+	}
+	return era, int64(sz), nil
 }
 
 // hiddenFrom is the accounts whose entries' bodies someone doesn't get: the private
@@ -345,7 +384,8 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 		return nil, err
 	}
 	size := int64(state.frontier.Size)
-	root := state.frontier.Root()
+	var root merkle.Hash
+	haveRoot := false
 	served := state.era
 	if past && era >= 1 && era < state.era {
 		// An earlier era as far as this server kept it, which a device that has read nothing yet
@@ -354,7 +394,7 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 		var lastRoot []byte
 		err := d.sql.QueryRowContext(ctx, `SELECT idx, root FROM log_entries WHERE era = ? ORDER BY idx DESC LIMIT 1`, era).Scan(&last, &lastRoot)
 		if err == nil && len(lastRoot) == merkle.HashSize {
-			served, size, root = era, last+1, merkle.Hash(lastRoot)
+			served, size, root, haveRoot = era, last+1, merkle.Hash(lastRoot), true
 		} else if !errors.Is(err, sql.ErrNoRows) && err != nil {
 			return nil, err
 		}
@@ -365,6 +405,9 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 	page := &LogPage{Era: served, Size: size, Entries: []LogEntry{}}
 	if after >= size {
 		// Nothing after it, or it's past the end, which the device takes for the server going back.
+		if !haveRoot {
+			root = state.frontier.Root()
+		}
 		page.Head, err = d.signHead(ctx, served, size, root)
 		return page, err
 	}

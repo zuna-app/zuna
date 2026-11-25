@@ -206,16 +206,15 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		return
 	}
 	// Removed users are still told, so their clients learn from the commit.
+	members := memberIDs(group)
 	s.hub.ToUsers(before, Event{Type: "event", Data: event})
-	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: seenBy(group, "")})
-	for _, user := range body.RemoveUsers {
-		s.hub.ToUsers([]string{user}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
-	}
+	s.hub.ToUsers(members, Event{Type: "group", Data: seenBy(group, "")})
 	if len(body.RemoveUsers) > 0 {
+		s.hub.ToUsers(body.RemoveUsers, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
 		s.endVoiceOf(r.Context(), groupID, body.RemoveUsers)
 	}
 	if len(welcomes) > 0 {
-		s.hub.ToUsers(memberIDs(group), Event{Type: "welcome", Data: map[string]string{"group_id": groupID}})
+		s.hub.ToUsers(members, Event{Type: "welcome", Data: map[string]string{"group_id": groupID}})
 	}
 	// A private bot is there for everyone in the group from now on.
 	for _, user := range body.AddUsers {

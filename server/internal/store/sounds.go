@@ -99,9 +99,12 @@ func (d *DB) UpdateSound(ctx context.Context, id string, details []byte) error {
 // DeleteSound takes a sound off the soundboard, and says which file it leaves behind.
 func (d *DB) DeleteSound(ctx context.Context, id string) (string, error) {
 	var fileID string
-	err := d.sql.QueryRowContext(ctx, `DELETE FROM sounds WHERE id = ? RETURNING file_id`, id).Scan(&fileID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
+	err := d.tx(ctx, func(tx handle) error {
+		err := tx.QueryRowContext(ctx, `DELETE FROM sounds WHERE id = ? RETURNING file_id`, id).Scan(&fileID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	})
 	return fileID, err
 }

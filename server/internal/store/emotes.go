@@ -32,6 +32,9 @@ func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote, setID, setName
 		return false, err
 	}
 	changed := oldID != setID || oldName != setName || !sameEmotes(before, emotes)
+	if !changed {
+		return false, nil
+	}
 	return changed, d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE emotes SET in_set = 0`); err != nil {
 			return err

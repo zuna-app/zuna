@@ -156,6 +156,8 @@ func atEpoch(ctx context.Context, tx handle, groupID string, epoch int64) error 
 // takes its share secret, and from then on the file belongs to nobody. A message
 // with expiresIn (ms) above zero disappears that long after it arrives.
 func (d *DB) CreateMessage(ctx context.Context, m Message, files []FileShare, token *Token, expiresIn int64) (message *Message, created bool, err error) {
+	vt := d.prepareToken(ctx, token)
+	var stored Message
 	err = d.tx(ctx, func(tx handle) error {
 		created = false
 		var existing []byte
@@ -173,7 +175,7 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, files []FileShare, to
 		if err := atEpoch(ctx, tx, m.GroupID, m.Epoch); err != nil {
 			return err
 		}
-		if err := spendToken(ctx, tx, token, TokenSizeFor(len(m.Envelope))); err != nil {
+		if err := spendVerifiedToken(ctx, tx, vt, TokenSizeFor(len(m.Envelope))); err != nil {
 			return err
 		}
 		now := Now()
@@ -195,11 +197,26 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, files []FileShare, to
 				return err
 			}
 		}
+		stored = Message{
+			GroupID:    m.GroupID,
+			ID:         m.ID,
+			Seq:        seq,
+			UpdatedSeq: seq,
+			Epoch:      m.Epoch,
+			Envelope:   m.Envelope,
+			ItemKey:    m.ItemKey,
+			CreatedAt:  now,
+			ExpiresAt:  expiresAt,
+			Reactions:  []Reaction{},
+		}
 		created = true
 		return nil
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if created {
+		return &stored, true, nil
 	}
 	message, err = d.Message(ctx, m.GroupID, m.ID)
 	return message, created, err
@@ -245,6 +262,7 @@ func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) 
 // EditMessage replaces a message's ciphertext, which spends a token. Who may is for
 // the caller to have checked, by the message's item key.
 func (d *DB) EditMessage(ctx context.Context, groupID, id string, epoch int64, envelope []byte, token *Token) (*Message, error) {
+	vt := d.prepareToken(ctx, token)
 	err := d.tx(ctx, func(tx handle) error {
 		var deleted sql.NullInt64
 		err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
@@ -260,7 +278,7 @@ func (d *DB) EditMessage(ctx context.Context, groupID, id string, epoch int64, e
 		if err := atEpoch(ctx, tx, groupID, epoch); err != nil {
 			return err
 		}
-		if err := spendToken(ctx, tx, token, TokenSizeFor(len(envelope))); err != nil {
+		if err := spendVerifiedToken(ctx, tx, vt, TokenSizeFor(len(envelope))); err != nil {
 			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
@@ -289,6 +307,10 @@ type Deletion struct {
 // this deleted it: one already deleted stays as it was, and costs nothing. An author's
 // deletion is sealed and spends a token; a group admin's is named and doesn't.
 func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion, token *Token) (*Message, []string, bool, error) {
+	var vt verifiedToken
+	if token != nil {
+		vt = d.prepareToken(ctx, token)
+	}
 	var fileIDs []string
 	deletedNow := false
 	err := d.tx(ctx, func(tx handle) error {
@@ -312,7 +334,7 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 			}
 		}
 		if token != nil {
-			if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+			if err := spendVerifiedToken(ctx, tx, vt, SmallToken); err != nil {
 				return err
 			}
 		}
@@ -388,10 +410,20 @@ func (d *DB) ItemKey(ctx context.Context, groupID, messageID, reactionID string)
 // count and a total size, and past the first reactionsOnSmallTokens each takes a large
 // token, as each makes everyone in the conversation carry it.
 func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, token *Token) (change *ReactionChange, added bool, err error) {
+	vt := d.prepareToken(ctx, token)
+	var built ReactionChange
 	err = d.tx(ctx, func(tx handle) error {
 		added = false
-		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
+		var msgSeq int64
+		var deleted sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT seq, deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, messageID).Scan(&msgSeq, &deleted); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
 			return err
+		}
+		if deleted.Valid {
+			return ErrForbidden
 		}
 		var existing []byte
 		var removed sql.NullInt64
@@ -423,18 +455,31 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 				return ErrLargeToken
 			}
 		}
-		if err := spendToken(ctx, tx, token, size); err != nil {
+		if err := spendVerifiedToken(ctx, tx, vt, size); err != nil {
 			return err
 		}
+		now := Now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO reactions(group_id, message_id, id, epoch, data, item_key, created_at)
-			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.Epoch, r.Data, r.ItemKey, Now()); err != nil {
+			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.Epoch, r.Data, r.ItemKey, now); err != nil {
 			return err
 		}
+		updatedSeq, err := nextSeq(ctx, tx, groupID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET updated_seq = ? WHERE group_id = ? AND id = ?`, updatedSeq, groupID, messageID); err != nil {
+			return err
+		}
+		stored := Reaction{ID: r.ID, Epoch: r.Epoch, Data: r.Data, ItemKey: r.ItemKey, CreatedAt: now}
+		built = ReactionChange{GroupID: groupID, MessageID: messageID, Seq: msgSeq, UpdatedSeq: updatedSeq, Reaction: &stored}
 		added = true
-		return touch(ctx, tx, groupID, messageID)
+		return nil
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if added {
+		return &built, true, nil
 	}
 	change, err = d.reactionChange(ctx, groupID, messageID)
 	if err != nil {
@@ -461,11 +506,15 @@ func (d *DB) ClearReaction(ctx context.Context, groupID, messageID, reactionID s
 // dropReaction takes a reaction off a message, spending token when paid. What it carried
 // goes, and its ID stays, so that nobody adds it again (AddReaction).
 func (d *DB) dropReaction(ctx context.Context, groupID, messageID, reactionID string, token *Token, paid bool) (*ReactionChange, bool, error) {
+	var vt verifiedToken
+	if paid {
+		vt = d.prepareToken(ctx, token)
+	}
 	var dropped bool
 	err := d.tx(ctx, func(tx handle) error {
 		dropped = false
 		if paid {
-			if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+			if err := spendVerifiedToken(ctx, tx, vt, SmallToken); err != nil {
 				return err
 			}
 		}
@@ -538,6 +587,7 @@ type Pin struct {
 
 // SetPinned pins or unpins a message for one of its group's members, which spends a token.
 func (d *DB) SetPinned(ctx context.Context, groupID, messageID string, pinned bool, pin Pin, token *Token) (*Message, error) {
+	vt := d.prepareToken(ctx, token)
 	err := d.tx(ctx, func(tx handle) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
@@ -546,19 +596,19 @@ func (d *DB) SetPinned(ctx context.Context, groupID, messageID string, pinned bo
 		if err := atEpoch(ctx, tx, groupID, pin.Epoch); err != nil {
 			return err
 		}
-		if err := spendToken(ctx, tx, token, SmallToken); err != nil {
+		if err := spendVerifiedToken(ctx, tx, vt, SmallToken); err != nil {
 			return err
 		}
-		var err error
-		if pinned {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pin = ? WHERE group_id = ? AND id = ?`, Now(), pin.Proof, groupID, messageID)
-		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pin = ? WHERE group_id = ? AND id = ?`, pin.Proof, groupID, messageID)
-		}
+		seq, err := nextSeq(ctx, tx, groupID)
 		if err != nil {
 			return err
 		}
-		return touch(ctx, tx, groupID, messageID)
+		if pinned {
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pin = ?, updated_seq = ? WHERE group_id = ? AND id = ?`, Now(), pin.Proof, seq, groupID, messageID)
+		} else {
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pin = ?, updated_seq = ? WHERE group_id = ? AND id = ?`, pin.Proof, seq, groupID, messageID)
+		}
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -674,63 +724,82 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 	// one sequence number and no later commit is skipped. Someone added without
 	// the group's history gets its events from the commit that added them: what
 	// came before is in their Welcome, and who did what when isn't theirs to see.
-	rows, err := d.sql.QueryContext(ctx, `SELECT s FROM (
-			SELECT updated_seq AS s FROM messages WHERE group_id = ?1 AND updated_seq > ?2 AND seq > ?3
+	rows, err := d.sql.QueryContext(ctx, `SELECT s, src FROM (
+			SELECT updated_seq AS s, 0 AS src FROM messages WHERE group_id = ?1 AND updated_seq > ?2 AND seq > ?3
 			UNION ALL
-			SELECT seq AS s FROM group_events WHERE group_id = ?1 AND seq > ?2 AND seq >= ?3
+			SELECT seq AS s, 1 AS src FROM group_events WHERE group_id = ?1 AND seq > ?2 AND seq >= ?3
 		) AS changes ORDER BY s ASC LIMIT ?4`, groupID, after, visibleFrom, limit+1)
 	if err != nil {
 		return nil, err
 	}
-	var seqs []int64
+	type changeRef struct {
+		seq int64
+		src int
+	}
+	var refs []changeRef
 	for rows.Next() {
-		var s int64
-		if err := rows.Scan(&s); err != nil {
+		var r changeRef
+		if err := rows.Scan(&r.seq, &r.src); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		seqs = append(seqs, s)
+		refs = append(refs, r)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	changes := &Changes{Messages: []*Message{}, Events: []GroupEvent{}, Cursor: after}
-	if len(seqs) == 0 {
+	if len(refs) == 0 {
 		return changes, nil
 	}
-	if len(seqs) > limit {
+	if len(refs) > limit {
 		changes.HasMore = true
-		seqs = seqs[:limit]
+		refs = refs[:limit]
 	}
-	upTo := seqs[len(seqs)-1]
+	upTo := refs[len(refs)-1].seq
 	changes.Cursor = upTo
-
-	messageRows, err := d.sql.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages
-		WHERE group_id = ? AND updated_seq > ? AND updated_seq <= ? AND seq > ? ORDER BY updated_seq ASC`, groupID, after, upTo, visibleFrom)
-	if err != nil {
-		return nil, err
-	}
-	changes.Messages, err = d.collectMessages(ctx, groupID, messageRows)
-	if err != nil {
-		return nil, err
+	hasMessages, hasEvents := false, false
+	for _, r := range refs {
+		if r.src == 0 {
+			hasMessages = true
+		} else {
+			hasEvents = true
+		}
 	}
 
-	eventRows, err := d.sql.QueryContext(ctx, `SELECT group_id, seq, kind, epoch, data, sender_user, sender_device, target_user, created_at, send_key
-		FROM group_events WHERE group_id = ? AND seq > ? AND seq <= ? AND seq >= ? ORDER BY seq ASC`, groupID, after, upTo, visibleFrom)
-	if err != nil {
-		return nil, err
-	}
-	defer eventRows.Close()
-	for eventRows.Next() {
-		var e GroupEvent
-		var senderDevice, target sql.NullString
-		if err := eventRows.Scan(&e.GroupID, &e.Seq, &e.Kind, &e.Epoch, &e.Data, &e.SenderUser, &senderDevice, &target, &e.CreatedAt, &e.SendKey); err != nil {
+	if hasMessages {
+		messageRows, err := d.sql.QueryContext(ctx, `SELECT `+messageColumns+` FROM messages
+			WHERE group_id = ? AND updated_seq > ? AND updated_seq <= ? AND seq > ? ORDER BY updated_seq ASC`, groupID, after, upTo, visibleFrom)
+		if err != nil {
 			return nil, err
 		}
-		e.SenderDevice = senderDevice.String
-		e.TargetUser = target.String
-		changes.Events = append(changes.Events, e)
+		changes.Messages, err = d.collectMessages(ctx, groupID, messageRows)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return changes, eventRows.Err()
+
+	if hasEvents {
+		eventRows, err := d.sql.QueryContext(ctx, `SELECT group_id, seq, kind, epoch, data, sender_user, sender_device, target_user, created_at, send_key
+			FROM group_events WHERE group_id = ? AND seq > ? AND seq <= ? AND seq >= ? ORDER BY seq ASC`, groupID, after, upTo, visibleFrom)
+		if err != nil {
+			return nil, err
+		}
+		defer eventRows.Close()
+		for eventRows.Next() {
+			var e GroupEvent
+			var senderDevice, target sql.NullString
+			if err := eventRows.Scan(&e.GroupID, &e.Seq, &e.Kind, &e.Epoch, &e.Data, &e.SenderUser, &senderDevice, &target, &e.CreatedAt, &e.SendKey); err != nil {
+				return nil, err
+			}
+			e.SenderDevice = senderDevice.String
+			e.TargetUser = target.String
+			changes.Events = append(changes.Events, e)
+		}
+		if err := eventRows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return changes, nil
 }

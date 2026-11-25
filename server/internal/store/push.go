@@ -55,6 +55,37 @@ func decodeMuted(value string) map[string]int64 {
 	return muted
 }
 
+// isMutedString checks whether an encoded muted string ("group" or "group:until", comma-separated)
+// covers groupID at now without allocating a slice or map.
+func isMutedString(encoded, groupID string, now int64) bool {
+	if encoded == "" || groupID == "" {
+		return false
+	}
+	// Fast substring check before scanning entries.
+	if !strings.Contains(encoded, groupID) {
+		return false
+	}
+	for encoded != "" {
+		var entry string
+		if i := strings.IndexByte(encoded, ','); i >= 0 {
+			entry = encoded[:i]
+			encoded = encoded[i+1:]
+		} else {
+			entry = encoded
+			encoded = ""
+		}
+		id, untilStr, _ := strings.Cut(entry, ":")
+		if id == groupID {
+			if untilStr == "" {
+				return true
+			}
+			until, _ := strconv.ParseInt(untilStr, 10, 64)
+			return until == 0 || until > now
+		}
+	}
+	return false
+}
+
 // Mutes reports whether a registration's mutes cover the group now.
 func (p PushRegistration) Mutes(groupID string, now int64) bool {
 	until, ok := p.Muted[groupID]
@@ -109,14 +140,16 @@ func (d *DB) PushNotified(ctx context.Context) (map[string][]string, error) {
 // own among them, as nothing says who that is. Its read at once spares them (pushHold).
 // With onlyFiltering, only those whose app hides what it shouldn't show.
 func (d *DB) PushTargets(ctx context.Context, groupID string, onlyFiltering bool) ([]PushRegistration, error) {
-	rows, err := d.sql.QueryContext(ctx,
-		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration, p.muted, p.filters
+	query := `SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration, p.muted, p.filters
 		 FROM push_registrations p
 		 JOIN group_members m ON m.user_id = p.user_id AND m.group_id = ?
 		 JOIN devices dv ON dv.id = p.device_id AND dv.revoked_at IS NULL
 		 JOIN users u ON u.id = p.user_id AND u.banned_at IS NULL
-		 WHERE (? = 0 OR p.filters = 1) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
-		groupID, onlyFiltering)
+		 WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`
+	if onlyFiltering {
+		query += ` AND p.filters = 1`
+	}
+	rows, err := d.sql.QueryContext(ctx, query, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +162,7 @@ func (d *DB) PushTargets(ctx context.Context, groupID string, onlyFiltering bool
 		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration, &muted, &p.Filters); err != nil {
 			return nil, err
 		}
-		p.Muted = decodeMuted(muted)
-		if !p.Mutes(groupID, now) {
+		if !isMutedString(muted, groupID, now) {
 			targets = append(targets, p)
 		}
 	}

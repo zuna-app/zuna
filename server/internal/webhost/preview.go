@@ -12,10 +12,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"zuna/server/internal/clientip"
 )
+
+var previewBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 32<<10)
+		return &buf
+	},
+}
 
 // Link previews for the web app. A page can't read other sites, so the core in
 // the browser asks its host to fetch them, as the native apps fetch them themselves.
@@ -63,7 +69,7 @@ func (h *host) dial(ctx context.Context, network, address string) (net.Conn, err
 			return nil, errNotPublic
 		}
 	}
-	var dialer net.Dialer
+	dialer := net.Dialer{Timeout: 3 * time.Second}
 	var last error
 	for _, addr := range addrs {
 		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(addr.Unmap().String(), port))
@@ -81,7 +87,8 @@ func (h *host) newClient() *http.Client {
 		DialContext:           h.dial,
 		TLSClientConfig:       h.tlsConfig,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          20,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   16,
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ResponseHeaderTimeout: previewTimeout,
@@ -124,7 +131,7 @@ func (h *host) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	// Scripts can send those headers too, so anyone can use this to fetch public pages
 	// with this host's address taking the blame. These are what stops that being worth it.
-	caller := clientip.Key(h.ip.Address(r))
+	caller := h.ip.Key(r)
 	if !h.limiter.Allow(caller) || !h.daily.Allow(caller) || !h.overall.Allow() {
 		http.Error(w, "Too many previews. Please wait a moment.", http.StatusTooManyRequests)
 		return
@@ -158,9 +165,16 @@ func (h *host) handlePreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not available", http.StatusBadGateway)
 		return
 	}
-	// Only as much as a preview needs, however large the page is.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)))
-	if err != nil {
+	// Only as much as a preview needs, however large the page is. Read the first chunk
+	// before committing headers so immediate upstream errors still return 502, then stream
+	// any remainder with a pooled 32 KiB buffer instead of buffering up to 5 MiB in RAM.
+	limited := io.LimitReader(resp.Body, int64(maxBytes))
+	bufPtr := previewBufPool.Get().(*[]byte)
+	defer previewBufPool.Put(bufPtr)
+	buf := *bufPtr
+	firstLen := min(len(buf), maxBytes)
+	n, err := io.ReadFull(limited, buf[:firstLen])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		http.Error(w, "Not available", http.StatusBadGateway)
 		return
 	}
@@ -172,6 +186,13 @@ func (h *host) handlePreview(w http.ResponseWriter, r *http.Request) {
 	// Someone else's page, on this site's address: it must never run as a page here.
 	headers.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	headers.Set("Content-Disposition", "attachment")
-	headers.Set("Content-Length", strconv.Itoa(len(body)))
-	_, _ = w.Write(body)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || n == maxBytes {
+		headers.Set("Content-Length", strconv.Itoa(n))
+		_, _ = w.Write(buf[:n])
+		return
+	}
+	if _, err := w.Write(buf[:n]); err != nil {
+		return
+	}
+	_, _ = io.CopyBuffer(w, limited, buf)
 }

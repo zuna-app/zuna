@@ -106,46 +106,98 @@ func contains(networks []netip.Prefix, addr netip.Addr) bool {
 	return false
 }
 
+func isCloudflare(addr netip.Addr) bool {
+	// Fast-path: loopback, RFC1918/ULA, and link-local addresses are never in Cloudflare's public ranges.
+	if addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() {
+		return false
+	}
+	return contains(cloudflareNetworks, addr)
+}
+
 // isTrusted reports whether an address is a proxy to believe about who's behind
 // it. Cloudflare's never are.
 func (r *Resolver) isTrusted(addr netip.Addr) bool {
-	return contains(r.trusted, addr) && !contains(cloudflareNetworks, addr)
+	return len(r.trusted) > 0 && contains(r.trusted, addr) && !isCloudflare(addr)
 }
 
-// Address is the caller's address: the nearest one in the chain of proxies that
-// isn't itself a trusted proxy, or, behind Cloudflare, whoever Cloudflare names
-// when that's one of its addresses.
-func (r *Resolver) Address(req *http.Request) string {
+func (r *Resolver) resolve(req *http.Request) (netip.Addr, string, bool) {
 	host, _, err := net.SplitHostPort(req.RemoteAddr)
 	if err != nil {
 		host = req.RemoteAddr
 	}
 	peer, err := netip.ParseAddr(host)
 	if err != nil {
-		return host
+		return netip.Addr{}, host, false
 	}
 	nearest := peer.Unmap()
 	if r.isTrusted(nearest) {
-		hops := strings.Split(strings.Join(req.Header.Values("X-Forwarded-For"), ","), ",")
-		for i := len(hops) - 1; i >= 0; i-- {
-			hop, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
-			if err != nil {
-				break
-			}
-			nearest = hop.Unmap()
-			if !r.isTrusted(nearest) {
-				break
+		xff := req.Header.Values("X-Forwarded-For")
+	walk:
+		for h := len(xff) - 1; h >= 0; h-- {
+			line := xff[h]
+			for {
+				idx := strings.LastIndexByte(line, ',')
+				part := line
+				if idx >= 0 {
+					part = line[idx+1:]
+				}
+				hop, err := netip.ParseAddr(strings.TrimSpace(part))
+				if err != nil {
+					break walk
+				}
+				nearest = hop.Unmap()
+				if !r.isTrusted(nearest) {
+					break walk
+				}
+				if idx < 0 {
+					break
+				}
+				line = line[:idx]
 			}
 		}
 	}
 	// Cloudflare sets this itself on what it passes on. Only a request it passed on
 	// counts: anyone else could have made it up.
-	if r.cloudflare && contains(cloudflareNetworks, nearest) {
+	if r.cloudflare && isCloudflare(nearest) {
 		if client, err := netip.ParseAddr(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); err == nil {
-			return client.Unmap().String()
+			return client.Unmap(), "", true
 		}
 	}
-	return nearest.String()
+	return nearest, "", true
+}
+
+// Address is the caller's address: the nearest one in the chain of proxies that
+// isn't itself a trusted proxy, or, behind Cloudflare, whoever Cloudflare names
+// when that's one of its addresses.
+func (r *Resolver) Address(req *http.Request) string {
+	addr, raw, ok := r.resolve(req)
+	if !ok {
+		return raw
+	}
+	return addr.String()
+}
+
+// Key resolves req and formats its rate-limit key directly without a string round-trip.
+func (r *Resolver) Key(req *http.Request) string {
+	return r.KeyWithin(req, 64)
+}
+
+// KeyWithin resolves req and masks IPv6 addresses to bits without a string round-trip.
+func (r *Resolver) KeyWithin(req *http.Request, bits int) string {
+	addr, raw, ok := r.resolve(req)
+	if !ok {
+		return raw
+	}
+	return formatKey(addr, bits)
+}
+
+func formatKey(addr netip.Addr, bits int) string {
+	if addr.Is6() {
+		if prefix, err := addr.Prefix(bits); err == nil {
+			return prefix.String()
+		}
+	}
+	return addr.String()
 }
 
 // Key is what a rate limit should count an address under. One IPv6 network is
@@ -163,12 +215,5 @@ func KeyWithin(address string, bits int) string {
 	if err != nil {
 		return address
 	}
-	addr = addr.Unmap()
-	if addr.Is6() {
-		prefix, err := addr.Prefix(bits)
-		if err == nil {
-			return prefix.String()
-		}
-	}
-	return addr.String()
+	return formatKey(addr.Unmap(), bits)
 }

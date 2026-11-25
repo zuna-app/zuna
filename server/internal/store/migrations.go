@@ -603,4 +603,21 @@ CREATE TABLE history_answered (
 `, `
 -- A channel only the server's admins see and join (channels.go).
 ALTER TABLE channels ADD COLUMN admin_only INTEGER NOT NULL DEFAULT 0;
+`, `
+-- Indexes for hot read, push, log, retention and maintenance queries.
+CREATE INDEX IF NOT EXISTS account_bundles_user_gen ON account_bundles(user_id, generation);
+CREATE INDEX IF NOT EXISTS users_last_seen ON users(last_seen_at) WHERE hide_last_seen = 0 AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS group_events_commit_epoch ON group_events(group_id, epoch, seq) WHERE kind = 'commit';
+CREATE INDEX IF NOT EXISTS messages_updated_seq ON messages(group_id, updated_seq, seq);
+CREATE INDEX IF NOT EXISTS group_members_visible ON group_members(group_id, visible_from_seq, user_id);
+CREATE INDEX IF NOT EXISTS groups_created_by ON groups(created_by) WHERE kind = 'group';
+CREATE INDEX IF NOT EXISTS devices_user_active ON devices(user_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS bots_unlisted ON bots(id, owner_id) WHERE listed = 0;
+CREATE INDEX IF NOT EXISTS push_registrations_user_filters ON push_registrations(user_id, filters);
+CREATE INDEX IF NOT EXISTS uploads_day ON uploads(day);
+CREATE INDEX IF NOT EXISTS sign_in_attempts_seen ON sign_in_attempts(seen_at);
+CREATE INDEX IF NOT EXISTS invites_created_by ON invites(created_by);
+CREATE INDEX IF NOT EXISTS history_answered_user ON history_answered(user_id);
+CREATE INDEX IF NOT EXISTS bot_channels_channel ON bot_channels(channel_id);
+CREATE INDEX IF NOT EXISTS key_packages_claim ON key_packages(device_id, last_resort, id, created_at);
 `}

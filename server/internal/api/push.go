@@ -11,7 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"hash/fnv"
+	"io"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -243,7 +243,7 @@ func (s *Server) pushDeletion(members []string, groupID, messageID string) {
 // pushClearing sends the phones that showed a notification for a chat a silent push. One
 // that says the chat was read, at a time, leaves them counted as showing nothing for it.
 func (s *Server) pushClearing(users []string, exceptDevice, groupID string, fields map[string]string, readAt int64) {
-	if len(s.cfg.PushRelays) == 0 {
+	if len(s.cfg.PushRelays) == 0 || !s.notified.anyForGroup(groupID) {
 		return
 	}
 	go func() {
@@ -281,6 +281,31 @@ type pushJob struct {
 	collapseID string
 }
 
+type relayPushData struct {
+	R string `json:"r"`
+	P string `json:"p"`
+}
+
+type relayPushBody struct {
+	Handle     string        `json:"handle"`
+	Type       pushKind      `json:"type"`
+	Data       relayPushData `json:"data"`
+	CollapseID string        `json:"collapse_id"`
+}
+
+func fnv32aString(s string) uint32 {
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+	h := uint32(offset32)
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= prime32
+	}
+	return h
+}
+
 // push sends one in the background. A phone's pushes go one after another, in the order
 // they were made, so that a chat read right after its message arrived is cleared once
 // the notification is there, not before. Phones share the senders between them.
@@ -295,11 +320,9 @@ func (s *Server) push(target store.PushRegistration, kind pushKind, fields map[s
 			}()
 		}
 	})
-	device := fnv.New32a()
-	device.Write([]byte(target.DeviceID))
 	s.pushing.Add(1)
 	select {
-	case s.pushQueues[device.Sum32()%pushConcurrency] <- pushJob{target, kind, fields, collapseID}:
+	case s.pushQueues[fnv32aString(target.DeviceID)%pushConcurrency] <- pushJob{target, kind, fields, collapseID}:
 	default:
 		s.pushing.Add(-1)
 		slog.Warn("too many notifications waiting, so one was dropped", "relay", target.Relay)
@@ -316,11 +339,11 @@ func (s *Server) sendPush(job pushJob) {
 		slog.Warn("sealing a push", "error", err)
 		return
 	}
-	body, _ := json.Marshal(map[string]any{
-		"handle":      target.Handle,
-		"type":        job.kind,
-		"data":        map[string]string{"r": target.Registration, "p": base64.StdEncoding.EncodeToString(sealed)},
-		"collapse_id": job.collapseID,
+	body, _ := json.Marshal(relayPushBody{
+		Handle:     target.Handle,
+		Type:       job.kind,
+		Data:       relayPushData{R: target.Registration, P: base64.StdEncoding.EncodeToString(sealed)},
+		CollapseID: job.collapseID,
 	})
 	started := time.Now()
 	for attempt := 0; ; attempt++ {
@@ -364,6 +387,7 @@ func (s *Server) postPush(relay string, body []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	response.Body.Close()
 	return response.StatusCode, nil
 }
@@ -392,12 +416,21 @@ func sealPush(key []byte, registration string, fields map[string]string) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
+	plaintext, _ := json.Marshal(fields)
+	ns := aead.NonceSize()
+	out := make([]byte, ns, ns+len(plaintext)+aead.Overhead())
+	if _, err := rand.Read(out); err != nil {
 		return nil, err
 	}
-	plaintext, _ := json.Marshal(fields)
-	return aead.Seal(nonce, nonce, plaintext, pushLabel(registration)), nil
+	return aead.Seal(out, out, plaintext, pushLabel(registration)), nil
+}
+
+const notifiedShards = 64
+
+type notifiedShard struct {
+	mu    sync.RWMutex
+	chats map[string]map[string]struct{}
+	read  map[string]map[string]int64
 }
 
 // notifiedChats remembers which chats each phone was sent a notification for, or
@@ -405,16 +438,38 @@ func sealPush(key []byte, registration string, fields map[string]string) ([]byte
 // where there's something to clear. A change is written to the database before
 // anything acts on it, so a restart forgets none.
 type notifiedChats struct {
-	mu    sync.Mutex
-	chats map[string]map[string]struct{}
-	// When each chat a phone showed a notification for was last read on another of its
-	// person's devices, in ms, until the phone reads it itself. The push that said so may
-	// never have reached it, and once the chat has a new message the phone is counted as
-	// showing it again, with what was read still beside it. Kept in memory alone: after a
-	// restart a phone clears those when the chat is next read, as before this was kept.
-	read map[string]map[string]int64
+	shards [notifiedShards]notifiedShard
+	// groupCounts tracks how many devices currently have an active notification for each group,
+	// letting pushClearing skip DB lookups for chats with zero notified phones.
+	groupsMu    sync.RWMutex
+	groupCounts map[string]int
 	// save keeps a device's chats in the database.
 	save func(deviceID string, groupIDs []string)
+}
+
+func (n *notifiedChats) shard(deviceID string) *notifiedShard {
+	return &n.shards[fnv32aString(deviceID)&(notifiedShards-1)]
+}
+
+func (n *notifiedChats) adjustGroup(groupID string, delta int) {
+	n.groupsMu.Lock()
+	if n.groupCounts == nil {
+		n.groupCounts = map[string]int{}
+	}
+	next := n.groupCounts[groupID] + delta
+	if next <= 0 {
+		delete(n.groupCounts, groupID)
+	} else {
+		n.groupCounts[groupID] = next
+	}
+	n.groupsMu.Unlock()
+}
+
+func (n *notifiedChats) anyForGroup(groupID string) bool {
+	n.groupsMu.RLock()
+	has := n.groupCounts[groupID] > 0
+	n.groupsMu.RUnlock()
+	return has
 }
 
 // restoreNotified reads which chats each phone was notified about before the server
@@ -436,61 +491,83 @@ func (s *Server) restoreNotified(ctx context.Context) {
 
 // restore takes what the database kept, as the server starts.
 func (n *notifiedChats) restore(kept map[string][]string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.chats = map[string]map[string]struct{}{}
-	for deviceID, groupIDs := range kept {
-		n.chats[deviceID] = map[string]struct{}{}
-		for _, groupID := range groupIDs {
-			n.chats[deviceID][groupID] = struct{}{}
-		}
+	for i := range n.shards {
+		n.shards[i].mu.Lock()
+		n.shards[i].chats = nil
+		n.shards[i].read = nil
+		n.shards[i].mu.Unlock()
 	}
+	counts := map[string]int{}
+	for deviceID, groupIDs := range kept {
+		s := n.shard(deviceID)
+		s.mu.Lock()
+		if s.chats == nil {
+			s.chats = map[string]map[string]struct{}{}
+		}
+		set := make(map[string]struct{}, len(groupIDs))
+		for _, groupID := range groupIDs {
+			if _, dup := set[groupID]; !dup {
+				set[groupID] = struct{}{}
+				counts[groupID]++
+			}
+		}
+		s.chats[deviceID] = set
+		s.mu.Unlock()
+	}
+	n.groupsMu.Lock()
+	n.groupCounts = counts
+	n.groupsMu.Unlock()
 }
 
-// keep writes a device's chats down. The caller holds n.mu, so they're written in the order they changed.
-func (n *notifiedChats) keep(deviceID string) {
+// keep writes a device's chats down. The caller holds s.mu, so a device's writes stay ordered
+// without blocking unrelated devices in other shards.
+func (n *notifiedChats) keep(s *notifiedShard, deviceID string) {
 	if n.save == nil {
 		return
 	}
-	groupIDs := make([]string, 0, len(n.chats[deviceID]))
-	for groupID := range n.chats[deviceID] {
+	groupIDs := make([]string, 0, len(s.chats[deviceID]))
+	for groupID := range s.chats[deviceID] {
 		groupIDs = append(groupIDs, groupID)
 	}
 	n.save(deviceID, groupIDs)
 }
 
 func (n *notifiedChats) add(deviceID, groupID string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if _, ok := n.chats[deviceID][groupID]; ok {
+	s := n.shard(deviceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.chats[deviceID][groupID]; ok {
 		return
 	}
-	if n.chats == nil {
-		n.chats = map[string]map[string]struct{}{}
+	if s.chats == nil {
+		s.chats = map[string]map[string]struct{}{}
 	}
-	if n.chats[deviceID] == nil {
-		n.chats[deviceID] = map[string]struct{}{}
+	if s.chats[deviceID] == nil {
+		s.chats[deviceID] = map[string]struct{}{}
 	}
-	n.chats[deviceID][groupID] = struct{}{}
-	n.keep(deviceID)
+	s.chats[deviceID][groupID] = struct{}{}
+	n.adjustGroup(groupID, 1)
+	n.keep(s, deviceID)
 }
 
 func (n *notifiedChats) has(deviceID, groupID string) bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	_, ok := n.chats[deviceID][groupID]
+	s := n.shard(deviceID)
+	s.mu.RLock()
+	_, ok := s.chats[deviceID][groupID]
+	s.mu.RUnlock()
 	return ok
 }
 
 // list is a device's chats, in no order, and when those of them read elsewhere were.
 func (n *notifiedChats) list(deviceID string) ([]string, map[string]int64) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	groupIDs := make([]string, 0, len(n.chats[deviceID]))
+	s := n.shard(deviceID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	groupIDs := make([]string, 0, len(s.chats[deviceID]))
 	read := map[string]int64{}
-	for groupID := range n.chats[deviceID] {
+	for groupID := range s.chats[deviceID] {
 		groupIDs = append(groupIDs, groupID)
-		if at, ok := n.read[deviceID][groupID]; ok {
+		if at, ok := s.read[deviceID][groupID]; ok {
 			read[groupID] = at
 		}
 	}
@@ -499,44 +576,47 @@ func (n *notifiedChats) list(deviceID string) ([]string, map[string]int64) {
 
 // remove is for a chat the device read itself: it shows nothing for it any more.
 func (n *notifiedChats) remove(deviceID, groupID string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.forgetRead(deviceID, groupID)
-	n.drop(deviceID, groupID)
+	s := n.shard(deviceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n.forgetRead(s, deviceID, groupID)
+	n.drop(s, deviceID, groupID)
 }
 
 // readElsewhere is for a chat read on another of the person's devices, at a time: the
 // device is told to clear it, and counts as showing nothing for it until its next message.
 func (n *notifiedChats) readElsewhere(deviceID, groupID string, at int64) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.read == nil {
-		n.read = map[string]map[string]int64{}
+	s := n.shard(deviceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.read == nil {
+		s.read = map[string]map[string]int64{}
 	}
-	if n.read[deviceID] == nil {
-		n.read[deviceID] = map[string]int64{}
+	if s.read[deviceID] == nil {
+		s.read[deviceID] = map[string]int64{}
 	}
-	n.read[deviceID][groupID] = at
-	n.drop(deviceID, groupID)
+	s.read[deviceID][groupID] = at
+	n.drop(s, deviceID, groupID)
 }
 
-// drop takes a chat out of a device's. The caller holds n.mu.
-func (n *notifiedChats) drop(deviceID, groupID string) {
-	if _, ok := n.chats[deviceID][groupID]; !ok {
+// drop takes a chat out of a device's. The caller holds s.mu.
+func (n *notifiedChats) drop(s *notifiedShard, deviceID, groupID string) {
+	if _, ok := s.chats[deviceID][groupID]; !ok {
 		return
 	}
-	delete(n.chats[deviceID], groupID)
-	if len(n.chats[deviceID]) == 0 {
-		delete(n.chats, deviceID)
+	delete(s.chats[deviceID], groupID)
+	if len(s.chats[deviceID]) == 0 {
+		delete(s.chats, deviceID)
 	}
-	n.keep(deviceID)
+	n.adjustGroup(groupID, -1)
+	n.keep(s, deviceID)
 }
 
-// forgetRead forgets when a device's chat was read elsewhere. The caller holds n.mu.
-func (n *notifiedChats) forgetRead(deviceID, groupID string) {
-	delete(n.read[deviceID], groupID)
-	if len(n.read[deviceID]) == 0 {
-		delete(n.read, deviceID)
+// forgetRead forgets when a device's chat was read elsewhere. The caller holds s.mu.
+func (n *notifiedChats) forgetRead(s *notifiedShard, deviceID, groupID string) {
+	delete(s.read[deviceID], groupID)
+	if len(s.read[deviceID]) == 0 {
+		delete(s.read, deviceID)
 	}
 }
 
@@ -544,11 +624,15 @@ func (n *notifiedChats) forgetRead(deviceID, groupID string) {
 // banned, or no longer reachable through their relay. Their registrations, which
 // keep it in the database, went with them.
 func (n *notifiedChats) forget(deviceIDs ...string) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
 	for _, id := range deviceIDs {
-		delete(n.chats, id)
-		delete(n.read, id)
+		s := n.shard(id)
+		s.mu.Lock()
+		for groupID := range s.chats[id] {
+			n.adjustGroup(groupID, -1)
+		}
+		delete(s.chats, id)
+		delete(s.read, id)
+		s.mu.Unlock()
 	}
 }
 

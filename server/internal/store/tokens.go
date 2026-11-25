@@ -55,44 +55,98 @@ type TokenKey struct {
 	Secret []byte `json:"-"`
 }
 
-// TokenKeys gives a period's keys, smallest size first. With create, any it doesn't
-// have yet are made at random, once, however many servers ask at once.
-func (d *DB) TokenKeys(ctx context.Context, period int64, create bool) ([]TokenKey, error) {
-	if create {
-		err := d.tx(ctx, func(tx handle) error {
-			for _, size := range TokenSizes {
-				secret, public, err := tokens.NewKey()
-				if err != nil {
-					return err
-				}
-				if _, err := tx.ExecContext(ctx, `INSERT INTO token_keys(period, size, secret, public) VALUES(?, ?, ?, ?)
-					ON CONFLICT(period, size) DO NOTHING`, period, size, secret, public); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
+func (d *DB) cachedTokenKey(period int64, size string) (cachedTokenKey, bool) {
+	d.tokenKeysMu.RLock()
+	entry, ok := d.tokenKeys[tokenKeyID{period: period, size: size}]
+	d.tokenKeysMu.RUnlock()
+	return entry, ok
+}
+
+func (d *DB) rememberTokenKey(key TokenKey) cachedTokenKey {
+	parsed, _ := tokens.ParseKey(key.Secret)
+	entry := cachedTokenKey{key: key, server: parsed}
+	d.tokenKeysMu.Lock()
+	d.tokenKeys[tokenKeyID{period: key.Period, size: key.Size}] = entry
+	d.tokenKeysMu.Unlock()
+	return entry
+}
+
+func (d *DB) loadTokenKeys(ctx context.Context, period int64) (map[string]TokenKey, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT period, size, secret, public FROM token_keys WHERE period = ?`, period)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	bySize := map[string]TokenKey{}
+	bySize := make(map[string]TokenKey, len(TokenSizes))
 	for rows.Next() {
 		var key TokenKey
 		if err := rows.Scan(&key.Period, &key.Size, &key.Secret, &key.Public); err != nil {
 			return nil, err
 		}
 		bySize[key.Size] = key
+		d.rememberTokenKey(key)
 	}
-	if err := rows.Err(); err != nil {
+	return bySize, rows.Err()
+}
+
+// TokenKeys gives a period's keys, smallest size first. With create, any it doesn't
+// have yet are made at random, once, however many servers ask at once.
+func (d *DB) TokenKeys(ctx context.Context, period int64, create bool) ([]TokenKey, error) {
+	// Fast path: all sizes for this period are already cached in memory (immutable once created).
+	if d.hooks.failing.Load() == nil && d.hooks.garbling.Load() == nil {
+		d.tokenKeysMu.RLock()
+		allHit := true
+		for _, size := range TokenSizes {
+			if _, ok := d.tokenKeys[tokenKeyID{period: period, size: size}]; !ok {
+				allHit = false
+				break
+			}
+		}
+		if allHit {
+			keys := make([]TokenKey, len(TokenSizes))
+			for i, size := range TokenSizes {
+				keys[i] = d.tokenKeys[tokenKeyID{period: period, size: size}].key
+			}
+			d.tokenKeysMu.RUnlock()
+			return keys, nil
+		}
+		d.tokenKeysMu.RUnlock()
+	}
+
+	bySize, err := d.loadTokenKeys(ctx, period)
+	if err != nil {
 		return nil, err
 	}
-	keys := []TokenKey{}
+	if create && len(bySize) < len(TokenSizes) {
+		var missing []string
+		for _, size := range TokenSizes {
+			if _, ok := bySize[size]; !ok {
+				missing = append(missing, size)
+			}
+		}
+		if len(missing) > 0 {
+			err := d.tx(ctx, func(tx handle) error {
+				for _, size := range missing {
+					secret, public, err := tokens.NewKey()
+					if err != nil {
+						return err
+					}
+					if _, err := tx.ExecContext(ctx, `INSERT INTO token_keys(period, size, secret, public) VALUES(?, ?, ?, ?)
+						ON CONFLICT(period, size) DO NOTHING`, period, size, secret, public); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			if bySize, err = d.loadTokenKeys(ctx, period); err != nil {
+				return nil, err
+			}
+		}
+	}
+	keys := make([]TokenKey, 0, len(bySize))
 	for _, size := range TokenSizes {
 		if key, ok := bySize[size]; ok {
 			keys = append(keys, key)
@@ -159,6 +213,60 @@ func TokenSizeFor(n int) string {
 	return LargeToken
 }
 
+// verifiedToken carries the result of verifying a token's VOPRF math outside d.tx
+// so Ristretto255 curve operations never hold SQLite's write lock or a PG serializable tx.
+type verifiedToken struct {
+	token *Token
+	valid bool
+	err   error
+}
+
+func (d *DB) prepareToken(ctx context.Context, t *Token) verifiedToken {
+	current := CurrentTokenPeriod()
+	if t == nil || (t.Period != current && t.Period != current-1) {
+		return verifiedToken{token: t}
+	}
+	var entry cachedTokenKey
+	var ok bool
+	if d.hooks.failing.Load() == nil && d.hooks.garbling.Load() == nil {
+		entry, ok = d.cachedTokenKey(t.Period, t.Size)
+	}
+	if !ok {
+		var secret, public []byte
+		err := d.sql.QueryRowContext(ctx, `SELECT secret, public FROM token_keys WHERE period = ? AND size = ?`, t.Period, t.Size).Scan(&secret, &public)
+		if errors.Is(err, sql.ErrNoRows) {
+			return verifiedToken{token: t}
+		}
+		if err != nil {
+			return verifiedToken{token: t, err: err}
+		}
+		entry = d.rememberTokenKey(TokenKey{Period: t.Period, Size: t.Size, Secret: secret, Public: public})
+	}
+	if entry.server == nil {
+		return verifiedToken{token: t}
+	}
+	return verifiedToken{token: t, valid: entry.server.Redeems(t.Input, t.Output)}
+}
+
+func spendVerifiedToken(ctx context.Context, tx handle, vt verifiedToken, size string) error {
+	if vt.err != nil {
+		return vt.err
+	}
+	current := CurrentTokenPeriod()
+	t := vt.token
+	if t == nil || !vt.valid || (t.Period != current && t.Period != current-1) || (size == LargeToken && t.Size != LargeToken) {
+		return ErrTokenInvalid
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO spent_tokens(period, size, input) VALUES(?, ?, ?) ON CONFLICT DO NOTHING`, t.Period, t.Size, t.Input)
+	if err != nil {
+		return err
+	}
+	if changed, _ := res.RowsAffected(); changed == 0 {
+		return ErrTokenSpent
+	}
+	return nil
+}
+
 // spendToken redeems a token as part of a write, in the same transaction, so that a
 // write refused costs nothing: one of the server's, of at least the size asked for,
 // from this period or the last, and never redeemed before.
@@ -192,7 +300,7 @@ func spendToken(ctx context.Context, tx handle, t *Token, size string) error {
 // issued and spent under them.
 func (d *DB) PruneTokens(ctx context.Context) error {
 	before := CurrentTokenPeriod() - 1
-	return d.tx(ctx, func(tx handle) error {
+	err := d.tx(ctx, func(tx handle) error {
 		for _, table := range []string{"spent_tokens", "token_issues", "token_keys"} {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE period < ?`, before); err != nil {
 				return err
@@ -200,4 +308,14 @@ func (d *DB) PruneTokens(ctx context.Context) error {
 		}
 		return nil
 	})
+	if err == nil {
+		d.tokenKeysMu.Lock()
+		for id := range d.tokenKeys {
+			if id.period < before {
+				delete(d.tokenKeys, id)
+			}
+		}
+		d.tokenKeysMu.Unlock()
+	}
+	return err
 }

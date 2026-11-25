@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,21 +33,44 @@ type RefusedError struct {
 
 func (e *RefusedError) Error() string { return fmt.Sprintf("APNs answered %d %s", e.Status, e.Reason) }
 
+type apnsToken struct {
+	authHeader string
+	issued     time.Time
+}
+
+var (
+	apsAlertBytes      = json.RawMessage(`{"alert":{"body":"New message","title":"Zuna"},"category":"message","mutable-content":1,"sound":"default"}`)
+	apsCallBytes       = json.RawMessage(`{"alert":{"body":"Incoming call","title":"Zuna"},"category":"call","mutable-content":1,"sound":"default"}`)
+	apsBackgroundBytes = json.RawMessage(`{"content-available":1}`)
+	apsVoIPBytes       = json.RawMessage(`{}`)
+
+	payloadAlertOnly      = []byte(`{"aps":{"alert":{"body":"New message","title":"Zuna"},"category":"message","mutable-content":1,"sound":"default"}}`)
+	payloadCallOnly       = []byte(`{"aps":{"alert":{"body":"Incoming call","title":"Zuna"},"category":"call","mutable-content":1,"sound":"default"}}`)
+	payloadBackgroundOnly = []byte(`{"aps":{"content-available":1}}`)
+	payloadVoIPOnly       = []byte(`{"aps":{}}`)
+)
+
+type apnsPayload struct {
+	APS  json.RawMessage   `json:"aps"`
+	Zuna map[string]string `json:"zuna,omitempty"`
+}
+
 // APNs sends pushes through Apple's Push Notification service with a
 // token key (.p8 file), over HTTP/2.
 type APNs struct {
-	keyID  string
-	teamID string
-	topic  string
-	key    *ecdsa.PrivateKey
-	client *http.Client
+	keyID        string
+	teamID       string
+	topic        string
+	voipTopic    string
+	headerB64    string
+	key          *ecdsa.PrivateKey
+	client       *http.Client
 	// Where Apple's two environments are; tests point them at a fake.
 	Production string
 	Sandbox    string
 
 	mu     sync.Mutex
-	bearer string
-	issued time.Time
+	cached atomic.Pointer[apnsToken]
 }
 
 // NewAPNs reads a token key as Apple's developer site downloads it.
@@ -63,12 +87,29 @@ func NewAPNs(p8 []byte, keyID, teamID, topic string) (*APNs, error) {
 	if !ok {
 		return nil, errors.New("the APNs key isn't an elliptic-curve key")
 	}
+	headerJSON, _ := json.Marshal(struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+	}{Alg: "ES256", Kid: keyID})
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ForceAttemptHTTP2 = true
+	transport.MaxIdleConns = 256
+	transport.MaxIdleConnsPerHost = 64
+	transport.IdleConnTimeout = 90 * time.Second
+	transport.HTTP2 = &http.HTTP2Config{
+		SendPingTimeout: 30 * time.Second,
+		PingTimeout:     10 * time.Second,
+	}
+
 	return &APNs{
 		keyID:      keyID,
 		teamID:     teamID,
 		topic:      topic,
+		voipTopic:  topic + ".voip",
+		headerB64:  base64.RawURLEncoding.EncodeToString(headerJSON),
 		key:        key,
-		client:     &http.Client{Timeout: 15 * time.Second},
+		client:     &http.Client{Timeout: 15 * time.Second, Transport: transport},
 		Production: "https://api.push.apple.com",
 		Sandbox:    "https://api.sandbox.push.apple.com",
 	}, nil
@@ -96,69 +137,71 @@ const callExpiry = time.Minute
 // call to a VoIP token goes through PushKit, which has the app ring through
 // CallKit, and otherwise shows as an alert with Answer and Decline.
 func (a *APNs) Send(ctx context.Context, token, environment, kind string, voip bool, data map[string]string, collapseID string) error {
-	aps := map[string]any{
-		"alert":           map[string]string{"title": "Zuna", "body": "New message"},
-		"mutable-content": 1,
-		"sound":           "default",
-		// The app's Reply and Mark as read actions.
-		"category": "message",
-	}
 	topic, pushType, priority, expiry := a.topic, "alert", "10", 24*time.Hour
+	aps, staticBody := apsAlertBytes, payloadAlertOnly
 	switch {
 	case voip:
 		// PushKit wants the app to report a call at once, so a VoIP token only ever rings.
-		aps = map[string]any{}
-		topic, pushType, expiry = a.topic+".voip", "voip", callExpiry
+		aps, staticBody = apsVoIPBytes, payloadVoIPOnly
+		topic, pushType, expiry = a.voipTopic, "voip", callExpiry
 	case kind == KindBackground:
-		aps = map[string]any{"content-available": 1}
+		aps, staticBody = apsBackgroundBytes, payloadBackgroundOnly
 		pushType, priority = "background", "5"
 	case kind == KindCall:
-		aps["alert"] = map[string]string{"title": "Zuna", "body": "Incoming call"}
-		aps["category"] = "call"
+		aps, staticBody = apsCallBytes, payloadCallOnly
 		expiry = callExpiry
 	}
-	payload := map[string]any{"aps": aps}
-	if len(data) > 0 {
-		payload["zuna"] = data
+	var body []byte
+	if len(data) == 0 {
+		body = staticBody
+	} else {
+		body, _ = json.Marshal(apnsPayload{APS: aps, Zuna: data})
 	}
-	body, _ := json.Marshal(payload)
 	base := a.Production
 	if environment == "sandbox" {
 		base = a.Sandbox
 	}
+	url := base + "/3/device/" + token
+	var failedAuth string
 	for attempt := 0; ; attempt++ {
-		bearer, err := a.token(attempt > 0)
+		authHeader, err := a.token(failedAuth)
 		if err != nil {
 			return err
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/3/device/"+token, bytes.NewReader(body))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
-		request.Header.Set("authorization", "bearer "+bearer)
-		request.Header.Set("apns-topic", topic)
-		request.Header.Set("apns-push-type", pushType)
-		request.Header.Set("apns-priority", priority)
-		request.Header.Set("apns-expiration", strconv.FormatInt(time.Now().Add(expiry).Unix(), 10))
+		h := request.Header
+		h["authorization"] = []string{authHeader}
+		h["apns-topic"] = []string{topic}
+		h["apns-push-type"] = []string{pushType}
+		h["apns-priority"] = []string{priority}
+		h["apns-expiration"] = []string{strconv.FormatInt(time.Now().Add(expiry).Unix(), 10)}
 		if collapseID != "" && len(collapseID) <= 64 {
-			request.Header.Set("apns-collapse-id", collapseID)
+			h["apns-collapse-id"] = []string{collapseID}
 		}
 		response, err := a.client.Do(request)
 		if err != nil {
 			return err
 		}
+		if response.StatusCode == http.StatusOK {
+			io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+			response.Body.Close()
+			return nil
+		}
 		var reply struct {
 			Reason string `json:"reason"`
 		}
 		json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&reply)
+		io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		response.Body.Close()
 		switch {
-		case response.StatusCode == http.StatusOK:
-			return nil
 		case response.StatusCode == http.StatusGone,
 			reply.Reason == "BadDeviceToken", reply.Reason == "DeviceTokenNotForTopic", reply.Reason == "Unregistered":
 			return ErrGone
 		case reply.Reason == "ExpiredProviderToken" && attempt == 0:
+			failedAuth = authHeader
 			continue
 		default:
 			return &RefusedError{Status: response.StatusCode, Reason: reply.Reason}
@@ -180,27 +223,30 @@ func (a *APNs) CheckKey(ctx context.Context, environment string) error {
 
 // token is the JWT that authenticates the relay to Apple. Apple wants a new
 // one at most hourly and at least every 20 minutes apart, so one is kept for 40.
-func (a *APNs) token(renew bool) (string, error) {
+func (a *APNs) token(failedAuth string) (string, error) {
+	if cur := a.cached.Load(); cur != nil && cur.authHeader != failedAuth && time.Since(cur.issued) < 40*time.Minute {
+		return cur.authHeader, nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !renew && a.bearer != "" && time.Since(a.issued) < 40*time.Minute {
-		return a.bearer, nil
-	}
-	encode := func(value any) string {
-		data, _ := json.Marshal(value)
-		return base64.RawURLEncoding.EncodeToString(data)
+	if cur := a.cached.Load(); cur != nil && cur.authHeader != failedAuth && time.Since(cur.issued) < 40*time.Minute {
+		return cur.authHeader, nil
 	}
 	now := time.Now()
-	unsigned := encode(map[string]string{"alg": "ES256", "kid": a.keyID}) + "." + encode(map[string]any{"iss": a.teamID, "iat": now.Unix()})
+	claimsJSON, _ := json.Marshal(struct {
+		Iss string `json:"iss"`
+		Iat int64  `json:"iat"`
+	}{Iss: a.teamID, Iat: now.Unix()})
+	unsigned := a.headerB64 + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
 	digest := sha256.Sum256([]byte(unsigned))
 	r, s, err := ecdsa.Sign(rand.Reader, a.key, digest[:])
 	if err != nil {
 		return "", err
 	}
-	signature := make([]byte, 64)
+	var signature [64]byte
 	r.FillBytes(signature[:32])
 	s.FillBytes(signature[32:])
-	a.bearer = unsigned + "." + base64.RawURLEncoding.EncodeToString(signature)
-	a.issued = now
-	return a.bearer, nil
+	authHeader := "bearer " + unsigned + "." + base64.RawURLEncoding.EncodeToString(signature[:])
+	a.cached.Store(&apnsToken{authHeader: authHeader, issued: now})
+	return authHeader, nil
 }

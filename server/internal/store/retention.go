@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"slices"
 	"strconv"
 )
 
@@ -95,20 +94,47 @@ func collectStrings(ctx context.Context, tx handle, query string, args ...any) (
 // its original's files, so they stay until the last copy is gone, and someone's
 // picture or a group's stays whatever messages come and go.
 func unreferenced(ctx context.Context, tx handle, fileIDs []string) ([]string, error) {
-	var orphaned []string
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+	unique := make([]string, 0, len(fileIDs))
+	seen := make(map[string]struct{}, len(fileIDs))
 	for _, id := range fileIDs {
-		if slices.Contains(orphaned, id) {
+		if _, dup := seen[id]; dup {
 			continue
 		}
-		var used bool
-		err := tx.QueryRowContext(ctx, `SELECT
-			EXISTS(SELECT 1 FROM file_refs WHERE file_id = ?1) OR
-			EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
-			EXISTS(SELECT 1 FROM files WHERE id = ?1 AND standalone = 1)`, id).Scan(&used)
-		if err != nil {
-			return nil, err
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+
+	const chunk = 256
+	used := make(map[string]struct{})
+	var args []any
+	for start := 0; start < len(unique); start += chunk {
+		batch := unique[start:min(start+chunk, len(unique))]
+		args = args[:0]
+		for _, id := range batch {
+			args = append(args, id)
 		}
-		if !used {
+		ph := placeholders(len(batch))
+		for _, query := range []string{
+			`SELECT DISTINCT file_id FROM file_refs WHERE file_id IN (` + ph + `)`,
+			`SELECT DISTINCT avatar_file FROM users WHERE avatar_file IN (` + ph + `)`,
+			`SELECT id FROM files WHERE standalone = 1 AND id IN (` + ph + `)`,
+		} {
+			found, err := collectStrings(ctx, tx, query, args...)
+			if err != nil {
+				return nil, err
+			}
+			for _, id := range found {
+				used[id] = struct{}{}
+			}
+		}
+	}
+
+	var orphaned []string
+	for _, id := range unique {
+		if _, ok := used[id]; !ok {
 			orphaned = append(orphaned, id)
 		}
 	}

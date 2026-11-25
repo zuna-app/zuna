@@ -162,9 +162,11 @@ func (s *Server) handlePlaySound(call bool) memberHandler {
 			return
 		}
 		event := Event{Type: "sound", Data: map[string]any{"channel_id": room.ID, "user_id": sess.UserID, "data": body.Data}}
-		for _, other := range others {
-			s.hub.ToDevice(other.UserID, other.DeviceID, event)
+		targets := make([]deviceTarget, len(others))
+		for i, other := range others {
+			targets[i] = deviceTarget{userID: other.UserID, deviceID: other.DeviceID}
 		}
+		s.hub.ToDevices(targets, event)
 		writeOK(w)
 	}
 }

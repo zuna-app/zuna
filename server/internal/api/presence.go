@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strconv"
 	"time"
 
 	"zuna/server/internal/store"
@@ -15,17 +16,43 @@ type presenceUpdate struct {
 	LastSeenAt *int64 `json:"last_seen_at,omitempty"`
 }
 
-// toAll is ToAll for a caller holding h.mu, so that presence goes out in the
-// order it changed.
-func (h *Hub) toAll(event Event) {
-	frame := encodeEvent(event)
+func safeJSONString(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || c == '"' || c == '\\' || c == '<' || c == '>' || c == '&' || c >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+func encodePresence(userID string, online bool, lastSeen *int64) []byte {
+	if !safeJSONString(userID) {
+		return encodeEvent(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: online, LastSeenAt: lastSeen}})
+	}
+	buf := make([]byte, 0, 72+len(userID))
+	buf = append(buf, `{"t":"presence","d":{"user_id":"`...)
+	buf = append(buf, userID...)
+	if online {
+		buf = append(buf, `","online":true`...)
+	} else {
+		buf = append(buf, `","online":false`...)
+	}
+	if lastSeen != nil {
+		buf = append(buf, `,"last_seen_at":`...)
+		buf = strconv.AppendInt(buf, *lastSeen, 10)
+	}
+	buf = append(buf, `}}`...)
+	return buf
+}
+
+// toAllFrame fans out a pre-encoded frame while h.mu is held, using the contiguous slice.
+func (h *Hub) toAllFrame(frame []byte) {
 	if frame == nil {
 		return
 	}
-	for _, conns := range h.conns {
-		for c := range conns {
-			c.deliver(frame)
-		}
+	for _, c := range h.allConns {
+		c.deliver(frame)
 	}
 }
 
@@ -64,8 +91,9 @@ func (h *Hub) cameBack(userID string) {
 		return
 	}
 	h.online[userID] = true
+	h.onlineDirty = true
 	if !h.hidden[userID] {
-		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: true}})
+		h.toAllFrame(encodePresence(userID, true, nil))
 	}
 }
 
@@ -108,6 +136,7 @@ func (h *Hub) seeOff(ctx context.Context) {
 		all = append(all, last)
 	}
 	clear(h.online)
+	h.onlineDirty = true
 	clear(h.away)
 	h.mu.Unlock()
 	for _, last := range all {
@@ -126,11 +155,18 @@ func (h *Hub) add(c *conn, hidden bool) bool {
 	if h.closing || len(h.conns[c.userID]) >= maxConnsPerUser {
 		return false
 	}
-	h.hidden[c.userID] = hidden
+	if h.hidden[c.userID] != hidden {
+		h.hidden[c.userID] = hidden
+		if h.online[c.userID] {
+			h.onlineDirty = true
+		}
+	}
 	if h.conns[c.userID] == nil {
 		h.conns[c.userID] = map[*conn]struct{}{}
 	}
 	h.conns[c.userID][c] = struct{}{}
+	c.allIdx = len(h.allConns)
+	h.allConns = append(h.allConns, c)
 	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
 	c.deliver(h.activity(c.userID))
 	return true
@@ -169,8 +205,9 @@ func (h *Hub) EndPresence(userID string) {
 	h.stayOnline(userID)
 	if h.online[userID] {
 		delete(h.online, userID)
+		h.onlineDirty = true
 		if !h.hidden[userID] {
-			h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false}})
+			h.toAllFrame(encodePresence(userID, false, nil))
 		}
 	}
 }
@@ -274,9 +311,20 @@ func (h *Hub) sendActivity(userID string) {
 func (h *Hub) remove(c *conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.conns[c.userID], c)
-	if len(h.conns[c.userID]) == 0 {
-		delete(h.conns, c.userID)
+	if _, ok := h.conns[c.userID][c]; ok {
+		delete(h.conns[c.userID], c)
+		if len(h.conns[c.userID]) == 0 {
+			delete(h.conns, c.userID)
+		}
+		if idx := c.allIdx; idx >= 0 && idx < len(h.allConns) && h.allConns[idx] == c {
+			last := len(h.allConns) - 1
+			moved := h.allConns[last]
+			h.allConns[idx] = moved
+			moved.allIdx = idx
+			h.allConns[last] = nil
+			h.allConns = h.allConns[:last]
+			c.allIdx = -1
+		}
 	}
 	if c.active {
 		h.leftDevice(c.userID, c.deviceID)
@@ -320,6 +368,7 @@ func (h *Hub) markOffline(userID string, away *absence) {
 	}
 	delete(h.away, userID)
 	delete(h.online, userID)
+	h.onlineDirty = true
 	left, device := away.left, away.device
 	h.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -331,7 +380,7 @@ func (h *Hub) markOffline(userID string, away *absence) {
 	defer h.mu.Unlock()
 	// Back while that was written: they came online again, which has gone out already.
 	if !h.online[userID] && !h.hidden[userID] {
-		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false, LastSeenAt: &left}})
+		h.toAllFrame(encodePresence(userID, false, &left))
 	}
 	h.forgetIfGone(userID)
 }

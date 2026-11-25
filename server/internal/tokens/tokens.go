@@ -10,7 +10,9 @@ package tokens
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
+	"sync"
 
 	"github.com/cloudflare/circl/group"
 	"github.com/cloudflare/circl/oprf"
@@ -34,6 +36,42 @@ var suite = oprf.SuiteRistretto255
 // ErrInvalid is for elements, keys or batches that aren't what they should be.
 var ErrInvalid = errors.New("tokens: invalid input")
 
+// Key is a parsed VOPRF server key safe for concurrent Evaluate and Redeems calls.
+type Key struct {
+	s oprf.VerifiableServer
+}
+
+var (
+	keyCacheMu sync.RWMutex
+	keyCache   = map[[sha256.Size]byte]*Key{}
+)
+
+// ParseKey parses a serialized VOPRF secret into a reusable, concurrency-safe Key.
+func ParseKey(secret []byte) (*Key, error) {
+	sum := sha256.Sum256(secret)
+	keyCacheMu.RLock()
+	cached := keyCache[sum]
+	keyCacheMu.RUnlock()
+	if cached != nil {
+		return cached, nil
+	}
+	key := new(oprf.PrivateKey)
+	if err := key.UnmarshalBinary(suite, secret); err != nil {
+		return nil, ErrInvalid
+	}
+	// Eagerly compute and cache the public key before sharing across goroutines:
+	// circl's PrivateKey.Public() lazily mutates k.pub without synchronization.
+	_ = key.Public()
+	parsed := &Key{s: oprf.NewVerifiableServer(suite, key)}
+	keyCacheMu.Lock()
+	if len(keyCache) >= 32 {
+		clear(keyCache)
+	}
+	keyCache[sum] = parsed
+	keyCacheMu.Unlock()
+	return parsed, nil
+}
+
 // NewKey makes a key at random, and gives its secret and public halves.
 func NewKey() (secret, public []byte, err error) {
 	key, err := oprf.GenerateKey(suite, rand.Reader)
@@ -53,22 +91,10 @@ func marshal(key *oprf.PrivateKey) (secret, public []byte, err error) {
 	return secret, public, nil
 }
 
-func server(secret []byte) (oprf.VerifiableServer, error) {
-	key := new(oprf.PrivateKey)
-	if err := key.UnmarshalBinary(suite, secret); err != nil {
-		return oprf.VerifiableServer{}, ErrInvalid
-	}
-	return oprf.NewVerifiableServer(suite, key), nil
-}
-
-// Evaluate evaluates blinded elements under a key, with one proof for them all.
-func Evaluate(secret []byte, blinded [][]byte) (evaluated [][]byte, proof []byte, err error) {
+// Evaluate evaluates blinded elements under this key, with one proof for them all.
+func (k *Key) Evaluate(blinded [][]byte) (evaluated [][]byte, proof []byte, err error) {
 	if len(blinded) == 0 || len(blinded) > MaxBatch {
 		return nil, nil, ErrInvalid
-	}
-	s, err := server(secret)
-	if err != nil {
-		return nil, nil, err
 	}
 	elements := make([]oprf.Blinded, len(blinded))
 	for i, raw := range blinded {
@@ -78,7 +104,7 @@ func Evaluate(secret []byte, blinded [][]byte) (evaluated [][]byte, proof []byte
 		}
 		elements[i] = element
 	}
-	evaluation, err := s.Evaluate(&oprf.EvaluationRequest{Elements: elements})
+	evaluation, err := k.s.Evaluate(&oprf.EvaluationRequest{Elements: elements})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,6 +120,23 @@ func Evaluate(secret []byte, blinded [][]byte) (evaluated [][]byte, proof []byte
 	return evaluated, proof, nil
 }
 
+// Redeems reports whether output is what this key makes of input.
+func (k *Key) Redeems(input, output []byte) bool {
+	return len(input) == InputLen && len(output) == OutputLen && k.s.VerifyFinalize(input, output)
+}
+
+// Evaluate evaluates blinded elements under a key, with one proof for them all.
+func Evaluate(secret []byte, blinded [][]byte) (evaluated [][]byte, proof []byte, err error) {
+	if len(blinded) == 0 || len(blinded) > MaxBatch {
+		return nil, nil, ErrInvalid
+	}
+	k, err := ParseKey(secret)
+	if err != nil {
+		return nil, nil, err
+	}
+	return k.Evaluate(blinded)
+}
+
 // Redeems reports whether output is what a key makes of input: a token it issued.
 // Whether it was spent before is for the caller to know.
 func Redeems(secret, input, output []byte) bool {
@@ -101,9 +144,9 @@ func Redeems(secret, input, output []byte) bool {
 }
 
 func redeems(secret, input, output []byte) bool {
-	s, err := server(secret)
+	k, err := ParseKey(secret)
 	if err != nil {
 		return false
 	}
-	return s.VerifyFinalize(input, output)
+	return k.s.VerifyFinalize(input, output)
 }

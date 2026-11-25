@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
+	"sync"
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
@@ -39,6 +40,84 @@ const (
 )
 
 const signatureLabel = "zuna/hybrid-sig/v1"
+
+const (
+	pubCacheShards  = 16
+	pubCachePerSlot = 64
+)
+
+type cachedPub struct {
+	raw     string
+	kind    byte
+	pubHash [sha256.Size]byte
+	ed      ed25519.PublicKey
+	ml44    *mldsa44.PublicKey
+	ml65    *mldsa65.PublicKey
+}
+
+type pubShard struct {
+	mu      sync.RWMutex
+	entries map[[sha256.Size]byte]*cachedPub
+}
+
+var pubCache [pubCacheShards]pubShard
+
+func init() {
+	for i := range pubCache {
+		pubCache[i].entries = make(map[[sha256.Size]byte]*cachedPub, pubCachePerSlot)
+	}
+}
+
+func loadOrParsePublic(kind byte, public []byte) (*cachedPub, bool) {
+	sum := sha256.Sum256(public)
+	shard := &pubCache[sum[0]&(pubCacheShards-1)]
+
+	shard.mu.RLock()
+	cached := shard.entries[sum]
+	shard.mu.RUnlock()
+	if cached != nil && len(cached.raw) == len(public) && cached.raw == string(public) {
+		return cached, true
+	}
+
+	edPublic := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	copy(edPublic, public[1:1+ed25519.PublicKeySize])
+	mlPublic := public[1+ed25519.PublicKeySize:]
+	entry := &cachedPub{
+		raw:     string(public),
+		kind:    kind,
+		pubHash: sum,
+		ed:      edPublic,
+	}
+	if kind == Device {
+		key := new(mldsa44.PublicKey)
+		if key.UnmarshalBinary(mlPublic) != nil {
+			return nil, false
+		}
+		entry.ml44 = key
+	} else {
+		key := new(mldsa65.PublicKey)
+		if key.UnmarshalBinary(mlPublic) != nil {
+			return nil, false
+		}
+		entry.ml65 = key
+	}
+
+	shard.mu.Lock()
+	if len(shard.entries) >= pubCachePerSlot {
+		// Evict a handful of entries to stay bounded without scanning the whole map.
+		dropped := 0
+		for k := range shard.entries {
+			delete(shard.entries, k)
+			dropped++
+			if dropped >= pubCachePerSlot/4 {
+				break
+			}
+		}
+	}
+	shard.entries[sum] = entry
+	shard.mu.Unlock()
+	return entry, true
+}
 
 func kindName(kind byte) string {
 	if kind == Device {
@@ -90,6 +169,7 @@ type Key struct {
 	mldsa44 *mldsa44.PrivateKey
 	mldsa65 *mldsa65.PrivateKey
 	public  []byte
+	pubHash [sha256.Size]byte
 }
 
 // NewKey makes a secret's keys. The secret is the kind and 32 bytes of seed.
@@ -101,7 +181,9 @@ func NewKey(secret []byte) (*Key, error) {
 	edSeed := seedFor(kind, seed, "ed25519")
 	mlSeed := seedFor(kind, seed, "ml-dsa")
 	key := &Key{kind: kind, ed25519: ed25519.NewKeyFromSeed(edSeed[:])}
-	public := append([]byte{kind}, key.ed25519.Public().(ed25519.PublicKey)...)
+	public := make([]byte, 0, PublicSize(kind))
+	public = append(public, kind)
+	public = append(public, key.ed25519.Public().(ed25519.PublicKey)...)
 	if kind == Device {
 		mlPublic, mlPrivate := mldsa44.NewKeyFromSeed(&mlSeed)
 		key.mldsa44 = mlPrivate
@@ -112,6 +194,7 @@ func NewKey(secret []byte) (*Key, error) {
 		public = append(public, mlPublic.Bytes()...)
 	}
 	key.public = public
+	key.pubHash = sha256.Sum256(public)
 	return key, nil
 }
 
@@ -120,31 +203,31 @@ func (k *Key) Public() []byte {
 	return append([]byte(nil), k.public...)
 }
 
-func signedInput(kind byte, public, message []byte) []byte {
-	sum := sha256.Sum256(public)
-	input := make([]byte, 0, len(signatureLabel)+1+len(sum)+len(message))
+func buildSignedInput(kind byte, pubHash [sha256.Size]byte, message []byte) []byte {
+	input := make([]byte, 0, len(signatureLabel)+1+sha256.Size+len(message))
 	input = append(input, signatureLabel...)
 	input = append(input, kind)
-	input = append(input, sum[:]...)
+	input = append(input, pubHash[:]...)
 	return append(input, message...)
 }
 
 // Sign signs with both halves. ML-DSA's is hedged, as FIPS 204 recommends.
 func (k *Key) Sign(message []byte) ([]byte, error) {
-	input := signedInput(k.kind, k.public, message)
-	signature := append([]byte{k.kind}, ed25519.Sign(k.ed25519, input)...)
+	input := buildSignedInput(k.kind, k.pubHash, message)
+	signature := make([]byte, SignatureSize(k.kind))
+	signature[0] = k.kind
+	copy(signature[1:1+ed25519.SignatureSize], ed25519.Sign(k.ed25519, input))
+	mlOut := signature[1+ed25519.SignatureSize:]
 	if k.kind == Device {
-		ml := make([]byte, mldsa44.SignatureSize)
-		if err := mldsa44.SignTo(k.mldsa44, input, nil, true, ml); err != nil {
+		if err := mldsa44.SignTo(k.mldsa44, input, nil, true, mlOut); err != nil {
 			return nil, err
 		}
-		return append(signature, ml...), nil
+		return signature, nil
 	}
-	ml := make([]byte, mldsa65.SignatureSize)
-	if err := mldsa65.SignTo(k.mldsa65, input, nil, true, ml); err != nil {
+	if err := mldsa65.SignTo(k.mldsa65, input, nil, true, mlOut); err != nil {
 		return nil, err
 	}
-	return append(signature, ml...), nil
+	return signature, nil
 }
 
 // Verify reports whether both halves of a signature hold for a public key of either
@@ -157,21 +240,21 @@ func Verify(public, message, signature []byte) bool {
 	if PublicSize(kind) == 0 || len(public) != PublicSize(kind) || len(signature) != SignatureSize(kind) || signature[0] != kind {
 		return false
 	}
-	input := signedInput(kind, public, message)
-	edPublic := ed25519.PublicKey(public[1 : 1+ed25519.PublicKeySize])
+	parsed, ok := loadOrParsePublic(kind, public)
+	if !ok {
+		return false
+	}
+	input := buildSignedInput(kind, parsed.pubHash, message)
 	edSignature := signature[1 : 1+ed25519.SignatureSize]
 	// ed25519.Verify is RFC 8032's check: no non-canonical signatures. The clients' is stricter
 	// still about small-order keys, which nobody's honest key is.
-	edHolds := ed25519.Verify(edPublic, input, edSignature)
-	mlPublic := public[1+ed25519.PublicKeySize:]
+	edHolds := ed25519.Verify(parsed.ed, input, edSignature)
 	mlSignature := signature[1+ed25519.SignatureSize:]
 	var mlHolds bool
 	if kind == Device {
-		var key mldsa44.PublicKey
-		mlHolds = key.UnmarshalBinary(mlPublic) == nil && mldsa44.Verify(&key, input, nil, mlSignature)
+		mlHolds = mldsa44.Verify(parsed.ml44, input, nil, mlSignature)
 	} else {
-		var key mldsa65.PublicKey
-		mlHolds = key.UnmarshalBinary(mlPublic) == nil && mldsa65.Verify(&key, input, nil, mlSignature)
+		mlHolds = mldsa65.Verify(parsed.ml65, input, nil, mlSignature)
 	}
 	return edHolds && mlHolds
 }

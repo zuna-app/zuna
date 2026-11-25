@@ -23,6 +23,8 @@ import (
 	_ "modernc.org/sqlite" // Pure Go driver, so the server needs no C toolchain.
 
 	"zuna/server/internal/hybrid"
+	"zuna/server/internal/merkle"
+	"zuna/server/internal/tokens"
 )
 
 var (
@@ -59,8 +61,30 @@ type DB struct {
 	// logKey is the key the log's heads are signed with, once it's been read.
 	logKeyMu sync.Mutex
 	logKey   *hybrid.Key
+	// logHeads caches signed Merkle heads keyed by (era, size, root) to avoid re-signing with ML-DSA-65 on fanout.
+	logHeadsMu sync.RWMutex
+	logHeads   map[logHeadKey]LogHead
+	// tokenKeys caches immutable VOPRF token keys by (period, size) with pre-parsed servers.
+	tokenKeysMu sync.RWMutex
+	tokenKeys   map[tokenKeyID]cachedTokenKey
 	// hooks is what tests asked of the database, shared with every handle.
 	hooks *hooks
+}
+
+type logHeadKey struct {
+	era  int64
+	size int64
+	root merkle.Hash
+}
+
+type tokenKeyID struct {
+	period int64
+	size   string
+}
+
+type cachedTokenKey struct {
+	key    TokenKey
+	server *tokens.Key
 }
 
 // hooks is what FailStatements and GarbleQueries were given, for tests of what the server
@@ -163,6 +187,9 @@ func Open(path string) (*DB, error) {
 		"journal_mode(WAL)",
 		"synchronous(NORMAL)",
 		"foreign_keys(1)",
+		"cache_size(-16000)",
+		"temp_store(MEMORY)",
+		"mmap_size(268435456)",
 	} {
 		query.Add("_pragma", pragma)
 	}
@@ -172,12 +199,20 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 	conn.SetMaxOpenConns(8)
+	conn.SetMaxIdleConns(8)
 	return open(conn, false)
 }
 
 func open(conn *sql.DB, postgres bool) (*DB, error) {
 	tests := &hooks{}
-	db := &DB{conn: conn, sql: handle{q: conn, postgres: postgres, hooks: tests}, postgres: postgres, hooks: tests}
+	db := &DB{
+		conn:      conn,
+		sql:       handle{q: conn, postgres: postgres, hooks: tests},
+		postgres:  postgres,
+		logHeads:  map[logHeadKey]LogHead{},
+		tokenKeys: map[tokenKeyID]cachedTokenKey{},
+		hooks:     tests,
+	}
 	if !postgres {
 		db.writing = &sync.Mutex{}
 		db.sql.writing = db.writing
@@ -201,11 +236,21 @@ func (d *DB) Close() error { return d.conn.Close() }
 func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 	if !d.postgres {
 		d.writing.Lock()
-		defer d.writing.Unlock()
-		return d.attempt(ctx, nil, fn)
+		logged, err := d.attempt(ctx, nil, fn)
+		d.writing.Unlock()
+		if err == nil && logged && d.onLog != nil {
+			d.onLog()
+		}
+		return err
 	}
 	for attempt := 1; ; attempt++ {
-		err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, fn)
+		logged, err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, fn)
+		if err == nil {
+			if logged && d.onLog != nil {
+				d.onLog()
+			}
+			return nil
+		}
 		if !mustRetry(err) || attempt == maxAttempts {
 			return err
 		}
@@ -217,26 +262,23 @@ func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 	}
 }
 
-func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle) error) error {
+func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle) error) (bool, error) {
 	tx, err := d.conn.BeginTx(d.sql.context(ctx, "BEGIN"), options)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	logged := false
 	if err := fn(handle{q: tx, postgres: d.postgres, logged: &logged, hooks: d.hooks}); err != nil {
-		return err
+		return false, err
 	}
 	if d.sql.failed("COMMIT") {
-		return context.Canceled
+		return false, context.Canceled
 	}
 	if err := tx.Commit(); err != nil {
-		return err
+		return false, err
 	}
-	if logged && d.onLog != nil {
-		d.onLog()
-	}
-	return nil
+	return logged, nil
 }
 
 func (d *DB) migrate(ctx context.Context) error {
@@ -276,8 +318,13 @@ func ValidID(s string) bool {
 	if len(s) != 32 {
 		return false
 	}
-	_, err := hex.DecodeString(s)
-	return err == nil && s == strings.ToLower(s)
+	for i := 0; i < 32; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Now returns the current time as Unix milliseconds, the format of every

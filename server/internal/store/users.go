@@ -401,14 +401,17 @@ func (d *DB) LastSeenSince(ctx context.Context, since int64) (map[string]int64, 
 // TouchLastSeen records when someone was last seen, on which device, unless
 // their account was deleted meanwhile.
 func (d *DB) TouchLastSeen(ctx context.Context, userID string, deviceID string, at int64) error {
-	if _, err := d.sql.ExecContext(ctx, `UPDATE users SET last_seen_at = ? WHERE id = ? AND deleted_at IS NULL`, at, userID); err != nil {
+	if deviceID == "" {
+		_, err := d.sql.ExecContext(ctx, `UPDATE users SET last_seen_at = ? WHERE id = ? AND deleted_at IS NULL`, at, userID)
 		return err
 	}
-	if deviceID != "" {
-		_, err := d.sql.ExecContext(ctx, `UPDATE devices SET last_seen_at = ? WHERE id = ?`, at, deviceID)
+	return d.tx(ctx, func(tx handle) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET last_seen_at = ? WHERE id = ? AND deleted_at IS NULL`, at, userID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE devices SET last_seen_at = ? WHERE id = ?`, at, deviceID)
 		return err
-	}
-	return nil
+	})
 }
 
 func (d *DB) SetRole(ctx context.Context, userID, role string) error {

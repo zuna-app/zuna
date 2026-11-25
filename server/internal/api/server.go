@@ -213,6 +213,12 @@ func New(cfg Config, db *store.DB) *Server {
 		}
 		return ratelimit.NewKeyed(limit, burst)
 	}
+	pushTransport := http.DefaultTransport.(*http.Transport).Clone()
+	pushTransport.ForceAttemptHTTP2 = true
+	pushTransport.MaxIdleConns = 64
+	pushTransport.MaxIdleConnsPerHost = 32
+	pushTransport.IdleConnTimeout = 90 * time.Second
+
 	s := &Server{
 		cfg:         cfg,
 		db:          db,
@@ -257,7 +263,7 @@ func New(cfg Config, db *store.DB) *Server {
 		// The apps send four seeks a second at most, while someone drags, and answer those who come in.
 		watchLimiter: keyed(rate.Limit(8), 40),
 		liveKit:      &http.Client{Timeout: liveKitTimeout},
-		pushClient:   &http.Client{Timeout: pushTimeout},
+		pushClient:   &http.Client{Timeout: pushTimeout, Transport: pushTransport},
 
 		reportLimiter:       keyed(rate.Every(time.Hour), 10),
 		reportTargetLimiter: keyed(rate.Every(24*time.Hour), 1),
@@ -713,7 +719,7 @@ func (s *Server) pageLimited(next http.HandlerFunc) http.HandlerFunc {
 
 // callerKey is who to count a request against when there's no account to go by.
 func (s *Server) callerKey(r *http.Request) string {
-	return clientip.Key(s.callers.Address(r))
+	return s.callers.Key(r)
 }
 
 // --- Helpers ---
