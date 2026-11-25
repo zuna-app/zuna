@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::{LazyLock, Mutex, RwLock};
+use std::sync::{LazyLock, Mutex};
 
 include!(concat!(env!("OUT_DIR"), "/locales.rs"));
 
@@ -245,7 +245,7 @@ static ENGLISH: LazyLock<&'static Catalog> = LazyLock::new(|| {
 /// Each language read so far, kept for the app's life, as its words are handed out as they are.
 static READ: LazyLock<Mutex<HashMap<&'static str, &'static Catalog>>> = LazyLock::new(Default::default);
 
-static CURRENT: RwLock<Option<&'static Catalog>> = RwLock::new(None);
+static CURRENT_PTR: std::sync::atomic::AtomicPtr<Catalog> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 fn catalog(tag: &str) -> Option<&'static Catalog> {
     let (tag, json) = CATALOGS.iter().find(|(have, _)| *have == tag)?;
@@ -266,8 +266,11 @@ fn catalog(tag: &str) -> Option<&'static Catalog> {
     }
 }
 
+#[inline]
 fn current() -> Option<&'static Catalog> {
-    *CURRENT.read().unwrap_or_else(|poison| poison.into_inner())
+    let ptr = CURRENT_PTR.load(std::sync::atomic::Ordering::Acquire);
+    // SAFETY: only ever set to null or a leaked `&'static Catalog` from `catalog()`.
+    unsafe { ptr.as_ref() }
 }
 
 fn lookup(key: &str, count: Option<i64>) -> Option<&'static str> {
@@ -308,7 +311,8 @@ pub fn resolve(choice: Option<&str>) -> &'static str {
 pub fn set_language(choice: Option<&str>) -> &'static str {
     let tag = resolve(choice);
     let catalog = if tag == "en" { None } else { catalog(tag) };
-    *CURRENT.write().unwrap_or_else(|poison| poison.into_inner()) = catalog;
+    let ptr = catalog.map_or(std::ptr::null_mut(), |c| c as *const Catalog as *mut Catalog);
+    CURRENT_PTR.store(ptr, std::sync::atomic::Ordering::Release);
     catalog.map_or("en", |catalog| catalog.tag)
 }
 

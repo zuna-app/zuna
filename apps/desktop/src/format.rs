@@ -77,14 +77,17 @@ pub fn same_day(a: f64, b: f64) -> bool {
     local(a).date_naive() == local(b).date_naive()
 }
 
-pub fn format_time(at_ms: f64) -> String {
-    let time = local(at_ms);
+fn format_time_of(time: &DateTime<Local>) -> String {
     if hour12() {
         let clock = time.format("%-I:%M").to_string();
         if time.hour() < 12 { tr!("date.timeAm", time = clock) } else { tr!("date.timePm", time = clock) }
     } else {
         time.format("%H:%M").to_string()
     }
+}
+
+pub fn format_time(at_ms: f64) -> String {
+    format_time_of(&local(at_ms))
 }
 
 /// "November 6": a month's name with its day, a key for each month.
@@ -160,23 +163,24 @@ fn with_year(date: String, time: &DateTime<Local>) -> String {
 
 /// A moment still to come, with its date unless it's today: "14:32", or "Nov 6, 14:32" (`formatUpcoming`).
 pub fn format_upcoming(at_ms: f64) -> String {
-    if same_day(at_ms, now_ms()) {
-        return format_time(at_ms);
+    let when = local(at_ms);
+    if when.date_naive() == Local::now().date_naive() {
+        return format_time_of(&when);
     }
-    tr!("date.dayTime", date = month_day_short(&local(at_ms)), time = format_time(at_ms))
+    tr!("date.dayTime", date = month_day_short(&when), time = format_time_of(&when))
 }
 
 /// "Nov 5, 2026, 14:32", as Intl's medium date and short time.
 /// "Today at 14:32", "Yesterday at 9:05", or the date and time, as a channel's messages say
 /// when they were sent (`formatStamp`).
 pub fn format_stamp(at_ms: f64) -> String {
-    match days_ago(at_ms) {
-        0 => tr!("date.todayAt", time = format_time(at_ms)),
-        1 => tr!("date.yesterdayAt", time = format_time(at_ms)),
-        _ => {
-            let when = local(at_ms);
-            tr!("date.numericDateTime", month = when.format("%m"), day = when.format("%d"), year = when.format("%Y"), time = format_time(at_ms))
-        }
+    let when = local(at_ms);
+    let days = (Local::now().date_naive() - when.date_naive()).num_days();
+    let time = format_time_of(&when);
+    match days {
+        0 => tr!("date.todayAt", time = time),
+        1 => tr!("date.yesterdayAt", time = time),
+        _ => tr!("date.numericDateTime", month = when.format("%m"), day = when.format("%d"), year = when.format("%Y"), time = time),
     }
 }
 
@@ -188,7 +192,7 @@ pub fn format_day(at_ms: f64) -> String {
 
 pub fn format_full(at_ms: f64) -> String {
     let time = local(at_ms);
-    tr!("date.dayTime", date = with_year(month_day_short(&time), &time), time = format_time(at_ms))
+    tr!("date.dayTime", date = with_year(month_day_short(&time), &time), time = format_time_of(&time))
 }
 
 /// The compact time shown in the conversation list.
@@ -196,13 +200,14 @@ pub fn format_list_time(at_ms: f64) -> String {
     if at_ms <= 0.0 {
         return String::new();
     }
-    let days = days_ago(at_ms);
+    let when = local(at_ms);
+    let days = (Local::now().date_naive() - when.date_naive()).num_days();
     if days <= 0 {
-        format_time(at_ms)
+        format_time_of(&when)
     } else if days < 7 {
-        weekday_short(&local(at_ms)).to_string()
+        weekday_short(&when).to_string()
     } else {
-        month_day_short(&local(at_ms))
+        month_day_short(&when)
     }
 }
 

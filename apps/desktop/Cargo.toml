@@ -233,4 +233,5 @@ opt-level = 2
 
 [profile.release]
 opt-level = 3
+lto = "thin"
 strip = "debuginfo"

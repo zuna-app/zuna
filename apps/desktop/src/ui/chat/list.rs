@@ -342,6 +342,8 @@ impl ChatView {
     }
 
     pub(super) fn on_scroll(&mut self, visible: std::ops::Range<usize>, scrolled: bool, cx: &mut Context<Self>) {
+        let was_at_bottom = self.at_bottom;
+        let prev_newest = self.visible_newest;
         self.at_bottom = !scrolled;
         let Some(conversation) = self.conversation(cx) else { return };
         let list_id = conversation.list_id();
@@ -354,8 +356,10 @@ impl ChatView {
             self.state.update(cx, |state, cx| state.load_newer(&list_id, cx));
         }
         self.note_visible(visible, &list_id, cx);
-        self.refresh_messages(cx);
-        cx.notify();
+        if self.at_bottom != was_at_bottom || self.visible_newest != prev_newest {
+            self.refresh_messages(cx);
+            cx.notify();
+        }
     }
 
     /// The rows on screen, and the newest message among them, which is as far as is read away

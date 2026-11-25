@@ -180,7 +180,9 @@ struct Gate {
     key: Arc<AtomicBool>,
     reading: Arc<Mutex<Reading>>,
     rnnoise: Box<nnnoiseless::DenoiseState<'static>>,
-    lookahead: Vec<Vec<f32>>,
+    scratch_in: [f32; FRAME],
+    scratch_cleaned: [f32; FRAME],
+    lookahead: [[f32; FRAME]; LOOKAHEAD_FRAMES],
     lookahead_at: usize,
     filled: usize,
     hold: u32,
@@ -198,7 +200,9 @@ impl Gate {
             key,
             reading,
             rnnoise: nnnoiseless::DenoiseState::new(),
-            lookahead: vec![vec![0.; FRAME]; LOOKAHEAD_FRAMES],
+            scratch_in: [0.; FRAME],
+            scratch_cleaned: [0.; FRAME],
+            lookahead: [[0.; FRAME]; LOOKAHEAD_FRAMES],
             lookahead_at: 0,
             filled: 0,
             hold: 0,
@@ -247,11 +251,28 @@ impl Gate {
     fn process(&mut self, samples: &[i16]) -> Option<Vec<i16>> {
         let settings = self.settings.lock().clone();
         // RNNoise works on samples scaled as 16-bit audio.
-        let input: Vec<f32> = samples.iter().map(|sample| *sample as f32 * settings.gain).collect();
-        let mut cleaned = vec![0f32; FRAME];
-        let vad = self.rnnoise.process_frame(&mut cleaned, &input[..FRAME.min(input.len())]);
-        let frame: Vec<f32> = if settings.suppress { cleaned } else { input };
-        let sum: f32 = frame.iter().map(|sample| (sample / 32768.).powi(2)).sum();
+        let len = FRAME.min(samples.len());
+        for (dst, &sample) in self.scratch_in[..len].iter_mut().zip(&samples[..len]) {
+            *dst = sample as f32 * settings.gain;
+        }
+        if len < FRAME {
+            self.scratch_in[len..].fill(0.);
+        }
+        // Skip the RNNoise neural network when muted, or when neither suppression nor auto-VAD needs it.
+        let need_rnnoise = !settings.muted && (settings.suppress || (settings.auto && !settings.ptt));
+        let vad = if need_rnnoise {
+            self.rnnoise.process_frame(&mut self.scratch_cleaned, &self.scratch_in)
+        } else {
+            0.
+        };
+        let use_cleaned = need_rnnoise && settings.suppress;
+        let sum: f32 = {
+            let frame: &[f32; FRAME] = if use_cleaned { &self.scratch_cleaned } else { &self.scratch_in };
+            frame.iter().map(|sample| {
+                let s = sample * (1.0 / 32768.);
+                s * s
+            }).sum()
+        };
         let level = if sum > 0. { 10. * (sum / FRAME as f32).log10() } else { -100. };
         self.loudest = self.loudest.max(level);
         let open = self.decide(&settings, vad, level);
@@ -266,7 +287,10 @@ impl Gate {
             self.loudest = -100.;
         }
         // What leaves is the oldest frame held, through the gate as it is now.
-        let held = std::mem::replace(&mut self.lookahead[self.lookahead_at], frame);
+        let mut held = [0f32; FRAME];
+        held.copy_from_slice(&self.lookahead[self.lookahead_at]);
+        let src = if use_cleaned { &self.scratch_cleaned } else { &self.scratch_in };
+        self.lookahead[self.lookahead_at].copy_from_slice(src);
         self.lookahead_at = (self.lookahead_at + 1) % LOOKAHEAD_FRAMES;
         if self.filled < LOOKAHEAD_FRAMES {
             self.filled += 1;
@@ -274,13 +298,11 @@ impl Gate {
         }
         let target = if open { 1. } else { 0. };
         let mut gate = self.gate;
-        let out = held
-            .iter()
-            .map(|sample| {
-                gate = if gate < target { (gate + ATTACK).min(target) } else { (gate - RELEASE).max(target) };
-                (sample * gate).clamp(-32768., 32767.) as i16
-            })
-            .collect();
+        let mut out = Vec::with_capacity(FRAME);
+        for &sample in &held {
+            gate = if gate < target { (gate + ATTACK).min(target) } else { (gate - RELEASE).max(target) };
+            out.push((sample * gate).clamp(-32768., 32767.) as i16);
+        }
         self.gate = gate;
         Some(out)
     }

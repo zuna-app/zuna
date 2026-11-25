@@ -43,45 +43,72 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
     define!(crypto, ctx, "argon2id", |c, a| {
         let out = check(
             &c,
-            primitives::argon2id(
-                &bytes_arg(&a, 0),
-                &bytes_arg(&a, 1),
-                number_arg(&a, 2) as u32,
-                number_arg(&a, 3) as u32,
-                number_arg(&a, 4) as u32,
-                number_arg(&a, 5) as usize,
-            ),
+            with_bytes_arg(&a, 0, |pw| {
+                with_bytes_arg(&a, 1, |salt| {
+                    primitives::argon2id(pw, salt, number_arg(&a, 2) as u32, number_arg(&a, 3) as u32, number_arg(&a, 4) as u32, number_arg(&a, 5) as usize)
+                })
+            }),
         )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "hkdfSha256", |c, a| {
-        let out = check(&c, primitives::hkdf_sha256(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2), number_arg(&a, 3) as usize))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |ikm| {
+                with_bytes_arg(&a, 1, |salt| {
+                    with_bytes_arg(&a, 2, |info| primitives::hkdf_sha256(ikm, salt, info, number_arg(&a, 3) as usize))
+                })
+            }),
+        )?;
         new_bytes(&c, out)
     });
-    define!(crypto, ctx, "sha256", |c, a| new_bytes(&c, primitives::sha256(&bytes_arg(&a, 0))));
+    define!(crypto, ctx, "sha256", |c, a| new_bytes(&c, with_bytes_arg(&a, 0, primitives::sha256)));
     define!(crypto, ctx, "aes256Ctr", |c, a| {
-        let out = check(&c, primitives::aes256_ctr(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |key| {
+                with_bytes_arg(&a, 1, |iv| with_bytes_arg(&a, 2, |data| primitives::aes256_ctr(key, iv, data)))
+            }),
+        )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "aeadSeal", |c, a| {
-        let out = check(&c, primitives::aead_seal(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |key| {
+                with_bytes_arg(&a, 1, |pt| with_bytes_arg(&a, 2, |aad| primitives::aead_seal(key, pt, aad)))
+            }),
+        )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "aeadOpen", |c, a| {
-        let out = check(&c, primitives::aead_open(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |key| {
+                with_bytes_arg(&a, 1, |ct| with_bytes_arg(&a, 2, |aad| primitives::aead_open(key, ct, aad)))
+            }),
+        )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "streamSeal", |c, a| {
         let out = check(
             &c,
-            primitives::stream_seal(&bytes_arg(&a, 0), &bytes_arg(&a, 1), number_arg(&a, 2) as u64, bool_arg(&a, 3), &bytes_arg(&a, 4)),
+            with_bytes_arg(&a, 0, |key| {
+                with_bytes_arg(&a, 1, |prefix| {
+                    with_bytes_arg(&a, 4, |pt| primitives::stream_seal(key, prefix, number_arg(&a, 2) as u64, bool_arg(&a, 3), pt))
+                })
+            }),
         )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "streamOpen", |c, a| {
         let out = check(
             &c,
-            primitives::stream_open(&bytes_arg(&a, 0), &bytes_arg(&a, 1), number_arg(&a, 2) as u64, bool_arg(&a, 3), &bytes_arg(&a, 4)),
+            with_bytes_arg(&a, 0, |key| {
+                with_bytes_arg(&a, 1, |prefix| {
+                    with_bytes_arg(&a, 4, |ct| primitives::stream_open(key, prefix, number_arg(&a, 2) as u64, bool_arg(&a, 3), ct))
+                })
+            }),
         )?;
         new_bytes(&c, out)
     });
@@ -90,12 +117,17 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
         key_pair(&c, pair)
     });
     define!(crypto, ctx, "sign", |c, a| {
-        let out = check(&c, primitives::sign(&bytes_arg(&a, 0), &bytes_arg(&a, 1)))?;
+        let out = check(&c, with_bytes_arg(&a, 0, |sk| with_bytes_arg(&a, 1, |msg| primitives::sign(sk, msg))))?;
         new_bytes(&c, out)
     });
-    define!(crypto, ctx, "verify", |c, a| Ok(boolean(&c, primitives::verify(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2)))));
+    define!(crypto, ctx, "verify", |c, a| {
+        Ok(boolean(
+            &c,
+            with_bytes_arg(&a, 0, |pk| with_bytes_arg(&a, 1, |msg| with_bytes_arg(&a, 2, |sig| primitives::verify(pk, msg, sig)))),
+        ))
+    });
     define!(crypto, ctx, "signingPublic", |c, a| {
-        let out = check(&c, primitives::signing_public(&bytes_arg(&a, 0)))?;
+        let out = check(&c, with_bytes_arg(&a, 0, primitives::signing_public))?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "tokenBlind", |c, a| {
@@ -103,7 +135,14 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "tokenFinalize", |c, a| {
-        let out = check(&c, primitives::token_finalize(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2), &bytes_arg(&a, 3)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |blinds| {
+                with_bytes_arg(&a, 1, |eval| {
+                    with_bytes_arg(&a, 2, |proof| with_bytes_arg(&a, 3, |pk| primitives::token_finalize(blinds, eval, proof, pk)))
+                })
+            }),
+        )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "hpkeKeygen", |c, _a| {
@@ -111,14 +150,30 @@ pub fn install<'js>(ctx: &Ctx<'js>) -> Result<()> {
         key_pair(&c, pair)
     });
     define!(crypto, ctx, "hpkeSeal", |c, a| {
-        let out = check(&c, primitives::hpke_seal(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2), &bytes_arg(&a, 3)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |rcpt| {
+                with_bytes_arg(&a, 1, |info| {
+                    with_bytes_arg(&a, 2, |aad| with_bytes_arg(&a, 3, |pt| primitives::hpke_seal(rcpt, info, aad, pt)))
+                })
+            }),
+        )?;
         new_bytes(&c, out)
     });
     define!(crypto, ctx, "hpkeOpen", |c, a| {
-        let out = check(&c, primitives::hpke_open(&bytes_arg(&a, 0), &bytes_arg(&a, 1), &bytes_arg(&a, 2), &bytes_arg(&a, 3)))?;
+        let out = check(
+            &c,
+            with_bytes_arg(&a, 0, |sk| {
+                with_bytes_arg(&a, 1, |info| {
+                    with_bytes_arg(&a, 2, |aad| with_bytes_arg(&a, 3, |ct| primitives::hpke_open(sk, info, aad, ct)))
+                })
+            }),
+        )?;
         new_bytes(&c, out)
     });
-    define!(crypto, ctx, "safetyDigest", |c, a| new_bytes(&c, primitives::safety_digest(&bytes_arg(&a, 0), &bytes_arg(&a, 1))));
+    define!(crypto, ctx, "safetyDigest", |c, a| {
+        new_bytes(&c, with_bytes_arg(&a, 0, |ka| with_bytes_arg(&a, 1, |kb| primitives::safety_digest(ka, kb))))
+    });
 
     {
         let clients = clients.clone();

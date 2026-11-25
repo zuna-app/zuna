@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use rquickjs::function::Rest;
-use rquickjs::{Array, Ctx, Function, Object, Result, Value};
+use rquickjs::{Array, Atom, Ctx, Function, Object, Result, Value};
 use rusqlite::types::{Value as SqlValue, ValueRef};
 use rusqlite::{Connection, params_from_iter};
 
@@ -104,7 +104,7 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
                 let path = file_for(&state.dir, &name);
                 let connection = Connection::open(&path).map_err(|error| fail(&c, tr!("common.couldntOpen", name = name, error = error)))?;
                 connection
-                    .execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000;")
+                    .execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 67108864;")
                     .map_err(|error| fail(&c, error.to_string()))?;
                 connection.set_prepared_statement_cache_capacity(256);
                 let handle = state.next;
@@ -171,15 +171,19 @@ pub fn install<'js>(ctx: &Ctx<'js>, dir: PathBuf) -> Result<()> {
                 let connection = state.open.get(handle).ok_or_else(|| fail(&c, "That database isn't open."))?;
                 let values = params(&a, 1);
                 let mut statement = connection.prepare_cached(sql).map_err(|error| fail(&c, error.to_string()))?;
-                let names: Vec<String> = statement.column_names().map(|name| name.to_string()).collect();
+                let atoms: Vec<Atom<'js>> = statement
+                    .column_names()
+                    .into_iter()
+                    .map(|name| Atom::from_str(c.clone(), name))
+                    .collect::<Result<_>>()?;
                 let mut rows = statement.query(params_from_iter(values.iter())).map_err(|error| fail(&c, error.to_string()))?;
                 let result = Array::new(c.clone())?;
                 let mut index = 0;
                 while let Some(row) = rows.next().map_err(|error| fail(&c, error.to_string()))? {
                     let object = Object::new(c.clone())?;
-                    for (column, name) in names.iter().enumerate() {
+                    for (column, atom) in atoms.iter().enumerate() {
                         let value = row.get_ref(column).map_err(|error| fail(&c, error.to_string()))?;
-                        object.set(name.as_str(), value_of(&c, value)?)?;
+                        object.set(atom.clone(), value_of(&c, value)?)?;
                     }
                     result.set(index, object)?;
                     index += 1;

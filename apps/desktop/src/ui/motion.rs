@@ -531,6 +531,9 @@ pub fn delayed_dim(key: &str, active: bool, delay_ms: u64, ms: u64, dim: f32, ba
     if reduced() {
         return if active { dim } else { 1. };
     }
+    if !active && !DIMS.with(|dims| dims.borrow().contains_key(key)) {
+        return 1.;
+    }
     let now = Instant::now();
     let showing = |dim_state: &Dim| -> f32 {
         match dim_state.since {

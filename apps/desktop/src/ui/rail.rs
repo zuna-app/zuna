@@ -116,7 +116,11 @@ impl Root {
             .order
             .iter()
             .filter_map(|id| state.servers.get(id))
-            .map(|server| RailItem { id: server.entry.id.clone(), name: server.entry.name.clone(), url: server.entry.url.clone(), has_icon: server.entry.has_icon, unread: server.unread(), has_new: server.has_new(), telegram: server.entry.is_telegram() })
+            .map(|server| {
+                let unread = server.unread();
+                let has_new = server.has_new_with_unread(unread);
+                RailItem { id: server.entry.id.clone(), name: server.entry.name.clone(), url: server.entry.url.clone(), has_icon: server.entry.has_icon, unread, has_new, telegram: server.entry.is_telegram() }
+            })
             .collect();
         let me = state.active().and_then(|server| server.me.as_ref().and_then(|me| server.users.get(&me.user_id)).cloned());
         let can_link_telegram = state.can_link_telegram();

@@ -374,14 +374,15 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
 
     host_fn!(object, ctx, host, "utf8Encode", |c, h, a| new_bytes(&c, string_arg(&a, 0).as_bytes()));
     host_fn!(object, ctx, host, "utf8Decode", |c, h, a| {
-        let bytes = bytes_arg(&a, 0);
-        string(&c, &String::from_utf8_lossy(&bytes))
+        with_bytes_arg(&a, 0, |bytes| string(&c, &String::from_utf8_lossy(bytes)))
     });
-    host_fn!(object, ctx, host, "base64Encode", |c, h, a| string(&c, &STANDARD.encode(bytes_arg(&a, 0))));
+    host_fn!(object, ctx, host, "base64Encode", |c, h, a| {
+        with_bytes_arg(&a, 0, |bytes| string(&c, &STANDARD.encode(bytes)))
+    });
     host_fn!(object, ctx, host, "base64Decode", |c, h, a| {
         let text = string_arg(&a, 0);
-        let decoded = STANDARD
-            .decode(text.trim_end_matches('=').to_string() + &"=".repeat((4 - text.trim_end_matches('=').len() % 4) % 4))
+        let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+            .decode(text.trim_end_matches('='))
             .map_err(|_| fail(&c, "That isn't base64."))?;
         new_bytes(&c, decoded)
     });
@@ -590,24 +591,27 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
     });
 
     host_fn!(object, ctx, host, "fileAssemble", |c, h, a| {
-        use std::io::Write;
+        use std::io::{BufWriter, Write};
         let extension: String = string_arg(&a, 1).chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
         let name = format!("{}.{}", hex(&zuna_crypto::primitives::random_bytes(12).unwrap_or_default()), if extension.is_empty() { "bin".into() } else { extension });
         let path = h.borrow().files.join(name);
-        let mut file = std::fs::File::create(&path).map_err(|error| fail(&c, tr!("media.saveFailed", error = error)))?;
+        let file = std::fs::File::create(&path).map_err(|error| fail(&c, tr!("media.saveFailed", error = error)))?;
+        let mut writer = BufWriter::new(file);
         // What was written of a file that couldn't be finished goes.
         let written: rquickjs::Result<()> = (|| {
             if let Some(parts) = a.first().and_then(|value| value.as_array()) {
                 for part in parts.iter::<Value>() {
                     let part = part?;
-                    let bytes = read_bytes(&part).unwrap_or_default();
-                    file.write_all(&bytes).map_err(|error| fail(&c, error.to_string()))?;
+                    with_bytes(&part, |bytes| writer.write_all(bytes))
+                        .transpose()
+                        .map_err(|error| fail(&c, error.to_string()))?;
                 }
             }
+            writer.flush().map_err(|error| fail(&c, error.to_string()))?;
             Ok(())
         })();
         if let Err(error) = written {
-            drop(file);
+            drop(writer);
             std::fs::remove_file(&path).ok();
             return Err(error);
         }

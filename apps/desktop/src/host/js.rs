@@ -2,22 +2,38 @@
 
 use rquickjs::{Array, Ctx, Exception, FromJs, IntoJs, Object, Result, TypedArray, Value};
 
-/// The bytes of a typed array, an array buffer or a data view, or nothing.
-pub fn read_bytes(value: &Value<'_>) -> Option<Vec<u8>> {
+/// Borrows the bytes of a typed array, an array buffer or a data view without allocating.
+pub fn with_bytes<R>(value: &Value<'_>, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
     let object = value.as_object()?;
     // SAFETY (each as_bytes): no JavaScript runs while the slice is alive.
     if let Some(buffer) = object.as_array_buffer() {
-        return unsafe { buffer.as_bytes() }.map(<[u8]>::to_vec);
+        return unsafe { buffer.as_bytes() }.map(f);
     }
     if let Some(array) = object.as_typed_array::<u8>() {
-        return unsafe { array.as_bytes() }.map(<[u8]>::to_vec);
+        return unsafe { array.as_bytes() }.map(f);
     }
     // Any other view: its bytes in its buffer.
     let buffer: Object = object.get("buffer").ok()?;
     let buffer = buffer.as_array_buffer()?;
     let offset: usize = object.get("byteOffset").ok()?;
     let length: usize = object.get("byteLength").ok()?;
-    unsafe { buffer.as_bytes() }?.get(offset..offset + length).map(<[u8]>::to_vec)
+    unsafe { buffer.as_bytes() }?.get(offset..offset + length).map(f)
+}
+
+/// Borrows the bytes of an argument, or empty slice, without allocating.
+pub fn with_bytes_arg<R>(args: &[Value<'_>], index: usize, f: impl FnOnce(&[u8]) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(value) = args.get(index) {
+        if let Some(result) = with_bytes(value, |bytes| (f.take().unwrap())(bytes)) {
+            return result;
+        }
+    }
+    (f.unwrap())(&[])
+}
+
+/// The bytes of a typed array, an array buffer or a data view, or nothing.
+pub fn read_bytes(value: &Value<'_>) -> Option<Vec<u8>> {
+    with_bytes(value, <[u8]>::to_vec)
 }
 
 /// The numbers of a Uint32Array, or of a plain array of numbers.

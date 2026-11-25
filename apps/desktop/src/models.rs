@@ -183,10 +183,54 @@ pub struct Attachment {
 /// What a decrypted file is kept by: its ID and a hash of the key it was opened with. A message
 /// elsewhere can name the same file with any key, and must never be shown this one's copy for it.
 pub fn file_cache_id(file_id: &str, key: &str, prefix: &str) -> String {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    thread_local! {
+        static CACHE: RefCell<HashMap<u64, (String, String, String, String)>> = RefCell::new(HashMap::with_capacity(256));
+    }
+
+    let mut hasher = DefaultHasher::new();
+    file_id.hash(&mut hasher);
+    key.hash(&mut hasher);
+    prefix.hash(&mut hasher);
+    let fingerprint = hasher.finish();
+
+    let hit = CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.get(&fingerprint).and_then(|(f, k, p, id)| {
+            (f == file_id && k == key && p == prefix).then(|| id.clone())
+        })
+    });
+    if let Some(id) = hit {
+        return id;
+    }
+
     use sha2::{Digest, Sha256};
-    let digest = Sha256::new().chain_update(b"zuna/file-cache/v1|").chain_update(key.as_bytes()).chain_update(b"|").chain_update(prefix.as_bytes()).finalize();
-    let hash: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("{file_id}-{hash}")
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Sha256::new()
+        .chain_update(b"zuna/file-cache/v1|")
+        .chain_update(key.as_bytes())
+        .chain_update(b"|")
+        .chain_update(prefix.as_bytes())
+        .finalize();
+    let mut out = String::with_capacity(file_id.len() + 1 + 24);
+    out.push_str(file_id);
+    out.push('-');
+    for &byte in &digest[..12] {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= 1024 {
+            cache.clear();
+        }
+        cache.insert(fingerprint, (file_id.to_string(), key.to_string(), prefix.to_string(), out.clone()));
+    });
+    out
 }
 
 impl AvatarRef {
@@ -508,7 +552,38 @@ pub struct EmoteSet {
 impl EmoteSet {
     /// The emotes a text uses, by the word that names each, as a message sends them.
     pub fn refs_in(&self, text: &str) -> serde_json::Map<String, serde_json::Value> {
-        text.split_whitespace().filter_map(|word| self.emotes.iter().find(|emote| emote.name == word).map(|emote| (word.to_string(), emote.to_ref()))).collect()
+        if self.emotes.is_empty() {
+            return serde_json::Map::new();
+        }
+        // Fast first-byte prefilter: skips words that cannot match any emote in the set.
+        let mut first_ascii = [0u64; 2];
+        let mut has_non_ascii = false;
+        for emote in &self.emotes {
+            if let Some(&b) = emote.name.as_bytes().first() {
+                if b < 128 {
+                    first_ascii[(b >> 6) as usize] |= 1u64 << (b & 63);
+                } else {
+                    has_non_ascii = true;
+                }
+            }
+        }
+        let mut out = serde_json::Map::new();
+        for word in text.split_whitespace() {
+            let Some(&b) = word.as_bytes().first() else { continue };
+            if b < 128 {
+                if (first_ascii[(b >> 6) as usize] & (1u64 << (b & 63))) == 0 {
+                    continue;
+                }
+            } else if !has_non_ascii {
+                continue;
+            }
+            if !out.contains_key(word) {
+                if let Some(emote) = self.emotes.iter().find(|emote| emote.name == word) {
+                    out.insert(word.to_string(), emote.to_ref());
+                }
+            }
+        }
+        out
     }
 }
 

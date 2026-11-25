@@ -265,6 +265,29 @@ impl AppState {
     /// at once. Whatever is playing stays, as does a media file with a player, and anything
     /// still loading.
     pub(super) fn trim_media(&mut self) {
+        let picture_total: usize = self
+            .pictures
+            .values()
+            .filter_map(|p| match p {
+                Picture::Ready(image) => Some(image.bytes().len()),
+                _ => None,
+            })
+            .sum();
+        let clip_total: usize = self
+            .clips
+            .values()
+            .filter_map(|c| match c {
+                ClipState::Ready(clip) => Some(clip.samples.len() * 2),
+                _ => None,
+            })
+            .sum();
+        if picture_total <= PICTURE_BYTES
+            && clip_total <= CLIP_BYTES
+            && self.videos.len() <= VIDEOS_KEPT
+            && self.media_files.len() <= MEDIA_FILES_KEPT
+        {
+            return;
+        }
         let playing = crate::media::player::current();
         let used = self.media_used.borrow().clone();
         let last_shown = |key: &str| used.get(key).copied().unwrap_or(0);
@@ -273,16 +296,16 @@ impl AppState {
             keys
         };
 
-        let pictures: Vec<(String, usize)> = self
-            .pictures
-            .iter()
-            .filter_map(|(key, picture)| match picture {
-                Picture::Ready(image) => Some((key.clone(), image.bytes().len())),
-                _ => None,
-            })
-            .collect();
-        let mut total: usize = pictures.iter().map(|(_, size)| size).sum();
-        if total > PICTURE_BYTES {
+        if picture_total > PICTURE_BYTES {
+            let pictures: Vec<(String, usize)> = self
+                .pictures
+                .iter()
+                .filter_map(|(key, picture)| match picture {
+                    Picture::Ready(image) => Some((key.clone(), image.bytes().len())),
+                    _ => None,
+                })
+                .collect();
+            let mut total = picture_total;
             for (key, size) in oldest_first(pictures) {
                 if total <= PICTURE_BYTES / 4 * 3 {
                     break;
@@ -292,22 +315,24 @@ impl AppState {
             }
         }
 
-        let clips: Vec<(String, usize)> = self
-            .clips
-            .iter()
-            .filter_map(|(key, clip)| match clip {
-                ClipState::Ready(clip) if playing.as_deref() != Some(key.as_str()) => Some((key.clone(), clip.samples.len() * 2)),
-                _ => None,
-            })
-            .collect();
-        let mut total: usize = clips.iter().map(|(_, size)| size).sum();
-        if total > CLIP_BYTES {
-            for (key, size) in oldest_first(clips) {
-                if total <= CLIP_BYTES / 4 * 3 {
-                    break;
+        if clip_total > CLIP_BYTES {
+            let clips: Vec<(String, usize)> = self
+                .clips
+                .iter()
+                .filter_map(|(key, clip)| match clip {
+                    ClipState::Ready(clip) if playing.as_deref() != Some(key.as_str()) => Some((key.clone(), clip.samples.len() * 2)),
+                    _ => None,
+                })
+                .collect();
+            let mut total: usize = clips.iter().map(|(_, size)| size).sum();
+            if total > CLIP_BYTES {
+                for (key, size) in oldest_first(clips) {
+                    if total <= CLIP_BYTES / 4 * 3 {
+                        break;
+                    }
+                    self.clips.remove(&key);
+                    total -= size;
                 }
-                self.clips.remove(&key);
-                total -= size;
             }
         }
 

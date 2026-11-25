@@ -76,7 +76,6 @@ static URL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static MENTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})([.,:;!?]*)$").unwrap());
 static FENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"```([^\s`]*)\n?((?s:.)*?)```").unwrap());
-static QUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^>\s?").unwrap());
 static EMOJI_ONLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\u{200d}|\u{fe0f}|\s)+$").unwrap());
 static HAS_EMOJI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20e3}").unwrap());
 
@@ -97,41 +96,92 @@ enum Rule {
     Italic,
 }
 
+enum InlinePattern {
+    Fast(Regex),
+    Fancy(FancyRegex),
+}
+
+impl InlinePattern {
+    fn find(&self, text: &str, from: usize) -> Option<Found> {
+        let slice = &text[from..];
+        match self {
+            InlinePattern::Fast(re) => {
+                let captures = re.captures(slice)?;
+                let whole = captures.get(0)?;
+                let inner = captures.get(1).map(|m| m.range()).unwrap_or(0..0);
+                Some((from + whole.start(), from + whole.end(), from + inner.start..from + inner.end))
+            }
+            InlinePattern::Fancy(re) => {
+                let captures = re.captures(slice).ok().flatten()?;
+                let whole = captures.get(0)?;
+                let inner = captures.get(1).map(|m| m.range()).unwrap_or(0..0);
+                Some((from + whole.start(), from + whole.end(), from + inner.start..from + inner.end))
+            }
+        }
+    }
+}
+
 // JavaScript's \w is ASCII only, so these spell it out.
-static RULES: LazyLock<Vec<(Rule, FancyRegex)>> = LazyLock::new(|| {
+static RULES: LazyLock<Vec<(Rule, InlinePattern)>> = LazyLock::new(|| {
     vec![
-        (Rule::Named, FancyRegex::new(NAMED.as_str()).unwrap()),
-        (Rule::Code, FancyRegex::new(r"`([^`\n]+)`").unwrap()),
-        (Rule::Spoiler, FancyRegex::new(r"\|\|([^\n]+?)\|\|").unwrap()),
-        (Rule::Bold, FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap()),
-        (Rule::Strike, FancyRegex::new(r"~~([^\n]+?)~~").unwrap()),
-        (Rule::Italic, FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap()),
+        (Rule::Named, InlinePattern::Fast(Regex::new(NAMED.as_str()).unwrap())),
+        (Rule::Code, InlinePattern::Fast(Regex::new(r"`([^`\n]+)`").unwrap())),
+        (Rule::Spoiler, InlinePattern::Fast(Regex::new(r"\|\|([^\n]+?)\|\|").unwrap())),
+        (Rule::Bold, InlinePattern::Fast(Regex::new(r"\*\*([^\n]+?)\*\*").unwrap())),
+        (Rule::Strike, InlinePattern::Fast(Regex::new(r"~~([^\n]+?)~~").unwrap())),
+        (Rule::Italic, InlinePattern::Fancy(FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap())),
     ]
 });
+
+/// Cheap literal check before invoking the regex engine for an inline rule.
+#[inline]
+fn rule_possible(rule: Rule, slice: &str) -> bool {
+    match rule {
+        Rule::Named => slice.contains("tg://user?id="),
+        Rule::Code => slice.as_bytes().contains(&b'`'),
+        Rule::Spoiler => slice.contains("||"),
+        Rule::Bold => slice.contains("**"),
+        Rule::Strike => slice.contains("~~"),
+        Rule::Italic => slice.as_bytes().contains(&b'*'),
+    }
+}
 
 /// Formatting inside formatting, this deep. Further in, it's just text.
 const MAX_INLINE_DEPTH: usize = 8;
 
 fn render_plain(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context) {
+    if text.is_empty() {
+        return;
+    }
+    let has_emotes = !context.emotes.is_empty();
+    let has_mentions = !context.mentionable.is_empty() && text.as_bytes().contains(&b'@');
+    if !has_emotes && !has_mentions {
+        out.push(text, style);
+        return;
+    }
     let mut buffer = String::new();
     let flush = |out: &mut Rich, buffer: &mut String| {
         out.push(buffer, style);
         buffer.clear();
     };
     for token in split_keeping_whitespace(text) {
-        if let Some(emote) = context.emotes.get(token) {
-            flush(out, &mut buffer);
-            out.push(token, &SpanStyle { emote: Some((token.to_string(), emote.clone())), ..style.clone() });
-            continue;
-        }
-        if let Some(captures) = MENTION.captures(token) {
-            let name = &captures[1];
-            if let Some(user_id) = context.mentionable.get(&name.to_lowercase()) {
+        if has_emotes {
+            if let Some(emote) = context.emotes.get(token) {
                 flush(out, &mut buffer);
-                let is_self = user_id == context.self_id;
-                out.push(&format!("@{name}"), &SpanStyle { mention: Some((user_id.clone(), is_self)), ..style.clone() });
-                buffer.push_str(&captures[2]);
+                out.push(token, &SpanStyle { emote: Some((token.to_string(), emote.clone())), ..style.clone() });
                 continue;
+            }
+        }
+        if has_mentions && token.starts_with('@') {
+            if let Some(captures) = MENTION.captures(token) {
+                let name = &captures[1];
+                if let Some(user_id) = context.mentionable.get(&name.to_lowercase()) {
+                    flush(out, &mut buffer);
+                    let is_self = user_id == context.self_id;
+                    out.push(&format!("@{name}"), &SpanStyle { mention: Some((user_id.clone(), is_self)), ..style.clone() });
+                    buffer.push_str(&captures[2]);
+                    continue;
+                }
             }
         }
         buffer.push_str(token);
@@ -163,6 +213,10 @@ fn split_keeping_whitespace(text: &str) -> Vec<&str> {
 }
 
 fn render_links(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context) {
+    if !text.contains("://") {
+        render_plain(out, text, style, context);
+        return;
+    }
     let mut last = 0;
     for found in URL.find_iter(text) {
         if found.start() > last {
@@ -178,18 +232,20 @@ fn render_links(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context
 
 /// The rules that look at the character before a match, again anchored to where a search
 /// starts: there, the text before no longer counts, so one may match where it didn't before.
-static ANCHORED: LazyLock<Vec<Option<FancyRegex>>> =
-    LazyLock::new(|| RULES.iter().map(|(_, pattern)| pattern.as_str().starts_with("(?<!").then(|| FancyRegex::new(&format!("^(?:{})", pattern.as_str())).unwrap())).collect());
+static ANCHORED: LazyLock<Vec<Option<InlinePattern>>> = LazyLock::new(|| {
+    RULES
+        .iter()
+        .map(|(_, pattern)| match pattern {
+            InlinePattern::Fancy(re) if re.as_str().starts_with("(?<!") => {
+                Some(InlinePattern::Fancy(FancyRegex::new(&format!("^(?:{})", re.as_str())).unwrap()))
+            }
+            _ => None,
+        })
+        .collect()
+});
 
 /// A rule's match: where it starts and ends, and what it holds, in the whole text.
 type Found = (usize, usize, Range<usize>);
-
-fn find(pattern: &FancyRegex, text: &str, from: usize) -> Option<Found> {
-    let captures = pattern.captures(&text[from..]).ok().flatten()?;
-    let whole = captures.get(0)?;
-    let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
-    Some((from + whole.start(), from + whole.end(), from + inner.start..from + inner.end))
-}
 
 /// The earliest rule's match goes first, and the text from its end is formatted the same way.
 /// Each rule's next match is kept while it's still ahead, so a long message with many spans is
@@ -199,23 +255,37 @@ fn render_inline(out: &mut Rich, text: &str, style: &SpanStyle, context: &Contex
     if depth >= MAX_INLINE_DEPTH {
         return render_links(out, text, style, context);
     }
+    // Fast path for plain messages with no inline formatting characters at all.
+    let bytes = text.as_bytes();
+    let any_marker = bytes.iter().any(|&b| matches!(b, b'`' | b'|' | b'*' | b'~'))
+        || (context.telegram && text.contains("tg://user?id="));
+    if !any_marker {
+        return render_links(out, text, style, context);
+    }
     let mut position = 0;
     // For each rule: not looked for yet, nothing further on, or its next match.
-    let mut next: Vec<Option<Option<Found>>> = vec![None; RULES.len()];
+    let mut next: [Option<Option<Found>>; 6] = [None, None, None, None, None, None];
     loop {
+        let rest = &text[position..];
         for (index, (rule, pattern)) in RULES.iter().enumerate() {
             if matches!(rule, Rule::Named) && !context.telegram {
                 next[index] = Some(None);
                 continue;
             }
             match &next[index] {
-                Some(Some((start, _, _))) if *start < position => next[index] = Some(find(pattern, text, position)),
-                None => next[index] = Some(find(pattern, text, position)),
+                Some(Some((start, _, _))) if *start < position => {
+                    next[index] = Some(if rule_possible(*rule, rest) { pattern.find(text, position) } else { None });
+                }
+                None => {
+                    next[index] = Some(if rule_possible(*rule, rest) { pattern.find(text, position) } else { None });
+                }
                 _ => {
                     if let Some(anchored) = &ANCHORED[index] {
                         if next[index].as_ref().unwrap().as_ref().is_none_or(|(start, _, _)| *start > position) {
-                            if let Some(here) = find(anchored, text, position) {
-                                next[index] = Some(Some(here));
+                            if rule_possible(*rule, rest) {
+                                if let Some(here) = anchored.find(text, position) {
+                                    next[index] = Some(Some(here));
+                                }
                             }
                         }
                     }
@@ -272,18 +342,22 @@ pub fn parse(text: &str, context: &Context) -> Vec<Block> {
         }
         let mut current: Option<(bool, String)> = None;
         for line in trimmed.split('\n') {
-            let is_quote = QUOTE.is_match(line);
-            let value = if is_quote { QUOTE.replace(line, "").into_owned() } else { line.to_string() };
+            let (is_quote, rest) = if let Some(after) = line.strip_prefix('>') {
+                let after = after.chars().next().filter(|c| c.is_whitespace()).map_or(after, |c| &after[c.len_utf8()..]);
+                (true, after)
+            } else {
+                (false, line)
+            };
             match &mut current {
                 Some((quote, text)) if *quote == is_quote => {
                     text.push('\n');
-                    text.push_str(&value);
+                    text.push_str(rest);
                 }
                 _ => {
                     if let Some((quote, text)) = current.take() {
                         blocks.push(if quote { Block::Quote(inline(&text, context)) } else { Block::Text(inline(&text, context)) });
                     }
-                    current = Some((is_quote, value));
+                    current = Some((is_quote, rest.to_string()));
                 }
             }
         }
@@ -291,13 +365,15 @@ pub fn parse(text: &str, context: &Context) -> Vec<Block> {
             blocks.push(if quote { Block::Quote(inline(&text, context)) } else { Block::Text(inline(&text, context)) });
         }
     };
-    for captures in FENCE.captures_iter(text) {
-        let whole = captures.get(0).unwrap();
-        push_text(&mut blocks, &text[last..whole.start()]);
-        let code = captures[2].strip_suffix('\n').unwrap_or(&captures[2]).to_string();
-        let language = Some(captures[1].to_string()).filter(|language| !language.is_empty());
-        blocks.push(Block::Code { text: code, language });
-        last = whole.end();
+    if text.contains("```") {
+        for captures in FENCE.captures_iter(text) {
+            let whole = captures.get(0).unwrap();
+            push_text(&mut blocks, &text[last..whole.start()]);
+            let code = captures[2].strip_suffix('\n').unwrap_or(&captures[2]).to_string();
+            let language = Some(captures[1].to_string()).filter(|language| !language.is_empty());
+            blocks.push(Block::Code { text: code, language });
+            last = whole.end();
+        }
     }
     push_text(&mut blocks, &text[last..]);
     blocks
@@ -305,16 +381,29 @@ pub fn parse(text: &str, context: &Context) -> Vec<Block> {
 
 /// Messages that are only emoji or emotes show larger: 2 for up to three of them, 1 for up to eight.
 pub fn jumbo_size(text: &str, emotes: &HashMap<String, EmoteRef>) -> u8 {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    if words.is_empty() || words.len() > 6 {
+    // Pure ASCII can contain no emoji, so without emotes it can never be jumbo.
+    if emotes.is_empty() && text.is_ascii() {
         return 0;
     }
-    let only = words.iter().all(|word| emotes.contains_key(*word) || (EMOJI_ONLY.is_match(word) && HAS_EMOJI.is_match(word)));
-    if !only {
-        return 0;
+    let mut words = 0usize;
+    let mut glyphs = 0usize;
+    for word in text.split_whitespace() {
+        words += 1;
+        if words > 6 {
+            return 0;
+        }
+        if emotes.contains_key(word) {
+            glyphs += 1;
+        } else if !word.is_ascii() && EMOJI_ONLY.is_match(word) && HAS_EMOJI.is_match(word) {
+            glyphs += word.graphemes(true).count();
+        } else {
+            return 0;
+        }
+        if glyphs > 8 {
+            return 0;
+        }
     }
-    let glyphs: usize = words.iter().map(|word| if emotes.contains_key(*word) { 1 } else { word.graphemes(true).count() }).sum();
-    if glyphs > 8 {
+    if words == 0 {
         0
     } else if glyphs <= 3 {
         2
@@ -330,31 +419,78 @@ enum Plain {
     Pattern(&'static str),
 }
 
-static PLAIN_RULES: LazyLock<Vec<(FancyRegex, Plain)>> = LazyLock::new(|| {
+enum PlainRegex {
+    Fast(Regex, &'static str),
+    Fancy(FancyRegex, &'static str),
+}
+
+static PLAIN_RULES: LazyLock<Vec<(PlainRegex, Plain)>> = LazyLock::new(|| {
     vec![
-        (FancyRegex::new(r"```(?s:.)*?```").unwrap(), Plain::Words(crate::i18n::mark("message.preview.code"))),
-        (FancyRegex::new(r"\|\|[^\n]+?\|\|").unwrap(), Plain::Words(crate::i18n::mark("message.preview.spoiler"))),
-        (FancyRegex::new(r"`([^`\n]+)`").unwrap(), Plain::Pattern("$1")),
-        (FancyRegex::new(r"\*\*([^\n]+?)\*\*").unwrap(), Plain::Pattern("$1")),
-        (FancyRegex::new(r"~~([^\n]+?)~~").unwrap(), Plain::Pattern("$1")),
-        (FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), Plain::Pattern("$1")),
+        (PlainRegex::Fast(Regex::new(r"```(?s:.)*?```").unwrap(), "```"), Plain::Words(crate::i18n::mark("message.preview.code"))),
+        (PlainRegex::Fast(Regex::new(r"\|\|[^\n]+?\|\|").unwrap(), "||"), Plain::Words(crate::i18n::mark("message.preview.spoiler"))),
+        (PlainRegex::Fast(Regex::new(r"`([^`\n]+)`").unwrap(), "`"), Plain::Pattern("$1")),
+        (PlainRegex::Fast(Regex::new(r"\*\*([^\n]+?)\*\*").unwrap(), "**"), Plain::Pattern("$1")),
+        (PlainRegex::Fast(Regex::new(r"~~([^\n]+?)~~").unwrap(), "~~"), Plain::Pattern("$1")),
+        (PlainRegex::Fancy(FancyRegex::new(r"(?<![A-Za-z0-9_*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![A-Za-z0-9_*])").unwrap(), "*"), Plain::Pattern("$1")),
         // A mention by name in a Telegram chat, which says the name alone.
-        (FancyRegex::new(r"\[([^\[\]\n]{1,100})\]\(tg://user\?id=[1-9][0-9]{0,15}\)").unwrap(), Plain::Pattern("$1")),
-        (FancyRegex::new(r"(?m)^>\s?").unwrap(), Plain::Pattern("")),
-        (FancyRegex::new(r"\s+").unwrap(), Plain::Pattern(" ")),
+        (PlainRegex::Fast(Regex::new(r"\[([^\[\]\n]{1,100})\]\(tg://user\?id=[1-9][0-9]{0,15}\)").unwrap(), "tg://user?id="), Plain::Pattern("$1")),
+        (PlainRegex::Fast(Regex::new(r"(?m)^>\s?").unwrap(), ">"), Plain::Pattern("")),
     ]
 });
 
 /// A message as one line of plain text, for previews (core's plain-text.ts). Spoilers stay hidden.
 pub fn plain_text(text: &str) -> String {
-    let mut out: String = text.chars().take(4096).collect();
+    let mut out = if text.len() <= 4096 {
+        text.to_string()
+    } else {
+        text.chars().take(4096).collect()
+    };
     for (pattern, replacement) in PLAIN_RULES.iter() {
-        out = match replacement {
-            Plain::Words(key) => pattern.replace_all(&out, fancy_regex::NoExpand(crate::i18n::t(*key))).into_owned(),
-            Plain::Pattern(with) => pattern.replace_all(&out, *with).into_owned(),
-        };
+        match pattern {
+            PlainRegex::Fast(re, needle) => {
+                if !out.contains(needle) {
+                    continue;
+                }
+                let replaced = match replacement {
+                    Plain::Words(key) => re.replace_all(&out, regex::NoExpand(crate::i18n::t(*key))),
+                    Plain::Pattern(with) => re.replace_all(&out, *with),
+                };
+                if let std::borrow::Cow::Owned(next) = replaced {
+                    out = next;
+                }
+            }
+            PlainRegex::Fancy(re, needle) => {
+                if !out.contains(needle) {
+                    continue;
+                }
+                let replaced = match replacement {
+                    Plain::Words(key) => re.replace_all(&out, fancy_regex::NoExpand(crate::i18n::t(*key))),
+                    Plain::Pattern(with) => re.replace_all(&out, *with),
+                };
+                if let std::borrow::Cow::Owned(next) = replaced {
+                    out = next;
+                }
+            }
+        }
     }
-    out.trim().to_string()
+    // Collapse whitespace runs to a single space and trim in one linear pass (replaces `\s+` regex + trim).
+    let mut collapsed = String::with_capacity(out.len());
+    let mut in_space = true;
+    for ch in out.chars() {
+        if ch.is_whitespace() {
+            if !in_space {
+                collapsed.push(' ');
+                in_space = true;
+            }
+        } else {
+            collapsed.push(ch);
+            in_space = false;
+        }
+    }
+    if collapsed.ends_with(' ') {
+        collapsed.pop();
+    }
+    collapsed
 }
 
 /// The first link in a text that can have a preview, leaving out those in code and
@@ -483,11 +619,9 @@ mod tests {
                 if matches!(rule, Rule::Named) && !context.telegram {
                     continue;
                 }
-                let Ok(Some(captures)) = pattern.captures(rest) else { continue };
-                let whole = captures.get(0).unwrap();
-                let inner = captures.get(1).map(|inner| inner.range()).unwrap_or(0..0);
-                if earliest.as_ref().is_none_or(|(_, start, _, _)| whole.start() < *start) {
-                    earliest = Some((*rule, whole.start(), whole.end(), inner));
+                let Some((w_start, w_end, inner)) = pattern.find(rest, 0) else { continue };
+                if earliest.as_ref().is_none_or(|(_, start, _, _)| w_start < *start) {
+                    earliest = Some((*rule, w_start, w_end, inner));
                 }
             }
             let Some((rule, start, end, inner)) = earliest else { break };

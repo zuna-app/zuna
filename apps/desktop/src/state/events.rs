@@ -9,8 +9,10 @@ impl AppState {
             let core = state.core.clone();
             cx.spawn(async move |this, cx| {
                 let asked = now_ms();
-                let conversations = core.call(Some(&id), "getConversations", vec![]).await;
-                let channels = core.call(Some(&id), "getChannels", vec![]).await;
+                let (conversations, channels) = futures::join!(
+                    core.call(Some(&id), "getConversations", vec![]),
+                    core.call(Some(&id), "getChannels", vec![]),
+                );
                 this.update(cx, |state, cx| {
                     if let Some(server) = state.servers.get_mut(&id) {
                         if let Ok(conversations) = conversations {
@@ -63,8 +65,10 @@ impl AppState {
         self.debounced(format!("users:{id}"), 60, cx, move |state, cx| {
             let core = state.core.clone();
             cx.spawn(async move |this, cx| {
-                let users = core.call(Some(&id), "getUsers", vec![]).await;
-                let me = core.call(Some(&id), "getSelf", vec![]).await;
+                let (users, me) = futures::join!(
+                    core.call(Some(&id), "getUsers", vec![]),
+                    core.call(Some(&id), "getSelf", vec![]),
+                );
                 this.update(cx, |state, cx| {
                     if let Some(server) = state.servers.get_mut(&id) {
                         if let Ok(users) = users {
@@ -101,12 +105,21 @@ impl AppState {
 
     pub(super) fn upsert_message(&mut self, message: MessageView) {
         let Some(list) = self.lists.get_mut(&message.group_id) else { return };
-        if let Some(index) = list.items.iter().position(|item| item.id == message.id) {
+        if let Some(index) = list.items.iter().rposition(|item| item.id == message.id) {
             list.items[index] = message;
         } else if !(list.detached && list.has_newer) {
+            // Fast path: live messages usually arrive strictly after the current tail.
+            let in_order = list.items.last().is_none_or(|last| match (last.seq, message.seq) {
+                (Some(a), Some(b)) => b > a,
+                (Some(_), None) => true,
+                (None, None) => message.created_at >= last.created_at,
+                (None, Some(_)) => false,
+            });
             // A window around an old message takes new ones once it has read on to the newest.
             list.items.push(message);
-            sort_messages(&mut list.items);
+            if !in_order {
+                sort_messages(&mut list.items);
+            }
         }
     }
 
@@ -124,7 +137,7 @@ impl AppState {
         }
     }
 
-    pub fn handle_event(&mut self, event: Value, cx: &mut Context<Self>) {
+    pub(super) fn handle_event_batched(&mut self, event: Value, cx: &mut Context<Self>) -> bool {
         // Plugins hear what their permissions cover, and someone typing and a notification pass
         // their filters first, when any has one.
         if let Some(plugins) = crate::plugins::get(cx) {
@@ -139,38 +152,56 @@ impl AppState {
             if let Some(task) = filter.and_then(|kind| crate::plugins::filter(kind, event.clone(), cx)) {
                 cx.spawn(async move |this, cx| {
                     if let crate::plugins::Verdict::Go(event) = task.await {
-                        this.update(cx, |state, cx| state.apply_event(event, cx)).ok();
+                        this.update(cx, |state, cx| {
+                            if state.apply_event(event, cx) {
+                                cx.notify();
+                            }
+                        })
+                        .ok();
                     }
                 })
                 .detach();
-                return;
+                return false;
             }
         }
-        self.apply_event(event, cx);
+        self.apply_event(event, cx)
     }
 
-    fn apply_event(&mut self, event: Value, cx: &mut Context<Self>) {
+    fn apply_event(&mut self, event: Value, cx: &mut Context<Self>) -> bool {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
         let server_id = event.get("serverId").and_then(Value::as_str).unwrap_or_default().to_string();
         let text = |name: &str| event.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+        let mut changed = true;
         match kind.as_str() {
             "connection" => {
                 if let Some(server) = self.servers.get_mut(&server_id) {
-                    server.connection = text("state");
+                    let next = text("state");
+                    changed = server.connection != next;
+                    server.connection = next;
+                } else {
+                    changed = false;
                 }
             }
-            "conversations" => self.refresh_conversations(&server_id, cx),
-            "read" => self.read_moved(&server_id, &event, cx),
+            "conversations" => {
+                self.refresh_conversations(&server_id, cx);
+                changed = false;
+            }
+            "read" => {
+                self.read_moved(&server_id, &event, cx);
+                changed = false;
+            }
             // Who's in the voice channels comes with them, as the session connects (`syncChannels`),
             // which is after the app read it at start, and each voice event only says what changed
             // since: someone already in one wasn't shown until they left and came back.
             "channels" => {
                 self.refresh_conversations(&server_id, cx);
                 self.refresh_voice(&server_id, cx);
+                changed = false;
             }
             "users" => {
                 self.refresh_users(&server_id, cx);
                 self.refresh_conversations(&server_id, cx);
+                changed = false;
             }
             "message" => {
                 let message: MessageView = from_value(event.get("message").cloned().unwrap_or_default());
@@ -256,15 +287,25 @@ impl AppState {
                     self.pictures.remove(&icon);
                 }
             }
-            "emotes" => self.refresh_field(&server_id, "getEmotes", cx, |server, value| server.emotes = from_value(value)),
-            "sounds" => self.refresh_field(&server_id, "getSounds", cx, |server, value| server.sounds = from_value(value)),
+            "emotes" => {
+                self.refresh_field(&server_id, "getEmotes", cx, |server, value| server.emotes = from_value(value));
+                changed = false;
+            }
+            "sounds" => {
+                self.refresh_field(&server_id, "getSounds", cx, |server, value| server.sounds = from_value(value));
+                changed = false;
+            }
             "calls" => {
                 self.refresh_field(&server_id, "getCalls", cx, |state_server, value| {
                     state_server.calls = from_value::<Vec<CallView>>(value).into_iter().map(|call| (call.group_id.clone(), call)).collect();
                 });
                 self.refresh_voice(&server_id, cx);
+                changed = false;
             }
-            "preferences" => self.refresh_field(&server_id, "getPreferences", cx, |server, value| server.prefs = from_value(value)),
+            "preferences" => {
+                self.refresh_field(&server_id, "getPreferences", cx, |server, value| server.prefs = from_value(value));
+                changed = false;
+            }
             "voice" => {
                 if let Some(server) = self.servers.get_mut(&server_id) {
                     let device = text("deviceId");
@@ -319,15 +360,20 @@ impl AppState {
                     server.new_devices = from_value(event.get("devices").cloned().unwrap_or_default());
                 }
             }
-            "notify" => self.notify(&event, cx),
+            "notify" => {
+                self.notify(&event, cx);
+                changed = false;
+            }
             "telegram" => self.telegram_moved(from_value(event.get("link").cloned().unwrap_or_default()), cx),
-            _ => {}
+            _ => {
+                changed = false;
+            }
         }
         // Voice reads this state, so it hears of its events once this update is over.
         if matches!(kind.as_str(), "voice" | "voice_key" | "voice_ended" | "screen_ended" | "call" | "calls" | "sound" | "watch" | "signed_out" | "telegram_call" | "telegram_call_media") {
             cx.defer(move |cx| crate::voice::on_event(&event, cx));
         }
-        cx.notify();
+        changed
     }
 
     // --- Messages ---

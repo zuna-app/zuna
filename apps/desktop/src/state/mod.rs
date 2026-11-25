@@ -97,8 +97,8 @@ impl ServerState {
         conversations + channels
     }
 
-    pub fn has_new(&self) -> bool {
-        self.unread() > 0
+    pub fn has_new_with_unread(&self, unread: u32) -> bool {
+        unread > 0
             || self
                 .channels
                 .iter()
@@ -384,8 +384,22 @@ impl AppState {
         let events = cx.spawn(async move |this, cx| {
             use futures::StreamExt;
             let mut events = events;
-            while let Some(event) = events.next().await {
-                if this.update(cx, |state, cx| state.handle_event(event, cx)).is_err() {
+            while let Some(first) = events.next().await {
+                let mut batch = vec![first];
+                while let Ok(next) = events.try_recv() {
+                    batch.push(next);
+                }
+                if this.update(cx, |state, cx| {
+                    let mut notify = false;
+                    for event in batch {
+                        if state.handle_event_batched(event, cx) {
+                            notify = true;
+                        }
+                    }
+                    if notify {
+                        cx.notify();
+                    }
+                }).is_err() {
                     break;
                 }
             }

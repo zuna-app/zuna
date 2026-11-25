@@ -88,11 +88,16 @@ pub(in crate::ui) fn attachments(message: &MessageView, images: &[&Attachment], 
             } else {
                 (209., 209.)
             };
-            let image = context.images.get(&attachment.cache_id()).cloned();
+            let cache_id = attachment.cache_id();
+            let image = context.images.get(&cache_id).cloned();
             if image.is_some() {
-                context.state.read(cx).touch_media(&format!("file:{}", attachment.cache_id()));
+                context.state.read(cx).touch_media(&format!("file:{cache_id}"));
             }
-            let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
+            let thumb = if image.is_none() {
+                attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb))
+            } else {
+                None
+            };
             // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
             // bubble's width, as wide as text or a link preview made it, keeping its shape. It
             // lies over a box that's sized so (`aspect_fill`). A channel's has no bubble to fill,
