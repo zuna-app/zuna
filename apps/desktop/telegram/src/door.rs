@@ -48,10 +48,19 @@ pub struct Door {
     out: Sender<Outgoing>,
 }
 
+/// Stack size for per-connection relay threads (reads/writes sockets only).
+const STREAM_STACK: usize = 256 * 1024;
+
 fn random_text() -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut bytes = [0u8; 16];
     random(&mut bytes).expect("the system's random numbers");
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut out = [0u8; 32];
+    for (i, &byte) in bytes.iter().enumerate() {
+        out[i * 2] = HEX[(byte >> 4) as usize];
+        out[i * 2 + 1] = HEX[(byte & 0x0f) as usize];
+    }
+    String::from_utf8(out.to_vec()).expect("valid ascii hex")
 }
 
 /// The system's random numbers. On Linux the call itself: the crate looks for glibc's function by
@@ -101,7 +110,7 @@ impl Door {
             for connection in listener.incoming() {
                 let Ok(connection) = connection else { continue };
                 let door = accepting.clone();
-                std::thread::Builder::new().name("door-stream".into()).spawn(move || door.serve(connection)).ok();
+                std::thread::Builder::new().name("door-stream".into()).stack_size(STREAM_STACK).spawn(move || door.serve(connection)).ok();
             }
         })?;
         Ok(door)
@@ -162,7 +171,7 @@ impl Door {
             return;
         };
         self.streams.lock().unwrap().insert(id, Stream::Open(writer, socket));
-        std::thread::Builder::new().name("door-write".into()).spawn(move || write_all(writing, writes)).ok();
+        std::thread::Builder::new().name("door-write".into()).stack_size(STREAM_STACK).spawn(move || write_all(writing, writes)).ok();
         self.pump(id, reading);
     }
 

@@ -35,6 +35,21 @@ fn rules() -> &'static HashMap<String, Rule> {
     })
 }
 
+/// Fast classification of a request by its `@type` alone, avoiding full DOM parsing for `Rule::Any` and refused methods.
+pub enum FastCheck {
+    Allowed,
+    Refused(String),
+    NeedsFields,
+}
+
+pub fn check_kind(kind: &str) -> FastCheck {
+    match rules().get(kind) {
+        None => FastCheck::Refused(format!("{kind} isn't something Zuna does on Telegram")),
+        Some(Rule::Any) => FastCheck::Allowed,
+        Some(Rule::Only(_)) => FastCheck::NeedsFields,
+    }
+}
+
 /// Why a request may not go to the engine, or None if it may.
 pub fn refusal(request: &Value) -> Option<String> {
     let Some(kind) = request.get("@type").and_then(Value::as_str) else { return Some("a request with no type".into()) };

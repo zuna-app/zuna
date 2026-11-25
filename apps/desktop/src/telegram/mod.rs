@@ -12,20 +12,28 @@ mod door;
 mod frame;
 mod functions;
 
-use std::io::{BufRead, BufReader, BufWriter};
+use std::borrow::Cow;
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use crate::platform::sandbox::Process as Child;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use door::Door;
-use frame::{Frame, read_frame, write_data, write_json};
+use frame::{Frame, read_frame, write_data_buffered, write_json_buffered};
+
+const PIPE_BUFFER: usize = 128 * 1024;
+/// Bounded in-flight data frames (~8 MiB at 64 KiB/frame) so fast downloads apply backpressure
+/// without starving JSON control/watchdog traffic.
+const DATA_QUEUE_LIMIT: usize = 128;
 
 /// The server ID the linked account goes by in the core and the interface (`TELEGRAM_ID` in types.ts).
 pub const SERVER_ID: &str = "telegram";
@@ -36,13 +44,59 @@ pub fn is_telegrams(ip: std::net::IpAddr) -> bool {
     door::telegrams(ip)
 }
 
-/// What goes to the engine.
-pub enum Outgoing {
-    Json(String),
-    Data(u32, Vec<u8>),
-    /// Closes its pipe, which TDLib takes as the app going, and closes itself on, saving what it
-    /// has. The door's connections send on the same channel, so it can't wait for every sender to go.
-    Close,
+struct OutQueue {
+    json: VecDeque<String>,
+    data: VecDeque<(u32, Vec<u8>, tokio::sync::OwnedSemaphorePermit)>,
+    closed: bool,
+}
+
+/// Priority outgoing pipe to the engine: JSON frames always drain ahead of bounded data chunks.
+#[derive(Clone)]
+pub struct OutPipe {
+    inner: Arc<(Mutex<OutQueue>, Condvar)>,
+    data_permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl OutPipe {
+    pub fn new() -> OutPipe {
+        OutPipe {
+            inner: Arc::new((Mutex::new(OutQueue { json: VecDeque::new(), data: VecDeque::new(), closed: false }), Condvar::new())),
+            data_permits: Arc::new(tokio::sync::Semaphore::new(DATA_QUEUE_LIMIT)),
+        }
+    }
+
+    pub fn send_json(&self, json: String) -> bool {
+        let mut queue = self.inner.0.lock();
+        if queue.closed {
+            return false;
+        }
+        queue.json.push_back(json);
+        self.inner.1.notify_one();
+        true
+    }
+
+    pub async fn send_data(&self, id: u32, bytes: Vec<u8>) -> bool {
+        let Ok(permit) = self.data_permits.clone().acquire_owned().await else { return false };
+        let mut queue = self.inner.0.lock();
+        if queue.closed {
+            return false;
+        }
+        queue.data.push_back((id, bytes, permit));
+        self.inner.1.notify_one();
+        true
+    }
+
+    pub fn close(&self) {
+        let mut queue = self.inner.0.lock();
+        queue.closed = true;
+        self.data_permits.close();
+        self.inner.1.notify_one();
+    }
+
+    #[cfg(test)]
+    pub fn try_recv_json(&self) -> Option<String> {
+        self.inner.0.lock().json.pop_front()
+    }
 }
 
 /// The engine's folder in the app's data folder: TDLib's database and the files it downloads.
@@ -141,7 +195,7 @@ pub type Deliver = Arc<dyn Fn(String) + Send + Sync>;
 
 struct Running {
     child: Child,
-    out: Sender<Outgoing>,
+    out: OutPipe,
     door: Door,
     /// When it was started, for telling a run that went well from one that failed at once.
     started: Instant,
@@ -167,12 +221,46 @@ pub struct Engine {
     device_key: Arc<Vec<u8>>,
     deliver: Deliver,
     state: Arc<Mutex<State>>,
+    /// Lock-free mirror of `state.generation` for the incoming reader thread.
+    generation: Arc<AtomicU64>,
+}
+
+#[derive(Deserialize)]
+struct SendEnvelope<'a> {
+    #[serde(rename = "@type", borrow)]
+    kind: Option<Cow<'a, str>>,
+    #[serde(rename = "@extra")]
+    extra: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct AuthStateEnvelope<'a> {
+    #[serde(rename = "@type", borrow)]
+    kind: Option<Cow<'a, str>>,
+}
+
+#[derive(Deserialize)]
+struct HeardEnvelope<'a> {
+    #[serde(borrow)]
+    zuna: Option<Cow<'a, str>>,
+    id: Option<u64>,
+    #[serde(borrow)]
+    host: Option<Cow<'a, str>>,
+    port: Option<u64>,
+    #[serde(rename = "@extra", borrow)]
+    extra: Option<Cow<'a, str>>,
+    #[serde(rename = "@type", borrow)]
+    kind: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    message: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    authorization_state: Option<AuthStateEnvelope<'a>>,
 }
 
 impl Engine {
     pub fn new(data_dir: PathBuf, device_key: Vec<u8>, deliver: Deliver) -> Engine {
         let state = State { running: None, generation: 0, wanted: false, failures: 0, tokens: BURST, filled: Instant::now(), asked: None };
-        Engine { data_dir, device_key: Arc::new(device_key), deliver, state: Arc::new(Mutex::new(state)) }
+        Engine { data_dir, device_key: Arc::new(device_key), deliver, state: Arc::new(Mutex::new(state)), generation: Arc::new(AtomicU64::new(0)) }
     }
 
     /// Starts the engine, if it isn't running.
@@ -240,7 +328,8 @@ impl Engine {
 
         state.generation += 1;
         let generation = state.generation;
-        let (out, outgoing) = channel::<Outgoing>();
+        self.generation.store(generation, Ordering::Release);
+        let out = OutPipe::new();
         let door = Door::new(out.clone());
         let start = json!({
             "zuna": "start",
@@ -253,8 +342,9 @@ impl Engine {
             "system": if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" },
             "verbosity": verbosity(),
         });
-        out.send(Outgoing::Json(start.to_string())).ok();
+        out.send_json(start.to_string());
 
+        let outgoing = out.clone();
         std::thread::Builder::new().name("telegram-out".into()).spawn(move || write_out(stdin, outgoing)).map_err(|error| error.to_string())?;
         let engine = self.clone();
         let reader_door = door.clone();
@@ -290,12 +380,23 @@ impl Engine {
     /// Hands the engine one of the core's requests, if it's on the list and within the limit,
     /// and otherwise answers it with an error, as TDLib answers what it won't do.
     pub fn send(&self, json: &str) {
-        let Ok(request) = serde_json::from_str::<Value>(json) else { return };
-        let extra = request.get("@extra").cloned().unwrap_or(Value::Null);
+        let Ok(envelope) = serde_json::from_str::<SendEnvelope>(json) else { return };
+        let extra = envelope.extra.unwrap_or(Value::Null);
         let refuse = |code: u16, message: String| {
             (self.deliver)(json!({ "@type": "error", "code": code, "message": message, "@extra": extra }).to_string());
         };
-        if let Some(why) = functions::refusal(&request) {
+        let refusal = match envelope.kind.as_deref() {
+            None => Some("a request with no type".into()),
+            Some(kind) => match functions::check_kind(kind) {
+                functions::FastCheck::Allowed => None,
+                functions::FastCheck::Refused(why) => Some(why),
+                functions::FastCheck::NeedsFields => {
+                    let Ok(request) = serde_json::from_str::<Value>(json) else { return };
+                    functions::refusal(&request)
+                }
+            },
+        };
+        if let Some(why) = refusal {
             log::warn!(target: "telegram", "refused: {why}");
             return refuse(403, why);
         }
@@ -315,7 +416,7 @@ impl Engine {
         state.tokens -= 1.0;
         match &state.running {
             Some(running) => {
-                running.out.send(Outgoing::Json(json.to_string())).ok();
+                running.out.send_json(json.to_string());
             }
             None => {
                 drop(state);
@@ -332,6 +433,7 @@ impl Engine {
             let mut state = self.state.lock();
             state.wanted = false;
             state.generation += 1;
+            self.generation.store(state.generation, Ordering::Release);
             state.running.take()
         };
         let engine = self.clone();
@@ -357,10 +459,10 @@ impl Engine {
         if sign_out {
             // The engine's answers go to nobody now, so its end of signing out is seen as the
             // process going: TDLib closes once it's done.
-            running.out.send(Outgoing::Json(json!({ "@type": "logOut", "@extra": "zuna:logout" }).to_string())).ok();
+            running.out.send_json(json!({ "@type": "logOut", "@extra": "zuna:logout" }).to_string());
             signed_out = wait_for_exit(&mut running.child, Duration::from_secs(15));
         }
-        running.out.send(Outgoing::Close).ok();
+        running.out.close();
         drop(running.out);
         running.door.close_all(false);
         if !wait_for_exit(&mut running.child, Duration::from_secs(10)) {
@@ -372,14 +474,14 @@ impl Engine {
 
     /// Reads what the engine sends, until it goes.
     fn read_in(&self, generation: u64, stdout: std::fs::File, door: Door) {
-        let mut input = BufReader::new(stdout);
+        let mut input = BufReader::with_capacity(PIPE_BUFFER, stdout);
         let why = loop {
             match read_frame(&mut input) {
                 Ok(Some(Frame::Json(json))) => {
                     if !self.current(generation) {
                         // A run being stopped: its door still works, so it can sign out.
-                        if let Ok(value) = serde_json::from_str::<Value>(&json) {
-                            self.door_message(&door, &value);
+                        if let Ok(env) = serde_json::from_str::<HeardEnvelope>(&json) {
+                            self.door_message_env(&door, &env);
                         }
                         continue;
                     }
@@ -395,17 +497,17 @@ impl Engine {
     }
 
     fn current(&self, generation: u64) -> bool {
-        self.state.lock().generation == generation
+        self.generation.load(Ordering::Acquire) == generation
     }
 
-    /// Answers the door's messages, and says whether it was one.
-    fn door_message(&self, door: &Door, value: &Value) -> bool {
-        let Some(kind) = value.get("zuna").and_then(Value::as_str) else { return false };
-        let id = value.get("id").and_then(Value::as_u64).and_then(|id| u32::try_from(id).ok());
+    /// Answers the door's messages from a borrowed envelope, and says whether it was one.
+    fn door_message_env(&self, door: &Door, env: &HeardEnvelope<'_>) -> bool {
+        let Some(kind) = env.zuna.as_deref() else { return false };
+        let id = env.id.and_then(|id| u32::try_from(id).ok());
         match (kind, id) {
             ("open", Some(id)) => {
-                let host = value.get("host").and_then(Value::as_str).unwrap_or("");
-                let port = value.get("port").and_then(Value::as_u64).and_then(|port| u16::try_from(port).ok()).unwrap_or(0);
+                let host = env.host.as_deref().unwrap_or("");
+                let port = env.port.and_then(|port| u16::try_from(port).ok()).unwrap_or(0);
                 door.open(id, host, port);
             }
             ("closed", Some(id)) => door.closed(id),
@@ -415,8 +517,44 @@ impl Engine {
     }
 
     fn heard(&self, door: &Door, json: String) {
-        let Ok(value) = serde_json::from_str::<Value>(&json) else { return };
-        if self.door_message(door, &value) {
+        if !json.contains("\"localFile\"") {
+            let Ok(env) = serde_json::from_str::<HeardEnvelope>(&json) else { return };
+            if self.door_message_env(door, &env) {
+                return;
+            }
+            match env.extra.as_deref() {
+                Some("zuna:watchdog") => {
+                    self.state.lock().asked = None;
+                    return;
+                }
+                Some(extra) if extra.starts_with("zuna:") => {
+                    if env.kind.as_deref() == Some("error") {
+                        log::warn!(target: "telegram", "the engine refused {extra}: {}", env.message.as_deref().unwrap_or(""));
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            if env.kind.as_deref() == Some("updateAuthorizationState")
+                && env.authorization_state.as_ref().and_then(|state| state.kind.as_deref()) == Some("authorizationStateClosed")
+            {
+                self.state.lock().wanted = false;
+            }
+            (self.deliver)(json);
+            return;
+        }
+        let Ok(mut value) = serde_json::from_str::<Value>(&json) else { return };
+        if let Some(kind) = value.get("zuna").and_then(Value::as_str) {
+            let id = value.get("id").and_then(Value::as_u64).and_then(|id| u32::try_from(id).ok());
+            match (kind, id) {
+                ("open", Some(id)) => {
+                    let host = value.get("host").and_then(Value::as_str).unwrap_or("");
+                    let port = value.get("port").and_then(Value::as_u64).and_then(|port| u16::try_from(port).ok()).unwrap_or(0);
+                    door.open(id, host, port);
+                }
+                ("closed", Some(id)) => door.closed(id),
+                _ => {}
+            }
             return;
         }
         match value.get("@extra").and_then(Value::as_str) {
@@ -442,12 +580,7 @@ impl Engine {
         }
         // Only files inside the engine's own folder reach the app: a path anywhere else, as a
         // broken engine could name, or one that leads out of it, is taken off.
-        let json = if json.contains("\"localFile\"") {
-            let mut value = value;
-            if confine_paths(&mut value, &folder(&self.data_dir)) { value.to_string() } else { json }
-        } else {
-            json
-        };
+        let json = if confine_paths(&mut value, &folder(&self.data_dir)) { value.to_string() } else { json };
         (self.deliver)(json);
     }
 
@@ -503,7 +636,7 @@ impl Engine {
             }
             state.asked = Some(Instant::now());
             if let Some(running) = &state.running {
-                running.out.send(Outgoing::Json(json!({ "@type": "getOption", "name": "version", "@extra": "zuna:watchdog" }).to_string())).ok();
+                running.out.send_json(json!({ "@type": "getOption", "name": "version", "@extra": "zuna:watchdog" }).to_string());
             }
         }
     }
@@ -512,19 +645,29 @@ impl Engine {
 /// Whether a file the engine names is inside its own folder, once every link and junction on
 /// the way is followed: what the app reads and copies of Telegram's comes from there alone.
 pub fn inside_engine_folder(path: &Path, engine_folder: &Path) -> bool {
-    let (Ok(path), Ok(root)) = (std::fs::canonicalize(path), std::fs::canonicalize(engine_folder)) else { return false };
-    path.starts_with(&root) && path != root
+    let Ok(root) = std::fs::canonicalize(engine_folder) else { return false };
+    inside_canonical_root(path, &root)
+}
+
+fn inside_canonical_root(path: &Path, root: &Path) -> bool {
+    let Ok(path) = std::fs::canonicalize(path) else { return false };
+    path.starts_with(root) && path != root
 }
 
 /// Takes off every path of TDLib's `localFile`s in `value` that isn't inside the engine's folder,
 /// and says whether it took any.
 fn confine_paths(value: &mut Value, engine_folder: &Path) -> bool {
+    let root = std::fs::canonicalize(engine_folder).ok();
+    confine_paths_with_root(value, root.as_deref())
+}
+
+fn confine_paths_with_root(value: &mut Value, root: Option<&Path>) -> bool {
     match value {
         Value::Object(map) => {
             let mut changed = false;
             if map.get("@type").and_then(Value::as_str) == Some("localFile") {
                 if let Some(Value::String(path)) = map.get_mut("path") {
-                    if !path.is_empty() && !inside_engine_folder(Path::new(path.as_str()), engine_folder) {
+                    if !path.is_empty() && !root.is_some_and(|root| inside_canonical_root(Path::new(path.as_str()), root)) {
                         log::warn!(target: "telegram", "the engine named a file outside its folder, which was left out");
                         path.clear();
                         changed = true;
@@ -532,11 +675,11 @@ fn confine_paths(value: &mut Value, engine_folder: &Path) -> bool {
                 }
             }
             for child in map.values_mut() {
-                changed |= confine_paths(child, engine_folder);
+                changed |= confine_paths_with_root(child, root);
             }
             changed
         }
-        Value::Array(items) => items.iter_mut().fold(false, |changed, item| confine_paths(item, engine_folder) | changed),
+        Value::Array(items) => items.iter_mut().fold(false, |changed, item| confine_paths_with_root(item, root) | changed),
         _ => false,
     }
 }
@@ -560,18 +703,51 @@ fn wait_for_exit(child: &mut Child, limit: Duration) -> bool {
     false
 }
 
-fn write_out(stdin: std::fs::File, outgoing: Receiver<Outgoing>) {
-    let mut pipe = BufWriter::new(stdin);
-    while let Ok(message) = outgoing.recv() {
-        let written = match message {
-            Outgoing::Json(json) => write_json(&mut pipe, &json),
-            Outgoing::Data(id, bytes) => write_data(&mut pipe, id, &bytes),
-            Outgoing::Close => break,
-        };
-        if written.is_err() {
-            break;
+enum BatchItem {
+    Json(String),
+    Data(u32, Vec<u8>, tokio::sync::OwnedSemaphorePermit),
+}
+
+fn write_out(stdin: std::fs::File, outgoing: OutPipe) {
+    let mut pipe = BufWriter::with_capacity(PIPE_BUFFER, stdin);
+    let mut batch = Vec::with_capacity(32);
+    loop {
+        let should_flush;
+        {
+            let mut queue = outgoing.inner.0.lock();
+            while queue.json.is_empty() && queue.data.is_empty() && !queue.closed {
+                outgoing.inner.1.wait(&mut queue);
+            }
+            while batch.len() < 32 {
+                if let Some(json) = queue.json.pop_front() {
+                    batch.push(BatchItem::Json(json));
+                } else if let Some((id, bytes, permit)) = queue.data.pop_front() {
+                    batch.push(BatchItem::Data(id, bytes, permit));
+                } else {
+                    break;
+                }
+            }
+            if batch.is_empty() && queue.closed {
+                break;
+            }
+            should_flush = queue.json.is_empty() && queue.data.is_empty();
+        }
+        for item in batch.drain(..) {
+            let written = match item {
+                BatchItem::Json(json) => write_json_buffered(&mut pipe, &json),
+                BatchItem::Data(id, bytes, _permit) => write_data_buffered(&mut pipe, id, &bytes),
+            };
+            if written.is_err() {
+                outgoing.close();
+                return;
+            }
+        }
+        if should_flush && pipe.flush().is_err() {
+            outgoing.close();
+            return;
         }
     }
+    pipe.flush().ok();
 }
 
 #[cfg(test)]
@@ -653,7 +829,7 @@ mod tests {
         engine.send(r#"{"@type":"getChats","limit":10,"@extra":"1"}"#);
         assert_eq!(wait_for(&heard, "the answer", |value| value["@extra"] == "1")["@type"], "getChats");
         assert!(!heard.lock().iter().any(|json| json.contains("\"apiHash\"")), "what starts it is the broker's, and never the core's to hear");
-        let say = |json: Value| engine.state.lock().running.as_ref().unwrap().out.send(Outgoing::Json(json.to_string())).unwrap();
+        let say = |json: Value| assert!(engine.state.lock().running.as_ref().unwrap().out.send_json(json.to_string()));
         // The watchdog's question, answered, and the broker's own, which go to nobody.
         engine.state.lock().asked = Some(Instant::now());
         say(json!({ "@type": "getOption", "name": "version", "@extra": "zuna:watchdog" }));

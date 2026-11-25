@@ -24,22 +24,38 @@ pub enum Frame {
     Data(u32, Vec<u8>),
 }
 
-/// Writes a JSON frame.
-pub fn write_json(out: &mut impl Write, json: &str) -> std::io::Result<()> {
+/// Writes a JSON frame without flushing, for callers that batch flushes.
+pub fn write_json_buffered(out: &mut impl Write, json: &str) -> std::io::Result<()> {
     let length = u32::try_from(json.len() + 1).map_err(|_| std::io::Error::other("too large a frame"))?;
-    out.write_all(&length.to_le_bytes())?;
-    out.write_all(b"j")?;
-    out.write_all(json.as_bytes())?;
+    let mut header = [0u8; 5];
+    header[..4].copy_from_slice(&length.to_le_bytes());
+    header[4] = b'j';
+    out.write_all(&header)?;
+    out.write_all(json.as_bytes())
+}
+
+/// Writes a JSON frame.
+#[allow(dead_code)]
+pub fn write_json(out: &mut impl Write, json: &str) -> std::io::Result<()> {
+    write_json_buffered(out, json)?;
     out.flush()
 }
 
-/// Writes what a connection carried.
-pub fn write_data(out: &mut impl Write, stream: u32, bytes: &[u8]) -> std::io::Result<()> {
+/// Writes what a connection carried without flushing, for callers that batch flushes.
+pub fn write_data_buffered(out: &mut impl Write, stream: u32, bytes: &[u8]) -> std::io::Result<()> {
     let length = u32::try_from(bytes.len() + 5).map_err(|_| std::io::Error::other("too large a frame"))?;
-    out.write_all(&length.to_le_bytes())?;
-    out.write_all(b"d")?;
-    out.write_all(&stream.to_le_bytes())?;
-    out.write_all(bytes)?;
+    let mut header = [0u8; 9];
+    header[..4].copy_from_slice(&length.to_le_bytes());
+    header[4] = b'd';
+    header[5..9].copy_from_slice(&stream.to_le_bytes());
+    out.write_all(&header)?;
+    out.write_all(bytes)
+}
+
+/// Writes what a connection carried.
+#[allow(dead_code)]
+pub fn write_data(out: &mut impl Write, stream: u32, bytes: &[u8]) -> std::io::Result<()> {
+    write_data_buffered(out, stream, bytes)?;
     out.flush()
 }
 
@@ -56,16 +72,20 @@ pub fn read_frame(input: &mut impl Read) -> std::io::Result<Option<Frame>> {
     if length == 0 || length > MAX_FRAME {
         return Err(std::io::Error::other(format!("a frame of {length} bytes")));
     }
-    let mut body = vec![0u8; length];
-    input.read_exact(&mut body)?;
-    match body[0] {
+    let mut kind = [0u8; 1];
+    input.read_exact(&mut kind)?;
+    match kind[0] {
         b'j' => {
-            body.remove(0);
+            let mut body = vec![0u8; length - 1];
+            input.read_exact(&mut body)?;
             String::from_utf8(body).map(|json| Some(Frame::Json(json))).map_err(|_| std::io::Error::other("JSON that isn't UTF-8"))
         }
-        b'd' if body.len() >= 5 => {
-            let stream = u32::from_le_bytes([body[1], body[2], body[3], body[4]]);
-            Ok(Some(Frame::Data(stream, body.split_off(5))))
+        b'd' if length >= 5 => {
+            let mut stream = [0u8; 4];
+            input.read_exact(&mut stream)?;
+            let mut body = vec![0u8; length - 5];
+            input.read_exact(&mut body)?;
+            Ok(Some(Frame::Data(u32::from_le_bytes(stream), body)))
         }
         kind => Err(std::io::Error::other(format!("a frame of kind {kind}"))),
     }

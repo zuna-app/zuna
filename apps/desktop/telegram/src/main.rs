@@ -17,7 +17,8 @@ mod probe;
 mod seatbelt;
 mod td;
 
-use std::io::{BufReader, BufWriter};
+use std::borrow::Cow;
+use std::io::{BufReader, BufWriter, Write};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +28,20 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use door::{Door, Outgoing};
-use frame::{Frame, read_frame, write_data, write_json};
+use frame::{Frame, read_frame, write_data_buffered, write_json_buffered};
+
+const PIPE_BUFFER: usize = 128 * 1024;
+
+#[derive(Deserialize)]
+struct Incoming<'a> {
+    #[serde(rename = "@type", borrow)]
+    kind: Option<Cow<'a, str>>,
+    #[serde(rename = "@extra")]
+    extra: Option<Value>,
+    #[serde(borrow)]
+    zuna: Option<Cow<'a, str>>,
+    id: Option<u32>,
+}
 
 /// What the app sends first.
 #[derive(Deserialize)]
@@ -86,7 +100,7 @@ fn main() {
     let (out, outgoing) = channel::<Outgoing>();
     let writer = std::thread::Builder::new().name("pipe-out".into()).spawn(move || write_out(outgoing)).expect("a thread");
 
-    let mut input = BufReader::new(std::io::stdin().lock());
+    let mut input = BufReader::with_capacity(PIPE_BUFFER, std::io::stdin().lock());
     let start: Start = match read_frame(&mut input) {
         Ok(Some(Frame::Json(json))) => match serde_json::from_str::<Value>(&json) {
             Ok(value) if value.get("zuna").and_then(Value::as_str) == Some("start") => match serde_json::from_value(value) {
@@ -177,18 +191,17 @@ fn main() {
     loop {
         match read_frame(&mut input) {
             Ok(Some(Frame::Json(json))) => {
-                let Ok(value) = serde_json::from_str::<Value>(&json) else { continue };
-                if let Some(kind) = value.get("@type").and_then(Value::as_str) {
+                let Ok(incoming) = serde_json::from_str::<Incoming>(&json) else { continue };
+                if let Some(kind) = incoming.kind.as_deref() {
                     if REFUSED.contains(&kind) {
-                        let refusal = json!({ "@type": "error", "code": 403, "message": "Not here", "@extra": value.get("@extra") });
+                        let refusal = json!({ "@type": "error", "code": 403, "message": "Not here", "@extra": incoming.extra });
                         out.send(Outgoing::Json(refusal.to_string())).ok();
                     } else {
                         client.send(&json);
                     }
                     continue;
                 }
-                let id = value.get("id").and_then(Value::as_u64).and_then(|id| u32::try_from(id).ok());
-                match (value.get("zuna").and_then(Value::as_str), id) {
+                match (incoming.zuna.as_deref(), incoming.id) {
                     (Some("opened"), Some(id)) => door.answered(id, true),
                     (Some("refused"), Some(id)) => door.answered(id, false),
                     (Some("closed"), Some(id)) => door.closed(id),
@@ -232,18 +245,35 @@ fn is_closed(json: &str) -> bool {
 /// Writes what's for the app to standard output, until it's told to end, which ends the process,
 /// or the app's end of the pipe goes.
 fn write_out(outgoing: Receiver<Outgoing>) {
-    let mut stdout = BufWriter::new(std::io::stdout().lock());
-    while let Ok(message) = outgoing.recv() {
-        let written = match message {
-            Outgoing::Json(json) => write_json(&mut stdout, &json),
-            Outgoing::Data(stream, bytes) => write_data(&mut stdout, stream, &bytes),
-            Outgoing::End => {
-                std::io::Write::flush(&mut stdout).ok();
-                std::process::exit(0);
+    let mut stdout = BufWriter::with_capacity(PIPE_BUFFER, std::io::stdout().lock());
+    while let Ok(first) = outgoing.recv() {
+        let mut next = Some(first);
+        let mut end = false;
+        let mut batch = 0usize;
+        while let Some(message) = next.take() {
+            let written = match message {
+                Outgoing::Json(json) => write_json_buffered(&mut stdout, &json),
+                Outgoing::Data(stream, bytes) => write_data_buffered(&mut stdout, stream, &bytes),
+                Outgoing::End => {
+                    end = true;
+                    break;
+                }
+            };
+            if written.is_err() {
+                return;
             }
-        };
-        if written.is_err() {
+            batch += 1;
+            if batch < 32 {
+                if let Ok(more) = outgoing.try_recv() {
+                    next = Some(more);
+                }
+            }
+        }
+        if stdout.flush().is_err() {
             break;
+        }
+        if end {
+            std::process::exit(0);
         }
     }
 }

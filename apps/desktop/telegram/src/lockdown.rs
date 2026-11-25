@@ -139,6 +139,25 @@ fn refused() -> Vec<libc::c_long> {
     calls
 }
 
+/// Hot, unconditionally allowed syscalls fast-pathed before the refused/special-handler scan.
+/// None of these may appear in `refused()` or have a special handler below.
+fn fast_allowed() -> Vec<libc::c_long> {
+    let mut calls = vec![
+        libc::SYS_read,
+        libc::SYS_write,
+        libc::SYS_futex,
+        libc::SYS_epoll_pwait,
+        libc::SYS_epoll_ctl,
+        libc::SYS_recvfrom,
+        libc::SYS_clock_gettime,
+        libc::SYS_pread64,
+        libc::SYS_pwrite64,
+    ];
+    #[cfg(target_arch = "x86_64")]
+    calls.push(libc::SYS_epoll_wait);
+    calls
+}
+
 /// The filter, for the process whose ID is `me`.
 fn filter(me: u32) -> Vec<libc::sock_filter> {
     use Label::*;
@@ -148,7 +167,24 @@ fn filter(me: u32) -> Vec<libc::sock_filter> {
     // x32's calls, which are x86-64's with a bit set, and would get past every number below.
     #[cfg(target_arch = "x86_64")]
     ops.push(Op::Jump(libc::BPF_JGE as u16, 0x4000_0000, Deny, Next));
-    for call in refused() {
+    let refused_calls = refused();
+    let special_calls = [
+        libc::SYS_clone3,
+        libc::SYS_socket,
+        libc::SYS_clone,
+        libc::SYS_sendto,
+        libc::SYS_sendmmsg,
+        libc::SYS_sendmsg,
+        libc::SYS_kill,
+        libc::SYS_tgkill,
+        libc::SYS_rt_sigqueueinfo,
+        libc::SYS_rt_tgsigqueueinfo,
+    ];
+    for call in fast_allowed() {
+        debug_assert!(!refused_calls.contains(&call) && !special_calls.contains(&call));
+        ops.push(Op::Jump(eq, call as u32, Allow, Next));
+    }
+    for call in refused_calls {
         ops.push(Op::Jump(eq, call as u32, Deny, Next));
     }
     // Threads are made with clone, which glibc falls back to when clone3, whose flags seccomp

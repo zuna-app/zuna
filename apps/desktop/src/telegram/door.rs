@@ -14,7 +14,7 @@ use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use super::Outgoing;
+use super::OutPipe;
 use super::frame::MAX_DATA;
 
 /// The ranges Telegram publishes (https://core.telegram.org/resources/cidr.txt, read on
@@ -80,11 +80,11 @@ struct Open {
 #[derive(Clone)]
 pub struct Door {
     streams: Arc<Mutex<HashMap<u32, Open>>>,
-    out: std::sync::mpsc::Sender<Outgoing>,
+    out: OutPipe,
 }
 
 impl Door {
-    pub fn new(out: std::sync::mpsc::Sender<Outgoing>) -> Door {
+    pub fn new(out: OutPipe) -> Door {
         Door { streams: Arc::new(Mutex::new(HashMap::new())), out }
     }
 
@@ -93,7 +93,7 @@ impl Door {
         let asked = format!("{host}:{port}");
         let refuse = move |door: &Door, why: &str| {
             log::info!(target: "telegram", "the door refused {asked}: {why}");
-            door.out.send(Outgoing::Json(json!({ "zuna": "refused", "id": id }).to_string())).ok();
+            door.out.send_json(json!({ "zuna": "refused", "id": id }).to_string());
         };
         let Ok(ip) = host.parse::<IpAddr>() else { return refuse(self, "not an address") };
         let address = SocketAddr::new(ip, port);
@@ -116,7 +116,7 @@ impl Door {
             socket.set_nodelay(true).ok();
             let (writes, mut pending) = unbounded_channel::<Vec<u8>>();
             door.streams.lock().insert(id, Open { writes, reader: None });
-            if door.out.send(Outgoing::Json(json!({ "zuna": "opened", "id": id }).to_string())).is_err() {
+            if !door.out.send_json(json!({ "zuna": "opened", "id": id }).to_string()) {
                 door.streams.lock().remove(&id);
                 return;
             }
@@ -137,7 +137,7 @@ impl Door {
                     match reading.read(&mut buffer).await {
                         Ok(0) | Err(_) => break,
                         Ok(count) => {
-                            if carrying.out.send(Outgoing::Data(id, buffer[..count].to_vec())).is_err() {
+                            if !carrying.out.send_data(id, buffer[..count].to_vec()).await {
                                 break;
                             }
                         }
@@ -145,7 +145,7 @@ impl Door {
                 }
                 // Telegram's end closed: the engine's end is told, unless it closed first.
                 if carrying.streams.lock().remove(&id).is_some() {
-                    carrying.out.send(Outgoing::Json(json!({ "zuna": "closed", "id": id }).to_string())).ok();
+                    carrying.out.send_json(json!({ "zuna": "closed", "id": id }).to_string());
                 }
             });
             if let Some(open) = door.streams.lock().get_mut(&id) {
@@ -176,7 +176,7 @@ impl Door {
                 reader.abort();
             }
             if tell_engine {
-                self.out.send(Outgoing::Json(json!({ "zuna": "closed", "id": id }).to_string())).ok();
+                self.out.send_json(json!({ "zuna": "closed", "id": id }).to_string());
             }
         }
     }
@@ -222,12 +222,12 @@ mod tests {
 
     #[test]
     fn a_name_is_refused() {
-        let (out, heard) = std::sync::mpsc::channel();
-        let door = Door::new(out);
+        let out = OutPipe::new();
+        let door = Door::new(out.clone());
         door.open(4, "dns.google", 443);
         door.open(5, "8.8.8.8", 443);
         for id in [4, 5] {
-            let Ok(Outgoing::Json(json)) = heard.try_recv() else { panic!("no answer") };
+            let Some(json) = out.try_recv_json() else { panic!("no answer") };
             assert_eq!(json, json!({ "zuna": "refused", "id": id }).to_string());
         }
     }
