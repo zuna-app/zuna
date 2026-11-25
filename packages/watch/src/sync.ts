@@ -348,6 +348,11 @@ export class WatchSync {
     this.events.blocked();
   }
 
+  /** Whether a periodic tick is needed to detect a player that never starts playing. */
+  get needsTick(): boolean {
+    return this.target !== null && this.target.playing && !this.held && this.playAskedAt !== null && !this.saidBlocked;
+  }
+
   /** Called now and then, so that a player that never answers is found out. */
   tick(): void {
     if (this.target?.playing && !this.held) this.checkBlocked(this.now());

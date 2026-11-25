@@ -42,7 +42,7 @@ export class WatchController {
   private readonly frame: YouTubeFrame;
   private readonly sync: WatchSync;
   private status: WatchStatus = { phase: "idle", position: 0, duration: 0, live: false, error: null };
-  private readonly ticker: ReturnType<typeof setInterval>;
+  private ticker: ReturnType<typeof setInterval> | undefined;
   private loaded: string | null = null;
   /** The video already loaded again after YouTube's player broke on it, which happens once in a while. */
   private retried: string | null = null;
@@ -54,7 +54,10 @@ export class WatchController {
         reading: (reading) => this.onReading(reading),
         volume: ({ level, muted }) => events.volume({ level: level / 100, muted }),
         error: (error) => this.onError(error),
-        blocked: () => this.sync.noteBlocked(),
+        blocked: () => {
+          this.sync.noteBlocked();
+          this.syncTicker();
+        },
       },
       options,
     );
@@ -63,7 +66,6 @@ export class WatchController {
       phase: (phase) => this.update({ phase }),
       blocked: () => events.blocked(),
     });
-    this.ticker = setInterval(() => this.sync.tick(), 500);
   }
 
   /** The frame, to put where the player goes. */
@@ -76,11 +78,13 @@ export class WatchController {
     if (target.video && target.video !== this.loaded) this.update({ error: null, duration: 0, live: false });
     this.loaded = target.video;
     this.sync.apply(target);
+    this.syncTicker();
   }
 
   /** Pauses it here while it can't be seen, and catches up once it can. */
   hold(held: boolean): void {
     this.sync.hold(held);
+    this.syncTicker();
   }
 
   /** Says how the player is now, with where it is, as `status`. */
@@ -99,7 +103,20 @@ export class WatchController {
 
   destroy(): void {
     clearInterval(this.ticker);
+    this.ticker = undefined;
     this.frame.destroy();
+  }
+
+  private syncTicker(): void {
+    if (this.sync.needsTick) {
+      this.ticker ??= setInterval(() => {
+        this.sync.tick();
+        this.syncTicker();
+      }, 500);
+    } else if (this.ticker !== undefined) {
+      clearInterval(this.ticker);
+      this.ticker = undefined;
+    }
   }
 
   /**
@@ -111,6 +128,7 @@ export class WatchController {
       this.retried = this.loaded;
       this.frame.reset();
       this.sync.reload();
+      this.syncTicker();
       return;
     }
     this.update({ error });
@@ -118,6 +136,7 @@ export class WatchController {
 
   private onReading(reading: PlayerReading): void {
     this.sync.onReading(reading);
+    this.syncTicker();
     const duration = Math.round(reading.duration * 1000);
     if (duration !== this.status.duration || reading.live !== this.status.live) this.update({ duration, live: reading.live, position: Math.round(reading.time * 1000) });
     else this.status.position = Math.round(reading.time * 1000);
