@@ -1,6 +1,6 @@
 {
   "name": "@zuna/watch",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "license": "AGPL-3.0-only",
   "description": "The YouTube player every app watches together through, driven by postMessage alone, and a fake of it for checks.",
