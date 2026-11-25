@@ -91,7 +91,26 @@ export const newDeviceKey = (): SigningKeyPair => wasm.signingKeygen() as Signin
 /** What a long-term key protects. Each gets a key of its own, so no two kinds of data are ever under one key. */
 export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "channel" | "sound" | "author";
 
-export const subkey = (key: Uint8Array, purpose: KeyPurpose): Uint8Array => wasm.hkdfSha256(key, NO_SALT, label(`zuna/subkey/v1|${purpose}`), 32);
+const SUBKEY_LABELS: Record<KeyPurpose, Uint8Array> = {
+  "vault-core": utf8("zuna/subkey/v1|vault-core"),
+  "vault-item": utf8("zuna/subkey/v1|vault-item"),
+  read: utf8("zuna/subkey/v1|read"),
+  profile: utf8("zuna/subkey/v1|profile"),
+  channel: utf8("zuna/subkey/v1|channel"),
+  sound: utf8("zuna/subkey/v1|sound"),
+  author: utf8("zuna/subkey/v1|author"),
+};
+const subkeyCache = new WeakMap<Uint8Array, Partial<Record<KeyPurpose, Uint8Array>>>();
+
+export const subkey = (key: Uint8Array, purpose: KeyPurpose): Uint8Array => {
+  let byPurpose = subkeyCache.get(key);
+  const cached = byPurpose?.[purpose];
+  if (cached) return cached;
+  const derived = wasm.hkdfSha256(key, NO_SALT, SUBKEY_LABELS[purpose], 32);
+  if (!byPurpose) subkeyCache.set(key, (byPurpose = {}));
+  byPurpose[purpose] = derived;
+  return derived;
+};
 
 /** What the item keys of everything an account adds under this account key are made from: it opens nothing. */
 export const authorRoot = (accountKey: Uint8Array): Uint8Array => subkey(accountKey, "author");
@@ -385,7 +404,17 @@ const ENVELOPE_VERSION = 4;
  * would let a member seal someone's signed body again under a key of their choosing,
  * and a key from a history grant proves itself by what it opens (`keyProvedItself`).
  */
-const keyCommitment = (epochKey: Uint8Array) => wasm.hkdfSha256(epochKey, NO_SALT, label("zuna/envelope-commit/v1"), 32);
+const COMMIT_LABEL = utf8("zuna/envelope-commit/v1");
+const commitmentCache = new WeakMap<Uint8Array, Uint8Array>();
+
+const keyCommitment = (epochKey: Uint8Array): Uint8Array => {
+  let cached = commitmentCache.get(epochKey);
+  if (!cached) {
+    cached = wasm.hkdfSha256(epochKey, NO_SALT, COMMIT_LABEL, 32);
+    commitmentCache.set(epochKey, cached);
+  }
+  return cached;
+};
 
 /**
  * What a device signs: whose device it's from, what the content is about, which key

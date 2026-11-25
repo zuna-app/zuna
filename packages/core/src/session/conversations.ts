@@ -96,20 +96,35 @@ export abstract class SessionConversations extends SessionIngest {
   /** A mention that was jumped to, which no longer counts as waiting. */
   markMentionSeen(groupId: string, id: string): void {
     this.db.run("UPDATE messages SET mention_seen = 1 WHERE group_id = ? AND id = ?", [groupId, id]);
+    this.groupSummaries.delete(groupId);
     this.emitConversations();
   }
 
+  protected syncGroupSummaries(): void {
+    const changes = this.db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? -1;
+    if (changes < 0 || changes !== this.groupSummariesChanges) {
+      this.groupSummaries.clear();
+      this.groupSummariesChanges = changes;
+    }
+  }
+
   getConversations(): ConversationView[] {
+    this.syncGroupSummaries();
     const out: ConversationView[] = [];
     const usersWithDm = new Set<string>();
     const selfId = this.account.userId;
     const now = Date.now();
+    const pinnedSet = new Set(this.prefs.pinned);
+    const hiddenSet = new Set(this.prefs.hidden);
+    const markedUnreadSet = new Set(this.prefs.markedUnread ?? []);
+    const mentionsOnlySet = new Set(this.prefs.mentionsOnly ?? []);
+    const blockedSet = new Set(this.prefs.blocked ?? []);
 
     for (const group of this.groups.values()) {
       // Channels come with getChannels, and an app that doesn't ask for them doesn't see them.
       if (group.kind === "channel") continue;
       if (group.kind === "dm" && group.peerId) usersWithDm.add(group.peerId);
-      out.push(this.conversationOf(group, now));
+      out.push(this.conversationOf(group, now, pinnedSet, hiddenSet, markedUnreadSet, mentionsOnlySet, blockedSet));
     }
 
     // Everyone on the server is a conversation from the start. A bot is one once someone
@@ -130,13 +145,13 @@ export abstract class SessionConversations extends SessionIngest {
         unread: 0,
         mentioned: false,
         unreadMentions: 0,
-        pinned: this.prefs.pinned.includes(key),
+        pinned: pinnedSet.has(key),
         muted: isMuted(this.prefs, key, now),
         mutedUntil: this.mutedUntil(key, now),
-        hidden: this.prefs.hidden.includes(key),
-        markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
-        mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
-        blocked: this.isBlocked(user.id),
+        hidden: hiddenSet.has(key),
+        markedUnread: markedUnreadSet.has(key),
+        mentionsOnly: mentionsOnlySet.has(key),
+        blocked: blockedSet.has(user.id),
         bot: !!user.bot,
         members: [],
         historyVisible: false,
@@ -157,10 +172,26 @@ export abstract class SessionConversations extends SessionIngest {
     );
   }
 
-  protected conversationOf(group: CachedGroup, now: number): ConversationView {
+  protected conversationOf(
+    group: CachedGroup,
+    now: number,
+    pinnedSet?: Set<string>,
+    hiddenSet?: Set<string>,
+    markedUnreadSet?: Set<string>,
+    mentionsOnlySet?: Set<string>,
+    blockedSet?: Set<string>,
+  ): ConversationView {
+    if (!pinnedSet) this.syncGroupSummaries();
     const key = this.conversationKey(group);
-    const last = this.lastMessage(group.id);
-    const { unread, mentioned, unreadMentions } = this.unreadCount(group);
+    const blockedKey = (this.prefs.blocked ?? []).join(",");
+    let summary = this.groupSummaries.get(group.id);
+    if (!summary || summary.ownRead !== group.ownRead || summary.blockedKey !== blockedKey) {
+      const last = this.lastMessage(group.id);
+      const { unread, mentioned, unreadMentions } = this.unreadCount(group);
+      summary = { ownRead: group.ownRead, blockedKey, last, unread, mentioned, unreadMentions };
+      this.groupSummaries.set(group.id, summary);
+    }
+    const { last, unread, mentioned, unreadMentions } = summary;
     let title = group.meta.name || "Group";
     let description = group.meta.description ?? "";
     let avatar: AvatarRef | null = group.meta.avatar ?? null;
@@ -186,13 +217,13 @@ export abstract class SessionConversations extends SessionIngest {
       unread,
       mentioned,
       unreadMentions,
-      pinned: this.prefs.pinned.includes(key),
+      pinned: pinnedSet ? pinnedSet.has(key) : this.prefs.pinned.includes(key),
       muted: isMuted(this.prefs, key, now),
       mutedUntil: this.mutedUntil(key, now),
-      hidden: this.prefs.hidden.includes(key),
-      markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
-      mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
-      blocked: group.kind === "dm" && !!group.peerId && this.isBlocked(group.peerId),
+      hidden: hiddenSet ? hiddenSet.has(key) : this.prefs.hidden.includes(key),
+      markedUnread: markedUnreadSet ? markedUnreadSet.has(key) : (this.prefs.markedUnread?.includes(key) ?? false),
+      mentionsOnly: mentionsOnlySet ? mentionsOnlySet.has(key) : (this.prefs.mentionsOnly?.includes(key) ?? false),
+      blocked: group.kind === "dm" && !!group.peerId && (blockedSet ? blockedSet.has(group.peerId) : this.isBlocked(group.peerId)),
       bot: group.kind === "dm" && !!group.peerId && !!this.users.get(group.peerId)?.bot,
       members: this.membersWithKeys(group),
       historyVisible: group.kind === "channel" || this.sharesHistory(group),
@@ -240,9 +271,10 @@ export abstract class SessionConversations extends SessionIngest {
       inTree = new Set(this.treeUsers(group.id));
       this.treeUsersCache.set(group.id, inTree);
     }
+    const rosterIds = new Set(group.members.map((member) => member.userId));
     const members = group.members.map((member) => (inTree.has(member.userId) ? member : { ...member, noKeys: true }));
     for (const userId of inTree) {
-      if (!group.members.some((member) => member.userId === userId)) {
+      if (!rosterIds.has(userId)) {
         members.push({ userId, role: "member", joinedAt: 0, notOnRoster: true });
       }
     }
@@ -435,7 +467,7 @@ export abstract class SessionConversations extends SessionIngest {
     if (!this.backfilled(groupId)) {
       try {
         const remote = await this.api.messages(groupId, { before: before ?? undefined, limit: PAGE_SIZE });
-        for (const message of remote) this.ingest(message, false);
+        if (remote.length > 0) this.db.transaction(() => { for (const message of remote) this.ingest(message, false); });
       } catch (error) {
         console.warn("[zuna] couldn't fetch history", error);
       }
@@ -466,7 +498,7 @@ export abstract class SessionConversations extends SessionIngest {
   /** Loads the messages around a sequence number, for jumping to a reply or search hit. */
   async loadAround(groupId: string, seq: number): Promise<MessageView[]> {
     const remote = await this.api.messages(groupId, { around: seq, limit: PAGE_SIZE }).catch(() => []);
-    for (const message of remote) this.ingest(message, false);
+    if (remote.length > 0) this.db.transaction(() => { for (const message of remote) this.ingest(message, false); });
     const rows = this.db.all<MessageRow>(
       `SELECT * FROM (
          SELECT * FROM messages WHERE group_id = ? AND seq <= ? ORDER BY seq DESC LIMIT ?
@@ -487,7 +519,7 @@ export abstract class SessionConversations extends SessionIngest {
   async loadNewer(groupId: string, after: number): Promise<{ messages: MessageView[]; hasMore: boolean }> {
     try {
       const remote = await this.api.messages(groupId, { after, limit: PAGE_SIZE });
-      for (const message of remote) this.ingest(message, false);
+      if (remote.length > 0) this.db.transaction(() => { for (const message of remote) this.ingest(message, false); });
     } catch (error) {
       console.warn("[zuna] couldn't fetch newer messages", error);
     }
@@ -541,7 +573,8 @@ export abstract class SessionConversations extends SessionIngest {
 
   async loadPins(groupId: string): Promise<MessageView[]> {
     try {
-      for (const message of await this.api.pins(groupId)) this.ingest(message, false);
+      const remote = await this.api.pins(groupId);
+      if (remote.length > 0) this.db.transaction(() => { for (const message of remote) this.ingest(message, false); });
     } catch (error) {
       console.warn("[zuna] couldn't fetch pins", error);
     }

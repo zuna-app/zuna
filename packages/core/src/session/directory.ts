@@ -2,7 +2,7 @@
 // checked against its signed heads, and what it says about each account (docs/KEY_TRANSPARENCY.md).
 
 import { ApiError, decode, type ApiDevice } from "../api";
-import { equalBytes, fromBase64, toBase64 } from "../encoding";
+import { concat, equalBytes, fromBase64, toBase64 } from "../encoding";
 import { verifyEnrollment, type SlotKind } from "../generations";
 import { mediaTag } from "../search";
 import {
@@ -366,6 +366,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.logBumps.clear();
     this.standingCache.clear();
     this.withheldUsers.clear();
+    this.withheldScannedUpTo = 0;
     this.keptRecords = null;
     // What the log says of a device decides whose leaves are stale, so every tree is checked again.
     this.cleanEpochs.clear();
@@ -458,6 +459,7 @@ export abstract class SessionDirectory extends SessionChains {
     this.logBumps.clear();
     this.standingCache.clear();
     this.withheldUsers.clear();
+    this.withheldScannedUpTo = 0;
     this.cleanEpochs.clear();
     this.logLoaded = { ...state };
     this.saveLogState();
@@ -489,7 +491,7 @@ export abstract class SessionDirectory extends SessionChains {
       frontier.append(leafHash(record));
       // A head this log has to hold is checked on the way past it.
       if (floor && frontier.size === floor.size && !equalBytes(frontier.root(), fromBase64(floor.root))) return this.refuseLog(floor.from);
-      const checkpoint = frontier.size % LOG_CHECKPOINT === 0 ? new Uint8Array(frontier.roots.flatMap((root) => [...root])) : null;
+      const checkpoint = frontier.size % LOG_CHECKPOINT === 0 ? concat(...frontier.roots) : null;
       rows.push({ idx: wire.idx, record, checkpoint, body });
     }
     if (frontier.size !== head.size || !equalBytes(frontier.root(), head.root)) return this.refuseLog();
@@ -1024,15 +1026,27 @@ export abstract class SessionDirectory extends SessionChains {
   }
 
   /** Every record held without its body, tested against the IDs given. Those it fits are asked for. */
-  protected lookForWithheld(ids: string[] = this.knownIds()): void {
-    const unopened = this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0");
+  protected lookForWithheld(ids?: string[]): void {
+    const fullScan = ids === undefined;
+    const targets = ids ?? this.knownIds();
+    const unopened = fullScan
+      ? this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0 AND idx >= ?", [this.withheldScannedUpTo])
+      : this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0");
     if (unopened.length === 0) return;
+    if (fullScan) {
+      const last = unopened[unopened.length - 1]!.idx;
+      if (last + 1 > this.withheldScannedUpTo) this.withheldScannedUpTo = last + 1;
+    }
     const wanted = new Map<string, number[]>();
     for (const row of unopened) {
       const parts = readRecord(row.record);
       if (!parts) continue;
-      for (const id of ids) {
-        if (equalBytes(userTag(id, parts.nonce), parts.userTag)) wanted.set(id, [...(wanted.get(id) ?? []), row.idx]);
+      for (const id of targets) {
+        if (equalBytes(userTag(id, parts.nonce), parts.userTag)) {
+          let list = wanted.get(id);
+          if (!list) wanted.set(id, (list = []));
+          list.push(row.idx);
+        }
       }
     }
     for (const [id, places] of wanted) {
@@ -1530,7 +1544,7 @@ export abstract class SessionDirectory extends SessionChains {
         const record = decode(wire.record);
         if (wire.idx !== frontier.size || !readRecord(record)) break;
         frontier.append(leafHash(record));
-        rows.push({ idx: wire.idx, record, checkpoint: frontier.size % LOG_CHECKPOINT === 0 ? new Uint8Array(frontier.roots.flatMap((root) => [...root])) : null });
+        rows.push({ idx: wire.idx, record, checkpoint: frontier.size % LOG_CHECKPOINT === 0 ? concat(...frontier.roots) : null });
       }
       // A rest that doesn't go on from what this device read isn't taken: the era is held to what it has.
       if (rows.length !== page.records.length || rows.length === 0 || frontier.size !== head.size || !equalBytes(frontier.root(), head.root)) {

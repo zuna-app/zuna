@@ -8,6 +8,7 @@ export const SOUND_RATE = 48_000;
 /** The longest a sound may be, in milliseconds. */
 export const SOUND_MAX_MS = 5_000;
 const HEADER_BYTES = 44;
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 /** The most a sound's file may be: five seconds of it. */
 export const SOUND_MAX_BYTES = HEADER_BYTES + (SOUND_RATE * SOUND_MAX_MS * 2) / 1000;
 /** How much of what someone picks an app hands over to be made into a sound, in milliseconds, with silence to cut at either end. */
@@ -45,7 +46,11 @@ export function readWav(bytes: Uint8Array, maxBytes = SOUND_MAX_BYTES): Int16Arr
     } else if (tag(at) === "data") {
       if (!format || size % 2 !== 0 || size === 0) return null;
       const samples = new Int16Array(size / 2);
-      for (let index = 0; index < samples.length; index++) samples[index] = view.getInt16(body + index * 2, true);
+      if (LITTLE_ENDIAN) {
+        new Uint8Array(samples.buffer).set(bytes.subarray(body, body + size));
+      } else {
+        for (let index = 0; index < samples.length; index++) samples[index] = view.getInt16(body + index * 2, true);
+      }
       return samples;
     }
     at = body + size + (size % 2);
@@ -73,7 +78,11 @@ export function writeWav(samples: Int16Array): Uint8Array<ArrayBuffer> {
   view.setUint16(34, 16, true);
   tag(36, "data");
   view.setUint32(40, samples.length * 2, true);
-  for (let index = 0; index < samples.length; index++) view.setInt16(HEADER_BYTES + index * 2, samples[index]!, true);
+  if (LITTLE_ENDIAN) {
+    bytes.set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength), HEADER_BYTES);
+  } else {
+    for (let index = 0; index < samples.length; index++) view.setInt16(HEADER_BYTES + index * 2, samples[index]!, true);
+  }
   return bytes;
 }
 

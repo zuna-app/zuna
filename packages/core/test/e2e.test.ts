@@ -367,6 +367,7 @@ describe("notices", () => {
     add("sys-added", null, 300);
     add("m2", 2, 400);
     add("still-sending", null, 500);
+    db.exec("DROP INDEX messages_raw_reactions; DROP INDEX messages_pending_status; DROP INDEX messages_pinned; DROP INDEX messages_sender_seq; DROP INDEX messages_id; DROP INDEX epoch_keys_uploaded; DROP INDEX identity_state_unsaved");
     db.exec("DROP TABLE joined_epochs; DROP TABLE epoch_starts; DROP TABLE device_departures");
     db.exec("DROP TABLE identity_chain; DROP TABLE identity_state; DROP TABLE device_first_leaf");
     db.exec("DROP INDEX messages_unproven; ALTER TABLE messages DROP COLUMN unproven_delete_at");

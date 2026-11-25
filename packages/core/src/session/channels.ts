@@ -23,29 +23,31 @@ export abstract class SessionChannels extends SessionManagement {
   }
 
   /** Takes on what the server lists, believing only the details a device of someone here signed. */
-  protected applyChannels(list: ApiChannel[], save = true): void {
+  protected applyChannels(list: ApiChannel[], save = true, emit = true): void {
     const versions = this.getKv<Record<string, number>>("channel_versions") ?? {};
     const next = new Map<string, CachedChannel>();
     for (const api of list) {
       const previous = this.channels.get(api.id);
       let details = previous?.details ?? null;
       let version = Math.max(previous?.version ?? 0, versions[api.id] ?? 0);
-      const signed = openChannelDetails(this.account.core.communityKey, api.id, decode(api.details));
-      if (signed && signed.version >= version) {
-        const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
-        const parsed = parseChannelDetails(signed.details);
-        if (device && parsed && signed.signedBy(device.signatureKey)) {
-          details = parsed;
-          version = signed.version;
-        } else if (!device) {
-          // Not known yet. Looked up, and read again once that's done.
-          void this.ensureUser(signed.signer.userId, true)
-            .then((user) => {
-              if (!user?.devices.has(signed.signer.deviceId)) return;
-              this.applyChannels([...this.channels.values()].map((channel) => channel.api));
-              void this.joinChannels();
-            })
-            .catch(() => undefined);
+      if (!(previous && previous.details !== null && previous.api.details === api.details)) {
+        const signed = openChannelDetails(this.account.core.communityKey, api.id, decode(api.details));
+        if (signed && signed.version >= version) {
+          const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
+          const parsed = parseChannelDetails(signed.details);
+          if (device && parsed && signed.signedBy(device.signatureKey)) {
+            details = parsed;
+            version = signed.version;
+          } else if (!device) {
+            // Not known yet. Looked up, and read again once that's done.
+            void this.ensureUser(signed.signer.userId, true)
+              .then((user) => {
+                if (!user?.devices.has(signed.signer.deviceId)) return;
+                this.applyChannels([...this.channels.values()].map((channel) => channel.api));
+                void this.joinChannels();
+              })
+              .catch(() => undefined);
+          }
         }
       }
       next.set(api.id, { api, details, version });
@@ -57,7 +59,7 @@ export abstract class SessionChannels extends SessionManagement {
     if (!save) return;
     this.setKv("channels", list);
     this.setKv("channel_versions", versions);
-    this.emit({ type: "channels", serverId: this.serverId });
+    if (emit) this.emit({ type: "channels", serverId: this.serverId });
     // A slow mode made shorter, or turned off, lets what it held back try again.
     if (this.slowHeld.size > 0) {
       this.slowHeld.clear();
@@ -69,7 +71,7 @@ export abstract class SessionChannels extends SessionManagement {
   protected async syncChannels(): Promise<void> {
     if (!this.channelsOn) return;
     const { channels, voice } = await this.api.channels();
-    this.applyChannels(channels);
+    this.applyChannels(channels, true, false);
     // Calls are listed by themselves.
     for (const [device, state] of this.voiceStates) {
       if (!state.call) this.voiceStates.delete(device);

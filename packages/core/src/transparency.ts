@@ -92,15 +92,20 @@ export function readRecord(record: Uint8Array): RecordParts | null {
   };
 }
 
-const tagOf = (label: string, value: string, nonce: Uint8Array) => wasm.sha256(concat(utf8(`${label}${value}|`), nonce)).subarray(0, TAG_BYTES);
+const USER_TAG_PREFIX = utf8("zuna/log/user/v1|");
+const NAME_TAG_PREFIX = utf8("zuna/log/name/v1|");
+const BODY_HASH_PREFIX = utf8("zuna/log/body/v1|");
+const PIPE = new Uint8Array([0x7c]);
+
+const tagOf = (prefix: Uint8Array, value: string, nonce: Uint8Array) => wasm.sha256(concat(prefix, utf8(value), PIPE, nonce)).subarray(0, TAG_BYTES);
 
 /** What says a record is about an account, to whoever knows its ID, and nobody else. */
-export const userTag = (user: string, nonce: Uint8Array): Uint8Array => tagOf("zuna/log/user/v1|", user, nonce);
+export const userTag = (user: string, nonce: Uint8Array): Uint8Array => tagOf(USER_TAG_PREFIX, user, nonce);
 
 /** What says an account's first record is under a username, to whoever knows the name. Another entry's is random. */
-export const nameTag = (username: string, nonce: Uint8Array): Uint8Array => tagOf("zuna/log/name/v1|", username.toLowerCase(), nonce);
+export const nameTag = (username: string, nonce: Uint8Array): Uint8Array => tagOf(NAME_TAG_PREFIX, username.toLowerCase(), nonce);
 
-export const bodyHash = (nonce: Uint8Array, body: Uint8Array): Uint8Array => wasm.sha256(concat(utf8("zuna/log/body/v1|"), nonce, body));
+export const bodyHash = (nonce: Uint8Array, body: Uint8Array): Uint8Array => wasm.sha256(concat(BODY_HASH_PREFIX, nonce, body));
 
 // --- Bodies ---
 
@@ -198,7 +203,10 @@ export interface LogHead {
   sig?: Uint8Array;
 }
 
-export const headInput = (era: number, size: number, root: Uint8Array): Uint8Array => concat(utf8("zuna/log/head/v2|"), u64Bytes(era), u64Bytes(size), root);
+const HEAD_INPUT_PREFIX = utf8("zuna/log/head/v2|");
+const LOG_KEY_PREFIX = utf8("zuna/log/key/v1|");
+
+export const headInput = (era: number, size: number, root: Uint8Array): Uint8Array => concat(HEAD_INPUT_PREFIX, u64Bytes(era), u64Bytes(size), root);
 
 export function headSigned(key: Uint8Array, head: LogHead): boolean {
   return !!head.sig && head.root.length === HASH_BYTES && isLastingKey(key) && wasm.verify(key, headInput(head.era, head.size, head.root), head.sig);
@@ -240,7 +248,7 @@ export interface PinnedHead {
 }
 
 /** What an invite link names the log's key by. */
-export const logKeyHash = (key: Uint8Array): Uint8Array => wasm.sha256(concat(utf8("zuna/log/key/v1|"), key));
+export const logKeyHash = (key: Uint8Array): Uint8Array => wasm.sha256(concat(LOG_KEY_PREFIX, key));
 
 export const linkHead = (head: PinnedHead): string => toBase64Url(concat(head.keyHash, u32Bytes(head.era), u64Bytes(head.size), head.root));
 

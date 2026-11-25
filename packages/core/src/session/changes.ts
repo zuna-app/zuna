@@ -218,10 +218,17 @@ export abstract class SessionChanges extends SessionJoining {
   protected noteArrivals(groupId: string): void {
     if (!this.hasMlsGroup(groupId)) return;
     const epoch = this.mlsEpoch(groupId);
-    for (const member of this.mls.members(utf8(groupId)) as { credential: Uint8Array }[]) {
-      const cert = parseCertificate(member.credential);
-      if (cert) this.db.run("INSERT OR IGNORE INTO device_arrivals(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("arrival", `${groupId}/${cert.userId}/${cert.deviceId}`, epoch)]);
-    }
+    const members = this.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
+    this.db.transaction(() => {
+      for (const member of members) {
+        const cert = parseCertificate(member.credential);
+        if (!cert) continue;
+        const key = `${groupId}/${cert.userId}/${cert.deviceId}`;
+        if (this.recordedArrivals.has(key)) continue;
+        this.db.run("INSERT OR IGNORE INTO device_arrivals(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("arrival", key, epoch)]);
+        this.recordedArrivals.add(key);
+      }
+    });
   }
 
   /** The epoch from which someone's device has been in a group's tree, as this device saw. */
@@ -244,19 +251,24 @@ export abstract class SessionChanges extends SessionJoining {
   }
 
   protected recordDepartures(groupId: string, epoch: number, removed: Uint8Array[]): void {
-    const present = this.presentDevices(groupId);
-    for (const member of this.treeMembers(groupId).filter((item) => item.genuine)) {
-      this.db.run("DELETE FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, member.userId, member.deviceId]);
-    }
-    for (const credential of removed) {
-      const cert = parseCertificate(credential);
-      // A real device still here means what went was something using its certificate.
-      if (cert && !present.has(`${cert.userId}/${cert.deviceId}`)) {
-        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("departure", `${groupId}/${cert.userId}/${cert.deviceId}`, epoch)]);
-        // Coming back is a new arrival.
-        this.db.run("DELETE FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, cert.userId, cert.deviceId]);
+    const genuine = this.treeMembers(groupId).filter((member) => member.genuine);
+    const present = new Set(genuine.map((member) => `${member.userId}/${member.deviceId}`));
+    this.db.transaction(() => {
+      for (const member of genuine) {
+        this.db.run("DELETE FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, member.userId, member.deviceId]);
       }
-    }
+      for (const credential of removed) {
+        const cert = parseCertificate(credential);
+        // A real device still here means what went was something using its certificate.
+        if (cert && !present.has(`${cert.userId}/${cert.deviceId}`)) {
+          const key = `${groupId}/${cert.userId}/${cert.deviceId}`;
+          this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("departure", key, epoch)]);
+          // Coming back is a new arrival.
+          this.db.run("DELETE FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, cert.userId, cert.deviceId]);
+          this.recordedArrivals.delete(key);
+        }
+      }
+    });
   }
 
   /**
@@ -637,13 +649,13 @@ export abstract class SessionChanges extends SessionJoining {
     this.reconcileTimers.set(groupId, timer);
   }
 
-  protected async staleLeaves(groupId: string): Promise<number[]> {
+  protected async staleLeaves(groupId: string, members?: import("./shared").TreeMember[]): Promise<number[]> {
     const group = this.groups.get(groupId);
     if (!group || group.doubtful || !this.hasMlsGroup(groupId)) return [];
     const roster = new Set(group.members.map((member) => member.userId));
     const own = this.mls.ownLeafIndex(utf8(groupId));
     const stale: number[] = [];
-    for (const member of this.treeMembers(groupId)) {
+    for (const member of members ?? this.treeMembers(groupId)) {
       if (member.leaf === own) continue;
       // Removed, as the log says, whether or not the server still lists the device.
       if (member.gone) {

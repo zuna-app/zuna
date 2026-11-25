@@ -223,6 +223,16 @@ const MIGRATIONS: string[] = [
   // and the frontier after every 256th, as log_records holds this era's, so that a head someone
   // holds of an earlier era can be held to it.
   `CREATE TABLE log_past (era INTEGER NOT NULL, idx INTEGER NOT NULL, record BLOB NOT NULL, frontier BLOB, PRIMARY KEY (era, idx));`,
+  // Indexes for hot queries that otherwise scan the messages, epoch_keys or identity_state tables.
+  `
+  CREATE INDEX IF NOT EXISTS messages_raw_reactions ON messages(group_id) WHERE raw_reactions IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS messages_pending_status ON messages(group_id, status) WHERE status IN ('undecryptable', 'unverified', 'sending', 'failed');
+  CREATE INDEX IF NOT EXISTS messages_pinned ON messages(group_id, pinned_at DESC) WHERE pinned_at IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS messages_sender_seq ON messages(group_id, sender_user, seq);
+  CREATE INDEX IF NOT EXISTS messages_id ON messages(id);
+  CREATE INDEX IF NOT EXISTS epoch_keys_uploaded ON epoch_keys(uploaded) WHERE uploaded = 0;
+  CREATE INDEX IF NOT EXISTS identity_state_unsaved ON identity_state(user_id) WHERE chain_uploaded = 0 OR trust_uploaded = 0;
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

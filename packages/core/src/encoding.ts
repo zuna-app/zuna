@@ -47,10 +47,12 @@ export function fromBase64Url(text: string): Uint8Array {
   return fromBase64(standard + "=".repeat((4 - (standard.length % 4)) % 4));
 }
 
+const HEX_TABLE: string[] = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
 export function toHex(bytes: Uint8Array): string {
   if (nativeHex) return (bytes as unknown as NativeBytes).toHex();
   let out = "";
-  for (const byte of bytes) out += byte.toString(16).padStart(2, "0");
+  for (let i = 0; i < bytes.length; i++) out += HEX_TABLE[bytes[i]!]!;
   return out;
 }
 
@@ -88,9 +90,18 @@ export function readU32(bytes: Uint8Array, offset = 0): number {
 }
 
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
+  const len = a.length;
+  if (len !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  let i = 0;
+  if (len >= 16 && (a.byteOffset & 3) === 0 && (b.byteOffset & 3) === 0) {
+    const words = len >>> 2;
+    const a32 = new Uint32Array(a.buffer, a.byteOffset, words);
+    const b32 = new Uint32Array(b.buffer, b.byteOffset, words);
+    for (let w = 0; w < words; w++) diff |= a32[w]! ^ b32[w]!;
+    i = words << 2;
+  }
+  for (; i < len; i++) diff |= a[i]! ^ b[i]!;
   return diff === 0;
 }
 

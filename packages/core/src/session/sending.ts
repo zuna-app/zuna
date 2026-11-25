@@ -73,6 +73,7 @@ export abstract class SessionSending extends SessionConversations {
        VALUES(?,?,NULL,0,?,?,0,?,?,?)`,
       [groupId, id, this.account.userId, this.account.deviceId, now, "sending", this.sealJson("message", `${groupId}/${id}`, body)],
     );
+    this.groupSummaries.delete(groupId);
     const view = this.toMessageView(this.messageRow(groupId, id)!);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: true });
     // The chat list shows it as it's sent, not once the server has it.
@@ -134,6 +135,7 @@ export abstract class SessionSending extends SessionConversations {
     const withPreview: MessageBody = { ...body, preview };
     const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
     this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, withPreview), groupId, id]);
+    this.groupSummaries.delete(groupId);
     const row = this.messageRow(groupId, id);
     if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
     return withPreview;
@@ -220,6 +222,7 @@ export abstract class SessionSending extends SessionConversations {
   protected markFailed(groupKey: string, id: string): void {
     const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
     this.db.run("UPDATE messages SET status = 'failed' WHERE group_id = ? AND id = ?", [groupId, id]);
+    this.groupSummaries.delete(groupId);
     const row = this.messageRow(groupId, id);
     if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
     this.emitConversations();
@@ -231,6 +234,7 @@ export abstract class SessionSending extends SessionConversations {
     this.db.run(
       `UPDATE messages SET status = 'failed' WHERE status = 'sending' AND id NOT IN (SELECT id FROM outbox)`,
     );
+    this.groupSummaries.clear();
   }
 
   /** When a channel's slow mode lets this person's next message there go, from the last any of their devices sent, or 0. */
@@ -389,6 +393,8 @@ export abstract class SessionSending extends SessionConversations {
     // Its body is sealed to where it was, so it's sealed again for where it goes.
     const body = row.body && this.openLocal("message", `${pending}/${id}`, row.body);
     this.db.run("UPDATE messages SET group_id = ?, body = ? WHERE group_id = ? AND id = ?", [groupId, body ? this.sealLocal("message", `${groupId}/${id}`, body) : null, pending, id]);
+    this.groupSummaries.delete(pending);
+    this.groupSummaries.delete(groupId);
     this.emit({
       type: "message_moved",
       serverId: this.serverId,
@@ -482,6 +488,7 @@ export abstract class SessionSending extends SessionConversations {
     const group = this.groups.get(groupId);
     const key = group ? this.conversationKey(group) : groupId.replace(/^pending:/, "");
     this.db.run("UPDATE messages SET status = 'sending' WHERE group_id = ? AND id = ?", [groupId, id]);
+    this.groupSummaries.delete(groupId);
     this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(groupId, id)!), isNew: false });
     this.enqueue(key, {
       kind: "message",
@@ -502,6 +509,7 @@ export abstract class SessionSending extends SessionConversations {
   discardMessage(groupId: string, id: string): void {
     this.db.run("DELETE FROM outbox WHERE id = ?", [id]);
     this.db.run("DELETE FROM messages WHERE group_id = ? AND id = ? AND seq IS NULL", [groupId, id]);
+    this.groupSummaries.delete(groupId);
     this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
   }
 
@@ -529,6 +537,7 @@ export abstract class SessionSending extends SessionConversations {
       groupId,
       id,
     ]);
+    this.groupSummaries.delete(groupId);
     this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(groupId, id)!), isNew: false });
     const group = this.groups.get(groupId);
     if (group) this.enqueue(this.conversationKey(group), { kind: "edit", id, groupId, body });
@@ -984,6 +993,7 @@ export abstract class SessionSending extends SessionConversations {
       }
       const finalBody: MessageBody = { ...body, attachments };
       this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, finalBody), groupId, id]);
+      this.groupSummaries.delete(groupId);
       this.enqueue(groupKey, {
         kind: "message",
         id,

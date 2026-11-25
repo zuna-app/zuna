@@ -229,10 +229,12 @@ export abstract class SessionLifecycle extends SessionServer {
     // An app that doesn't show channels takes no part in them.
     const groups = (await this.api.groups()).filter((group) => group.kind !== "channel" || this.channelsOn);
     const seen = new Set(groups.map((group) => group.id));
-    for (const group of groups) this.applyGroup(group);
-    for (const id of known) {
-      if (!seen.has(id)) this.markRemoved(id);
-    }
+    this.db.transaction(() => {
+      for (const group of groups) this.applyGroup(group);
+      for (const id of known) {
+        if (!seen.has(id)) this.markRemoved(id);
+      }
+    });
     this.emitConversations();
     // The list just said where each group is, so one this device has caught up with,
     // at the same epoch, needn't ask for its changes. The rest catch up a few at a time.

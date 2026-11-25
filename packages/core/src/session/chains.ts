@@ -3,6 +3,7 @@
 import { decode, type ApiDevice, type ApiUser } from "../api";
 import { HPKE_PUBLIC_BYTES, parseCertificate, verifyCertificate, type DeviceCertificate } from "../crypto";
 import { carries, rootHash, verifyEnrollment, verifyLink, verifySealProof, type Link } from "../generations";
+import { entryHash } from "../transparency";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
 import { CONTINUITY_MS, rotationTiming, type IdentityState, type SealedIdentityState, signedFromApi } from "./shared";
 import { SessionVault } from "./vault";
@@ -18,6 +19,16 @@ export interface Standing {
 
 /** How long before links the log names, and the server hasn't handed over, are asked for again. */
 const CHAIN_RETRY_MS = 30_000;
+
+const byteKeyCache = new WeakMap<Uint8Array, string>();
+function shortHashKey(bytes: Uint8Array): string {
+  let cached = byteKeyCache.get(bytes);
+  if (!cached) {
+    cached = toBase64(entryHash(bytes));
+    byteKeyCache.set(bytes, cached);
+  }
+  return cached;
+}
 
 export abstract class SessionChains extends SessionVault {
   // --- Account generations ---
@@ -77,7 +88,7 @@ export abstract class SessionChains extends SessionVault {
    */
   protected certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): Standing | null {
     const chain = this.chainOf(userId);
-    const key = [userId, toBase64(root), ...chain.map((link) => toBase64(link.hash)), toBase64(certificate), this.logVersion(userId)].join("|");
+    const key = [userId, shortHashKey(root), ...chain.map((link) => toBase64(link.hash)), shortHashKey(certificate), this.logVersion(userId)].join("|");
     const known = this.standingCache.get(key);
     if (known !== undefined) return known;
     let standing: Standing | null = null;
@@ -103,10 +114,17 @@ export abstract class SessionChains extends SessionVault {
 
   protected identityState(userId: string): IdentityState {
     const row = this.db.get<{ sealed: Uint8Array | null }>("SELECT sealed FROM identity_state WHERE user_id = ?", [userId]);
-    if (!row?.sealed) return { forked: 0, known_generation: 0, known_hash: null, trust_generation: 0 };
+    if (!row?.sealed) {
+      this.identityStateCache.delete(userId);
+      return { forked: 0, known_generation: 0, known_hash: null, trust_generation: 0 };
+    }
+    const cached = this.identityStateCache.get(userId);
+    if (cached && row.sealed instanceof Uint8Array && equalBytes(cached.raw, row.sealed)) return cached.state;
     // What doesn't open says there were two versions of their keys, which gives the loud warning.
     const stored = this.openValue<SealedIdentityState>("identity", userId, row.sealed, { forked: 1, known_generation: 0, known_hash: null, trust_generation: 0 });
-    return { ...stored, known_hash: stored.known_hash ? fromBase64(stored.known_hash) : null };
+    const state: IdentityState = { ...stored, known_hash: stored.known_hash ? fromBase64(stored.known_hash) : null };
+    if (row.sealed instanceof Uint8Array) this.identityStateCache.set(userId, { raw: row.sealed, state });
+    return state;
   }
 
   /** Changes what's known about someone's chain, and marks what the manifest has to say again. */
@@ -117,6 +135,7 @@ export abstract class SessionChains extends SessionVault {
     this.db.run("UPDATE identity_state SET sealed = ? WHERE user_id = ?", [sealed, userId]);
     if (unsaved.chain) this.db.run("UPDATE identity_state SET chain_uploaded = 0 WHERE user_id = ?", [userId]);
     if (unsaved.trust) this.db.run("UPDATE identity_state SET trust_uploaded = 0 WHERE user_id = ?", [userId]);
+    this.identityStateCache.set(userId, { raw: sealed, state: next });
   }
 
   protected setVerifiedPosition(userId: string, generation: number): void {

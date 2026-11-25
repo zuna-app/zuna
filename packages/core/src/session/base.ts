@@ -24,7 +24,7 @@ import { Socket, type SocketFrame } from "../socket";
 import type { SignedRoster } from "../roster";
 import type { WatchState } from "../watch";
 import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
-import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex } from "./shared";
+import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex, TreeMember } from "./shared";
 import type { LogStanding } from "./directory";
 import type { Standing } from "./chains";
 
@@ -134,6 +134,21 @@ export abstract class SessionBase {
   protected feedBehind = new Set<string>();
   /** Who holds each group's keys now, for showing its members. */
   protected treeUsersCache = new Map<string, Set<string>>();
+  /** In-memory caches of sealed local rows and verified blobs, verified against raw DB bytes or SQLite change counters. */
+  protected pinnedCache = new Map<string, { raw: Uint8Array; key: Uint8Array }>();
+  protected verifiedCache = new Map<string, { raw: Uint8Array; value: Uint8Array | null }>();
+  protected identityStateCache = new Map<string, { raw: Uint8Array; state: IdentityState }>();
+  protected groupSummaries = new Map<
+    string,
+    { ownRead: number; blockedKey: string; last: import("../types").MessageView | null; unread: number; mentioned: boolean; unreadMentions: number }
+  >();
+  protected groupSummariesChanges = -1;
+  protected profileCache = new Map<string, { raw: string; sig: string | null; username: string; gen: number; key: Uint8Array; profile: CachedUser["profile"] | null }>();
+  protected verifiedReadStates = new Map<string, string>();
+  protected verifiedMetaBlobs = new Map<string, { blob: string; epoch: number; signerUser: string; signerDevice: string }>();
+  protected withheldScannedUpTo = 0;
+  protected recordedArrivals = new Set<string>();
+  protected recordedFirstLeaves = new Set<string>();
   /**
    * certificateStanding's answers, by everything they're worked out from: whose it is, the key
    * pinned for them, their chain link by link, and the certificate itself. A commit checks every
@@ -313,7 +328,7 @@ export abstract class SessionBase {
   protected abstract topUpTokensSoon(now?: boolean): void;
   protected abstract compareTokenKeys(tag: { p: number; h: string }, from: string): void;
   protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
-  protected abstract staleLeaves(groupId: string): Promise<number[]>;
+  protected abstract staleLeaves(groupId: string, members?: TreeMember[]): Promise<number[]>;
   protected abstract ensureTreeClean(groupId: string): Promise<void>;
   protected abstract rotateIfOld(groupId: string): Promise<void>;
   protected abstract onFrame(frame: SocketFrame): void;

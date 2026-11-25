@@ -562,11 +562,26 @@ export abstract class SessionGroups extends SessionRotation {
   /** Decrypts whatever group metadata and read positions the keys held allow. */
   protected refreshGroupSecrets(group: CachedGroup): void {
     if (group.metaBlob && group.metaEpoch !== null) {
-      const key = this.epochKey(group.id, group.metaEpoch);
-      if (key) this.acceptGroupDetails(group, openSignal<unknown>(key, "meta", group.id, fromBase64(group.metaBlob)));
+      const verified = this.verifiedMetaBlobs.get(group.id);
+      const stillValid =
+        !!verified &&
+        verified.blob === group.metaBlob &&
+        verified.epoch === group.metaEpoch &&
+        (group.metaVersion ?? 0) > 0 &&
+        this.isGroupAdmin(group, verified.signerUser) &&
+        !(this.users.get(verified.signerUser)?.devices.get(verified.signerDevice)?.revoked ?? true);
+      if (!stillValid) {
+        const key = this.epochKey(group.id, group.metaEpoch);
+        if (key) this.acceptGroupDetails(group, openSignal<unknown>(key, "meta", group.id, fromBase64(group.metaBlob)));
+      }
     }
     for (const [userId, state] of Object.entries(group.readStates)) {
-      if (state) this.applyReadState(group, userId, fromBase64(state));
+      if (!state) continue;
+      const cacheKey = `${group.id}/${userId}`;
+      if (this.verifiedReadStates.get(cacheKey) === state) continue;
+      if (this.applyReadState(group, userId, fromBase64(state))) {
+        this.verifiedReadStates.set(cacheKey, state);
+      }
     }
   }
 
@@ -607,6 +622,14 @@ export abstract class SessionGroups extends SessionRotation {
     const timerChanged = (details.disappearAfter ?? 0) !== this.disappearAfter(group);
     group.meta = details;
     group.metaVersion = signed.version;
+    if (group.metaBlob && group.metaEpoch !== null) {
+      this.verifiedMetaBlobs.set(group.id, {
+        blob: group.metaBlob,
+        epoch: group.metaEpoch,
+        signerUser: signed.signer.userId,
+        signerDevice: signed.signer.deviceId,
+      });
+    }
     if (timerChanged) this.noteTimerChange(group.id, signed.signer.userId, details.disappearAfter ?? 0);
   }
 
@@ -660,19 +683,19 @@ export abstract class SessionGroups extends SessionRotation {
       .finally(() => this.resealing.delete(groupId));
   }
 
-  protected applyReadState(group: CachedGroup, userId: string, sealed: Uint8Array): void {
-    if (sealed.length < 5) return;
+  protected applyReadState(group: CachedGroup, userId: string, sealed: Uint8Array): boolean {
+    if (sealed.length < 5) return false;
     let seq: number | null = null;
     const signed = readSigned(sealed);
     if (signed) {
       const key = this.epochKey(group.id, signed.epoch);
-      if (!key) return;
+      if (!key) return false;
       const checked = checkEnvelope<unknown>(key, "read", group.id, userId, signed.epoch, signed.envelope, (signer) => this.deviceKey(signer));
       seq = checked.state === "signed" && checked.signer.userId === userId ? parseReadState(checked.value) : null;
     } else {
       // Unsigned, it can only be this account's own, sealed to its key so its other
       // devices keep up.
-      if (sealed[0] !== 1 || userId !== this.account.userId) return;
+      if (sealed[0] !== 1 || userId !== this.account.userId) return false;
       const body = sealed.subarray(1);
       // A position sealed to this account stays as it was until it's next written, so
       // it may be under an older key. The worst a stolen one can do is mark things read.
@@ -680,7 +703,7 @@ export abstract class SessionGroups extends SessionRotation {
         if (seq === null) seq = parseReadState(openSignal<unknown>(subkey(key, "read"), "read", group.id, body));
       }
     }
-    if (seq === null) return;
+    if (seq === null) return false;
     if (userId === this.account.userId) {
       group.ownRead = Math.max(group.ownRead, seq);
       // It came from the server, so the server has it.
@@ -688,6 +711,7 @@ export abstract class SessionGroups extends SessionRotation {
     } else {
       group.readBy[userId] = Math.max(group.readBy[userId] ?? 0, seq);
     }
+    return true;
   }
 
   /**
@@ -728,6 +752,7 @@ export abstract class SessionGroups extends SessionRotation {
       this.db.run("DELETE FROM search WHERE rowid IN (SELECT row_id FROM messages WHERE group_id = ?)", [groupId]);
       this.db.run("DELETE FROM media WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM messages WHERE group_id = ?", [groupId]);
+      this.groupSummaries.delete(groupId);
       this.db.run("DELETE FROM groups WHERE id = ?", [groupId]);
       this.db.run("DELETE FROM epoch_keys WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM joined_epochs WHERE group_id = ?", [groupId]);

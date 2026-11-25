@@ -25,20 +25,22 @@ export abstract class SessionServer extends SessionChannels {
       const previous = this.sounds.get(api.id);
       let details = previous?.details ?? null;
       let version = Math.max(previous?.version ?? 0, versions[api.id] ?? 0);
-      const signed = openSoundDetails(this.account.core.communityKey, api.id, decode(api.details));
-      if (signed && signed.version >= version) {
-        const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
-        const parsed = parseSoundDetails(signed.details);
-        if (device && parsed && signed.signedBy(device.signatureKey)) {
-          details = parsed;
-          version = signed.version;
-        } else if (!device) {
-          // Not known yet. Looked up, and read again once that's done.
-          void this.ensureUser(signed.signer.userId, true)
-            .then((user) => {
-              if (user?.devices.has(signed.signer.deviceId)) this.applySounds([...this.sounds.values()].map((sound) => sound.api));
-            })
-            .catch(() => undefined);
+      if (!(previous && previous.details !== null && previous.api.details === api.details)) {
+        const signed = openSoundDetails(this.account.core.communityKey, api.id, decode(api.details));
+        if (signed && signed.version >= version) {
+          const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
+          const parsed = parseSoundDetails(signed.details);
+          if (device && parsed && signed.signedBy(device.signatureKey)) {
+            details = parsed;
+            version = signed.version;
+          } else if (!device) {
+            // Not known yet. Looked up, and read again once that's done.
+            void this.ensureUser(signed.signer.userId, true)
+              .then((user) => {
+                if (user?.devices.has(signed.signer.deviceId)) this.applySounds([...this.sounds.values()].map((sound) => sound.api));
+              })
+              .catch(() => undefined);
+          }
         }
       }
       next.set(api.id, { api, details, version });

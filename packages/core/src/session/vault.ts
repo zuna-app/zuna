@@ -43,42 +43,51 @@ export abstract class SessionVault extends SessionLocal {
     fetching: for (;;) {
       const items = await this.api.vaultItems(cursor, VAULT_PAGE);
       if (items.length === 0) break;
-      for (const item of items) {
-        const { generation } = item;
-        // Sealed under a key this device doesn't have yet, so it stays unread until then.
-        if (generation > this.account.core.generation) {
-          this.syncAccountSoon();
-          break fetching;
-        }
-        cursor = Math.max(cursor, item.seq);
-        const key = this.vaultKeyFor(item.id, generation);
-        if (!key) continue;
-        let data: Uint8Array;
-        try {
-          data = openVaultItem(key, item.id, decode(item.data), generation);
-        } catch {
-          console.warn("[zuna] a vault item could not be opened", item.id);
-          continue;
-        }
-        if (item.id.startsWith("ek:")) {
-          const [, groupId, epoch] = item.id.split(":");
-          const kept = readKeptKey(data);
-          if (groupId && Number.isSafeInteger(Number(epoch)) && kept && this.takeVaultKind(groupId, kept.kind)) {
-            this.saveEpochKey(groupId, Number(epoch), kept.key, "vault");
-            if (kept.rosterSaid) this.vaultRostersSaid().add(groupId);
-            touchedGroups.add(groupId);
+      let stopFetching = false;
+      let pageNamed = false;
+      this.db.transaction(() => {
+        for (const item of items) {
+          const { generation } = item;
+          // Sealed under a key this device doesn't have yet, so it stays unread until then.
+          if (generation > this.account.core.generation) {
+            this.syncAccountSoon();
+            stopFetching = true;
+            break;
           }
-        } else if (isManifestPart(item.id)) {
-          // Who this account trusts comes from here alone, so nothing in it can be left out by itself.
-          this.takeManifestPart(item.id, data);
-        } else if (item.id.startsWith("device:")) {
-          this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
-          this.setKv("device_names", Object.fromEntries(this.deviceNames));
-          named = true;
+          cursor = Math.max(cursor, item.seq);
+          const key = this.vaultKeyFor(item.id, generation);
+          if (!key) continue;
+          let data: Uint8Array;
+          try {
+            data = openVaultItem(key, item.id, decode(item.data), generation);
+          } catch {
+            console.warn("[zuna] a vault item could not be opened", item.id);
+            continue;
+          }
+          if (item.id.startsWith("ek:")) {
+            const [, groupId, epoch] = item.id.split(":");
+            const kept = readKeptKey(data);
+            if (groupId && Number.isSafeInteger(Number(epoch)) && kept && this.takeVaultKind(groupId, kept.kind)) {
+              this.saveEpochKey(groupId, Number(epoch), kept.key, "vault");
+              if (kept.rosterSaid) this.vaultRostersSaid().add(groupId);
+              touchedGroups.add(groupId);
+            }
+          } else if (isManifestPart(item.id)) {
+            // Who this account trusts comes from here alone, so nothing in it can be left out by itself.
+            this.takeManifestPart(item.id, data);
+          } else if (item.id.startsWith("device:")) {
+            this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
+            named = true;
+            pageNamed = true;
+          }
         }
-      }
-      this.setKv("vault_cursor", cursor);
-      this.saveVaultKinds();
+        if (pageNamed) this.setKv("device_names", Object.fromEntries(this.deviceNames));
+        if (!stopFetching) {
+          this.setKv("vault_cursor", cursor);
+          this.saveVaultKinds();
+        }
+      });
+      if (stopFetching) break fetching;
       // A page short of full was the last, with no need to ask for an empty one to be sure.
       if (items.length < VAULT_PAGE) break;
     }

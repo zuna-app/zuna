@@ -68,6 +68,17 @@ export abstract class SessionLocal extends SessionBase {
   }
 
   protected loadCache(): void {
+    this.pinnedCache.clear();
+    this.verifiedCache.clear();
+    this.identityStateCache.clear();
+    this.groupSummaries.clear();
+    this.groupSummariesChanges = -1;
+    this.profileCache.clear();
+    this.verifiedReadStates.clear();
+    this.verifiedMetaBlobs.clear();
+    this.withheldScannedUpTo = 0;
+    this.recordedArrivals.clear();
+    this.recordedFirstLeaves.clear();
     for (const row of this.db.all<{ id: string; data: Uint8Array }>("SELECT id, data FROM users")) {
       const stored = this.openJson<any>("user", row.id, row.data);
       this.users.set(stored.id, {
@@ -232,10 +243,12 @@ export abstract class SessionLocal extends SessionBase {
   }
 
   protected sealPin(userId: string, key: Uint8Array): Uint8Array {
+    this.pinnedCache.delete(userId);
     return this.sealJson("pin", userId, toBase64(key));
   }
 
   protected sealVerified(userId: string, key: Uint8Array): Uint8Array {
+    this.verifiedCache.delete(userId);
     return this.sealJson("verified", userId, toBase64(key));
   }
 
@@ -251,7 +264,15 @@ export abstract class SessionLocal extends SessionBase {
 
   protected pinnedIdentity(userId: string): Uint8Array | null {
     const row = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM pinned_identities WHERE user_id = ?", [userId]);
-    return row ? this.openPinnedKey(userId, row.identity_key) : null;
+    if (!row) {
+      this.pinnedCache.delete(userId);
+      return null;
+    }
+    const cached = this.pinnedCache.get(userId);
+    if (cached && row.identity_key instanceof Uint8Array && equalBytes(cached.raw, row.identity_key)) return cached.key;
+    const key = this.openPinnedKey(userId, row.identity_key);
+    if (row.identity_key instanceof Uint8Array) this.pinnedCache.set(userId, { raw: row.identity_key, key });
+    return key;
   }
 
   /** Every pin this device holds. */
@@ -271,8 +292,16 @@ export abstract class SessionLocal extends SessionBase {
   /** The key this account verified for someone, if it has. Clearing it leaves an empty one. */
   protected verifiedIdentity(userId: string): Uint8Array | null {
     const row = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId]);
-    const key = row && this.openVerified(userId, row.identity_key);
-    return key && key.length > 0 ? key : null;
+    if (!row) {
+      this.verifiedCache.delete(userId);
+      return null;
+    }
+    const cached = this.verifiedCache.get(userId);
+    if (cached && row.identity_key instanceof Uint8Array && equalBytes(cached.raw, row.identity_key)) return cached.value;
+    const key = this.openVerified(userId, row.identity_key);
+    const value = key.length > 0 ? key : null;
+    if (row.identity_key instanceof Uint8Array) this.verifiedCache.set(userId, { raw: row.identity_key, value });
+    return value;
   }
 
   protected trustOf(userId: string, current: Uint8Array): TrustState {
@@ -301,8 +330,9 @@ export abstract class SessionLocal extends SessionBase {
     const isSelf = api.id === this.account.userId;
     // Someone this account has verified is pinned to that key, whatever the server says now. Anyone
     // else is pinned to what their entry in the log says, never to what the list shows.
-    const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id) ?? this.loggedRoot(api.id));
-    if (!this.pinnedIdentity(api.id) && pinned) {
+    const existingPin = this.pinnedIdentity(api.id);
+    const pinned = isSelf ? this.account.core.rootPublic : (existingPin ?? this.verifiedIdentity(api.id) ?? this.loggedRoot(api.id));
+    if (!existingPin && pinned) {
       this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [api.id, this.sealPin(api.id, pinned)]);
     }
     const previous = this.users.get(api.id);
@@ -346,11 +376,28 @@ export abstract class SessionLocal extends SessionBase {
       }
     }
     const head = this.headOf(api.id);
-    const opened = !api.profile
-      ? null
-      : head
-        ? parseProfile(openProfileAtGeneration<unknown>(this.account.core.communityKey, head.identity, api.id, api.username, head.gen, decode(api.profile), decode(api.profile_sig)))
-        : parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)));
+    let opened: CachedUser["profile"] | null = null;
+    if (api.profile) {
+      const verifyKey = head ? head.identity : trustedKey;
+      const gen = head ? head.gen : -1;
+      const sig = api.profile_sig ?? null;
+      const cachedProfile = this.profileCache.get(api.id);
+      if (
+        cachedProfile &&
+        cachedProfile.raw === api.profile &&
+        cachedProfile.sig === sig &&
+        cachedProfile.username === api.username &&
+        cachedProfile.gen === gen &&
+        equalBytes(cachedProfile.key, verifyKey)
+      ) {
+        opened = cachedProfile.profile;
+      } else {
+        opened = head
+          ? parseProfile(openProfileAtGeneration<unknown>(this.account.core.communityKey, head.identity, api.id, api.username, head.gen, decode(api.profile), decode(api.profile_sig)))
+          : parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)));
+        this.profileCache.set(api.id, { raw: api.profile, sig, username: api.username, gen, key: verifyKey, profile: opened });
+      }
+    }
     const user: CachedUser = {
       id: api.id,
       username: api.username,

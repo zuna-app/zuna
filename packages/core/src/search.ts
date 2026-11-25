@@ -37,11 +37,17 @@ function hashToken(searchKey: Uint8Array, token: string): string {
   let known = hashes.get(searchKey);
   if (!known) hashes.set(searchKey, (known = new Map()));
   let hash = known.get(token);
-  if (hash === undefined) {
-    hash = `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
-    if (known.size >= MAX_HASHES) known.delete(known.keys().next().value!);
-    known.set(token, hash);
+  if (hash !== undefined) {
+    // Promote hot tokens toward MRU once the cache is over half full so common prefixes aren't evicted by FIFO.
+    if (known.size > MAX_HASHES >>> 1) {
+      known.delete(token);
+      known.set(token, hash);
+    }
+    return hash;
   }
+  hash = `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
+  if (known.size >= MAX_HASHES) known.delete(known.keys().next().value!);
+  known.set(token, hash);
   return hash;
 }
 

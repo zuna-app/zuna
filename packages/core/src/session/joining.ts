@@ -221,13 +221,17 @@ export abstract class SessionJoining extends SessionGroups {
   }
 
   /** Notes who's in a tree shared with this device, which is the only proof of how long a device has been around. */
-  protected noteLeaves(groupId: string): void {
+  protected noteLeaves(groupId: string, members: TreeMember[] = this.treeMembers(groupId)): void {
+    const missing = members.filter((member) => member.genuine && !this.recordedFirstLeaves.has(`${member.userId}/${member.deviceId}`));
+    if (missing.length === 0) return;
     const now = Date.now();
-    for (const member of this.treeMembers(groupId)) {
-      if (member.genuine) {
-        this.db.run("INSERT OR IGNORE INTO device_first_leaf(user_id, device_id, at) VALUES(?, ?, ?)", [member.userId, member.deviceId, this.sealJson("first-leaf", `${member.userId}/${member.deviceId}`, now)]);
+    this.db.transaction(() => {
+      for (const member of missing) {
+        const key = `${member.userId}/${member.deviceId}`;
+        this.db.run("INSERT OR IGNORE INTO device_first_leaf(user_id, device_id, at) VALUES(?, ?, ?)", [member.userId, member.deviceId, this.sealJson("first-leaf", key, now)]);
+        this.recordedFirstLeaves.add(key);
       }
-    }
+    });
   }
 
   /**
@@ -239,11 +243,12 @@ export abstract class SessionJoining extends SessionGroups {
     this.treeUsersCache.delete(groupId);
     this.cleanEpochs.delete(groupId);
     await this.learnTreeUsers(groupId);
-    this.noteLeaves(groupId);
+    const members = this.treeMembers(groupId);
+    this.noteLeaves(groupId, members);
     const own = this.mls.ownLeafIndex(utf8(groupId));
-    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && !member.unchecked && member.leaf !== own);
+    const bad = members.filter((member) => !member.genuine && !member.unchecked && member.leaf !== own);
     const group = this.groups.get(groupId);
-    const unadmitted = group ? this.treeMembers(groupId).filter((member) => member.genuine && member.leaf !== own && !this.admitted(group, member.userId)) : [];
+    const unadmitted = group ? members.filter((member) => member.genuine && member.leaf !== own && !this.admitted(group, member.userId)) : [];
     for (const member of unadmitted) {
       const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
       if (this.warnedLeaves.has(warned)) continue;
@@ -389,9 +394,9 @@ export abstract class SessionJoining extends SessionGroups {
   }
 
   /** Leaves of other people's devices that look genuine, which the server doesn't list among their devices. */
-  protected unlistedLeaves(groupId: string): number[] {
+  protected unlistedLeaves(groupId: string, members: TreeMember[] = this.treeMembers(groupId)): number[] {
     const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
-    return this.treeMembers(groupId)
+    return members
       .filter((member) => member.genuine && !member.gone && member.userId !== this.account.userId && roster.has(member.userId) && !this.users.get(member.userId)?.devices.has(member.deviceId))
       .map((member) => member.leaf);
   }
@@ -412,14 +417,15 @@ export abstract class SessionJoining extends SessionGroups {
       if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
       await this.checkTree(groupId);
       // Nothing goes to a leaf nobody could check. This can wait until the server answers.
+      const members = this.treeMembers(groupId);
       const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
-      if (this.treeMembers(groupId).some((member) => member.unchecked && roster.has(member.userId))) {
+      if (members.some((member) => member.unchecked && roster.has(member.userId))) {
         throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
       }
-      if ((await this.staleLeaves(groupId)).length === 0) {
+      if ((await this.staleLeaves(groupId, members)).length === 0) {
         // A device of someone else's that the server no longer lists may have been removed in a way this
         // device hasn't heard of yet: nothing goes to it until the server says what became of it.
-        if (this.unlistedLeaves(groupId).length > 0) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
+        if (this.unlistedLeaves(groupId, members).length > 0) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
         this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));
         return;
       }

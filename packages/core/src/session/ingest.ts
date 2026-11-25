@@ -181,6 +181,7 @@ export abstract class SessionIngest extends SessionChanges {
     const value: StoredBody = { ...stored, ...this.viewsOf(seen), seen, reactionsAt: at };
     if (!value.mine?.length) delete value.mine;
     this.db.run("UPDATE messages SET body = ?, raw_reactions = ? WHERE row_id = ?", [this.sealJson("message", ref, value), waiting.length ? this.sealJson("message_reactions", ref, waiting) : null, row.row_id]);
+    this.groupSummaries.delete(row.group_id);
     const updated = this.messageRow(row.group_id, row.id)!;
     this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(updated, readStoredBody(updated, value)), isNew: false });
   }
@@ -188,16 +189,20 @@ export abstract class SessionIngest extends SessionChanges {
   /** Reads again the reactions a group's messages kept for later, once keys or devices they wait on may be here. */
   protected retryWaitingReactions(groupId: string): void {
     const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND body IS NOT NULL AND raw_reactions IS NOT NULL AND status = 'sent'", [groupId]);
-    for (const row of rows) {
-      const stored = this.storedBody(row);
-      if (!stored) continue;
-      // One kept before reactions came one at a time kept all of them as they came, so all are read.
-      const read = this.readReactions(groupId, row.id, this.rawReactionsOf(row));
-      if (read.waiting.length === this.rawReactionsOf(row).length && read.junk.length === 0) continue;
-      const held = (stored.seen ?? []).filter((item) => !read.seen.some((other) => other.id === item.id));
-      this.storeReactions(row, stored, [...held, ...read.seen], read.waiting, stored.reactionsAt ?? row.updated_seq);
-      this.clearJunkReactions(groupId, row.id, read.junk);
-    }
+    if (rows.length === 0) return;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const stored = this.storedBody(row);
+        if (!stored) continue;
+        // One kept before reactions came one at a time kept all of them as they came, so all are read.
+        const rawReactions = this.rawReactionsOf(row);
+        const read = this.readReactions(groupId, row.id, rawReactions);
+        if (read.waiting.length === rawReactions.length && read.junk.length === 0) continue;
+        const held = (stored.seen ?? []).filter((item) => !read.seen.some((other) => other.id === item.id));
+        this.storeReactions(row, stored, [...held, ...read.seen], read.waiting, stored.reactionsAt ?? row.updated_seq);
+        this.clearJunkReactions(groupId, row.id, read.junk);
+      }
+    });
   }
 
   /** A message fetched whole, as when a copy held can't take a change on its own. Once at a time for each. */
@@ -219,6 +224,7 @@ export abstract class SessionIngest extends SessionChanges {
     const pin = this.pinState({ group_id: change.group_id, id: change.message_id, deleted_at: null, pin: change.pin } as ApiMessage, row);
     if (pin.at === row.pinned_at && pin.by === row.pinned_by && pin.revision === row.pin_revision) return;
     this.db.run("UPDATE messages SET pinned_at = ?, pinned_by = ?, pin_revision = ? WHERE row_id = ?", [pin.at, pin.by, pin.revision, row.row_id]);
+    this.groupSummaries.delete(row.group_id);
     this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(this.messageRow(row.group_id, row.id)!), isNew: false });
   }
 
@@ -312,14 +318,19 @@ export abstract class SessionIngest extends SessionChanges {
       let checked = key ? this.checkMessage(message, key) : null;
       if (checked?.state === "closed" && this.keyUnproven(message.group_id, message.epoch)) {
         // Another member may have handed on the key that opens it, where the one held came from someone who handed on a wrong one.
+        let matchedChecked: CheckedEnvelope<unknown> | null = null;
         const opens = (other: Uint8Array) => {
           const tried = this.checkMessage(message, other);
-          return tried.state === "signed" && this.couldBeSent(message, tried.signer);
+          if (tried.state === "signed" && this.couldBeSent(message, tried.signer)) {
+            matchedChecked = tried;
+            return true;
+          }
+          return false;
         };
         const other = this.keyThatOpens(message.group_id, message.epoch, opens);
-        if (other) {
+        if (other && matchedChecked) {
           key = other;
-          checked = this.checkMessage(message, other);
+          checked = matchedChecked;
         }
       }
       if (!checked || (checked.state === "closed" && this.keyUnproven(message.group_id, message.epoch))) {
@@ -445,11 +456,14 @@ export abstract class SessionIngest extends SessionChanges {
       // Read once, for its row ID here and for the event after.
       row = this.messageRow(message.group_id, message.id)!;
       const rowId = row.row_id;
-      this.db.run("DELETE FROM search WHERE rowid = ?", [rowId]);
-      this.db.run("DELETE FROM media WHERE row_id = ?", [rowId]);
+      if (existing) {
+        this.db.run("DELETE FROM search WHERE rowid = ?", [rowId]);
+        this.db.run("DELETE FROM media WHERE row_id = ?", [rowId]);
+      }
       if (body) this.indexMessage(rowId, message.group_id, body);
       this.db.run("UPDATE groups SET last_activity_at = MAX(last_activity_at, ?) WHERE id = ?", [message.created_at, message.group_id]);
     });
+    this.groupSummaries.delete(message.group_id);
 
     const view = this.toMessageView(row, storedValue ? readStoredBody(row, storedValue) : undefined);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
@@ -514,7 +528,10 @@ export abstract class SessionIngest extends SessionChanges {
         Date.now(),
       ]);
     });
-    if (existing) this.emit({ type: "message_removed", serverId: this.serverId, groupId: message.group_id, id: message.id });
+    if (existing) {
+      this.groupSummaries.delete(message.group_id);
+      this.emit({ type: "message_removed", serverId: this.serverId, groupId: message.group_id, id: message.id });
+    }
     if (unknown) this.learnDevice(message.group_id, unknown);
   }
 
@@ -539,18 +556,21 @@ export abstract class SessionIngest extends SessionChanges {
   /** Takes in again what was held back for naming a device this one didn't know, now that it does. */
   protected retryWithheld(groupId: string): void {
     const rows = this.db.all<{ id: string; data: Uint8Array }>("SELECT id, data FROM withheld WHERE group_id = ? AND held = 1", [groupId]);
-    for (const row of rows) {
-      let withheld: Withheld;
-      try {
-        withheld = this.openJson<Withheld>("withheld", `${groupId}/${row.id}`, row.data);
-      } catch {
+    if (rows.length === 0) return;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        let withheld: Withheld;
+        try {
+          withheld = this.openJson<Withheld>("withheld", `${groupId}/${row.id}`, row.data);
+        } catch {
+          this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [groupId, row.id]);
+          continue;
+        }
+        if (!withheld.signer || !this.deviceKey(withheld.signer)) continue;
         this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [groupId, row.id]);
-        continue;
+        this.ingest(withheld.message, false);
       }
-      if (!withheld.signer || !this.deviceKey(withheld.signer)) continue;
-      this.db.run("DELETE FROM withheld WHERE group_id = ? AND id = ?", [groupId, row.id]);
-      this.ingest(withheld.message, false);
-    }
+    });
   }
 
   /**
@@ -718,6 +738,7 @@ export abstract class SessionIngest extends SessionChanges {
   protected forgetUnprovenDeletions(): void {
     this.db.run("UPDATE messages SET body = NULL, raw = NULL, unproven_delete_at = NULL WHERE unproven_delete_at < ?", [Date.now() - REMOVED_KEPT_MS]);
     this.db.run("DELETE FROM withheld WHERE held = 0 AND at < ?", [Date.now() - REMOVED_KEPT_MS]);
+    this.groupSummaries.clear();
   }
 
   // --- Disappearing messages ---
@@ -749,7 +770,10 @@ export abstract class SessionIngest extends SessionChanges {
       }
       this.db.run("INSERT OR IGNORE INTO expired(group_id, id, at) VALUES(?, ?, ?)", [groupId, id, Date.now()]);
     });
-    if (row) this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
+    if (row) {
+      this.groupSummaries.delete(groupId);
+      this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
+    }
   }
 
   /** Erases the disappearing messages that are due, and waits for the next. */
@@ -792,26 +816,30 @@ export abstract class SessionIngest extends SessionChanges {
 
   protected retryUndecryptable(groupId: string): void {
     const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND status IN ('undecryptable','unverified')", [groupId]);
-    for (const row of rows) {
-      if (!row.raw) continue;
-      // Without its epoch's key, or the device of whoever signed it, it can only fail again.
-      if (!this.epochKey(groupId, row.epoch) || (row.sender_user && !this.deviceKey({ userId: row.sender_user, deviceId: row.sender_device }))) continue;
-      this.ingest(
-        {
-          group_id: row.group_id,
-          id: row.id,
-          seq: row.seq ?? 0,
-          updated_seq: row.updated_seq,
-          epoch: row.epoch,
-          envelope: toBase64(row.raw),
-          created_at: row.created_at,
-          edited_at: row.edited_at,
-          deleted_at: row.deleted_at,
-          pinned_at: row.pinned_at,
-          reactions: this.rawReactionsOf(row),
-        },
-        false,
-      );
+    if (rows.length > 0) {
+      this.db.transaction(() => {
+        for (const row of rows) {
+          if (!row.raw) continue;
+          // Without its epoch's key, or the device of whoever signed it, it can only fail again.
+          if (!this.epochKey(groupId, row.epoch) || (row.sender_user && !this.deviceKey({ userId: row.sender_user, deviceId: row.sender_device }))) continue;
+          this.ingest(
+            {
+              group_id: row.group_id,
+              id: row.id,
+              seq: row.seq ?? 0,
+              updated_seq: row.updated_seq,
+              epoch: row.epoch,
+              envelope: toBase64(row.raw),
+              created_at: row.created_at,
+              edited_at: row.edited_at,
+              deleted_at: row.deleted_at,
+              pinned_at: row.pinned_at,
+              reactions: this.rawReactionsOf(row),
+            },
+            false,
+          );
+        }
+      });
     }
     this.retryWithheld(groupId);
     this.retryWaitingReactions(groupId);
@@ -842,6 +870,7 @@ export abstract class SessionIngest extends SessionChanges {
       `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, created_at, status, body) VALUES(?,?,?,?,?,?,?,?)`,
       [groupId, id, seq ?? this.latestSeq(groupId), seq ?? 0, actor, createdAt, "sent", this.sealJson("message", `${groupId}/${id}`, { system })],
     );
+    this.groupSummaries.delete(groupId);
     this.emit({
       type: "message",
       serverId: this.serverId,
