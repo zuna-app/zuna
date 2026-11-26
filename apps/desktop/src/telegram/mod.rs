@@ -239,22 +239,28 @@ struct AuthStateEnvelope<'a> {
     kind: Option<Cow<'a, str>>,
 }
 
+/// What the broker reads of all the engine says, held to the fields whose shape is the same in
+/// every object: TDLib's own use `id` and `message` for numbers, text and objects alike, and an
+/// envelope that names them would drop every update of another shape, such as a sent message's.
 #[derive(Deserialize)]
 struct HeardEnvelope<'a> {
     #[serde(borrow)]
     zuna: Option<Cow<'a, str>>,
-    id: Option<u64>,
-    #[serde(borrow)]
-    host: Option<Cow<'a, str>>,
-    port: Option<u64>,
     #[serde(rename = "@extra", borrow)]
     extra: Option<Cow<'a, str>>,
     #[serde(rename = "@type", borrow)]
     kind: Option<Cow<'a, str>>,
     #[serde(borrow)]
-    message: Option<Cow<'a, str>>,
-    #[serde(borrow)]
     authorization_state: Option<AuthStateEnvelope<'a>>,
+}
+
+/// The rest of the door's own messages, read only from one that has `zuna`.
+#[derive(Deserialize)]
+struct DoorEnvelope<'a> {
+    id: Option<u64>,
+    #[serde(borrow)]
+    host: Option<Cow<'a, str>>,
+    port: Option<u64>,
 }
 
 impl Engine {
@@ -481,7 +487,7 @@ impl Engine {
                     if !self.current(generation) {
                         // A run being stopped: its door still works, so it can sign out.
                         if let Ok(env) = serde_json::from_str::<HeardEnvelope>(&json) {
-                            self.door_message_env(&door, &env);
+                            self.door_message_env(&door, &env, &json);
                         }
                         continue;
                     }
@@ -501,13 +507,14 @@ impl Engine {
     }
 
     /// Answers the door's messages from a borrowed envelope, and says whether it was one.
-    fn door_message_env(&self, door: &Door, env: &HeardEnvelope<'_>) -> bool {
+    fn door_message_env(&self, door: &Door, env: &HeardEnvelope<'_>, json: &str) -> bool {
         let Some(kind) = env.zuna.as_deref() else { return false };
-        let id = env.id.and_then(|id| u32::try_from(id).ok());
+        let Ok(said) = serde_json::from_str::<DoorEnvelope>(json) else { return true };
+        let id = said.id.and_then(|id| u32::try_from(id).ok());
         match (kind, id) {
             ("open", Some(id)) => {
-                let host = env.host.as_deref().unwrap_or("");
-                let port = env.port.and_then(|port| u16::try_from(port).ok()).unwrap_or(0);
+                let host = said.host.as_deref().unwrap_or("");
+                let port = said.port.and_then(|port| u16::try_from(port).ok()).unwrap_or(0);
                 door.open(id, host, port);
             }
             ("closed", Some(id)) => door.closed(id),
@@ -519,7 +526,7 @@ impl Engine {
     fn heard(&self, door: &Door, json: String) {
         if !json.contains("\"localFile\"") {
             let Ok(env) = serde_json::from_str::<HeardEnvelope>(&json) else { return };
-            if self.door_message_env(door, &env) {
+            if self.door_message_env(door, &env, &json) {
                 return;
             }
             match env.extra.as_deref() {
@@ -529,7 +536,9 @@ impl Engine {
                 }
                 Some(extra) if extra.starts_with("zuna:") => {
                     if env.kind.as_deref() == Some("error") {
-                        log::warn!(target: "telegram", "the engine refused {extra}: {}", env.message.as_deref().unwrap_or(""));
+                        let said = serde_json::from_str::<Value>(&json).ok();
+                        let message = said.as_ref().and_then(|value| value.get("message")).and_then(Value::as_str).unwrap_or("");
+                        log::warn!(target: "telegram", "the engine refused {extra}: {message}");
                     }
                     return;
                 }
@@ -881,6 +890,35 @@ mod tests {
         assert_eq!(wait_for(&heard, "the refusal", |value| value["@extra"] == "3")["code"], 503);
         *TEST_ENGINE.lock() = None;
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// TDLib names an object's `message`, a chat's negative `id` and an int64 `id` as text the
+    /// same way it names a door's fields, and every one of them still reaches the core.
+    #[test]
+    fn whatever_shape_tdlib_answers_in_reaches_the_core() {
+        let heard = Arc::new(Mutex::new(Vec::<String>::new()));
+        let keep = heard.clone();
+        let engine = Engine::new(std::env::temp_dir(), vec![0; 32], Arc::new(move |json| keep.lock().push(json)));
+        let door = Door::new(OutPipe::new());
+        let message = r#"{"@type":"message","id":1048576,"chat_id":-1001234567890,"is_outgoing":true,"content":{"@type":"messageText","text":{"@type":"formattedText","text":"a \"quoted\" word","entities":[]}}}"#;
+        let shapes = [
+            format!(r#"{{"@type":"updateNewMessage","message":{message}}}"#),
+            format!(r#"{{"@type":"updateMessageSendSucceeded","message":{message},"old_message_id":1}}"#),
+            format!(r#"{{"@type":"updateMessageSendFailed","message":{message},"old_message_id":1,"error":{{"@type":"error","code":400,"message":"Bad"}}}}"#),
+            format!(r#"{{"@type":"message","id":1048576,"chat_id":-1001234567890,"@extra":"c1","content":{{"@type":"messageText"}}}}"#),
+            r#"{"@type":"chat","id":-1001234567890,"title":"x","@extra":"c2"}"#.to_string(),
+            r#"{"@type":"stickerSet","id":"1234567890123456789","@extra":"c3"}"#.to_string(),
+            r#"{"@type":"error","code":400,"message":"Bad request","@extra":"c4"}"#.to_string(),
+            r#"{"@type":"updateAuthorizationState","authorization_state":{"@type":"authorizationStateReady"}}"#.to_string(),
+        ];
+        for json in &shapes {
+            engine.heard(&door, json.clone());
+        }
+        assert_eq!(*heard.lock(), shapes.to_vec());
+        // The door's own, and the broker's, go to nobody.
+        engine.heard(&door, r#"{"zuna":"closed","id":1}"#.to_string());
+        engine.heard(&door, r#"{"@type":"error","code":400,"message":"Bad","@extra":"zuna:logout"}"#.to_string());
+        assert_eq!(heard.lock().len(), shapes.len());
     }
 
     #[test]

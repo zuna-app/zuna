@@ -40,6 +40,12 @@ struct Incoming<'a> {
     extra: Option<Value>,
     #[serde(borrow)]
     zuna: Option<Cow<'a, str>>,
+}
+
+/// The stream an answer of the app's door is about, read only from one that has `zuna`: a
+/// request's own `id`, of whatever shape TDLib gives it, mustn't keep the request from TDLib.
+#[derive(Deserialize)]
+struct DoorAnswer {
     id: Option<u32>,
 }
 
@@ -201,10 +207,12 @@ fn main() {
                     }
                     continue;
                 }
-                match (incoming.zuna.as_deref(), incoming.id) {
-                    (Some("opened"), Some(id)) => door.answered(id, true),
-                    (Some("refused"), Some(id)) => door.answered(id, false),
-                    (Some("closed"), Some(id)) => door.closed(id),
+                let Some(said) = incoming.zuna.as_deref() else { continue };
+                let id = serde_json::from_str::<DoorAnswer>(&json).ok().and_then(|answer| answer.id);
+                match (said, id) {
+                    ("opened", Some(id)) => door.answered(id, true),
+                    ("refused", Some(id)) => door.answered(id, false),
+                    ("closed", Some(id)) => door.closed(id),
                     _ => {}
                 }
             }
