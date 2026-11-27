@@ -89,7 +89,7 @@ If servers ever outgrow this, the log is the right base for the proofs the other
 
 ### 5.2 Entries
 
-Every change to an account's keys or devices appends one entry, inside the transaction that makes the change. A change that isn't in the log didn't happen, as far as devices are concerned.
+Every change to an account's keys or devices appends one entry, inside the transaction that makes the change. A change that isn't in the log didn't happen, as far as devices are concerned. Each of those transactions goes through `logTx`, which on PostgreSQL lets one at a time append and takes the log as its first statement (`claimLog`), and `appendLog` writes the log's state before its entry, so two at once never take the same place: the second starts again from the log the first left.
 
 | Kind | Says | Written by |
 |---|---|---|
