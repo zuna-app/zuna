@@ -267,6 +267,12 @@ type ExportLink struct {
 }
 
 // Export reads everything kept about one account, in one read-only snapshot.
+// exportEventsQuery counts the changes someone made in each conversation, and those made to
+// them, through the indexes of who made and who was the target of each.
+const exportEventsQuery = `SELECT group_id, SUM(CASE WHEN sender_user = ? THEN 1 ELSE 0 END), MAX(CASE WHEN sender_user = ? THEN created_at END),
+		SUM(CASE WHEN target_user = ? THEN 1 ELSE 0 END), MAX(CASE WHEN target_user = ? THEN created_at END)
+		FROM group_events WHERE sender_user = ? OR target_user = ? GROUP BY group_id`
+
 func (d *DB) Export(ctx context.Context, userID string) (*Export, error) {
 	options := &sql.TxOptions{ReadOnly: true}
 	if d.postgres {
@@ -483,11 +489,8 @@ func (r exportReader) conversations(out *Export) error {
 	if err := collect(`SELECT id FROM groups WHERE dm_key LIKE ? OR dm_key LIKE ?`, r.user+":%", "%:"+r.user); err != nil {
 		return err
 	}
-	// One pass over the changes kept, which nothing indexes by who made them.
 	byYou, toYou := map[string]ExportEvents{}, map[string]ExportEvents{}
-	if err := r.each(`SELECT group_id, SUM(CASE WHEN sender_user = ? THEN 1 ELSE 0 END), MAX(CASE WHEN sender_user = ? THEN created_at END),
-		SUM(CASE WHEN target_user = ? THEN 1 ELSE 0 END), MAX(CASE WHEN target_user = ? THEN created_at END)
-		FROM group_events WHERE sender_user = ? OR target_user = ? GROUP BY group_id`, []any{r.user, r.user, r.user, r.user, r.user, r.user}, func(rows *sql.Rows) error {
+	if err := r.each(exportEventsQuery, []any{r.user, r.user, r.user, r.user, r.user, r.user}, func(rows *sql.Rows) error {
 		var id string
 		var by, to ExportEvents
 		var byLast, toLast sql.NullInt64

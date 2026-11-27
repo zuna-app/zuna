@@ -581,6 +581,8 @@ func TestQueriesThatFindFewRowsUseTheirIndexes(t *testing.T) {
 		{"disappearing messages", expiryBatch(), "messages_expires", []any{Now()}},
 		{"pins", pinsQuery, "messages_pinned", []any{"g", 0}},
 		{"pruning commits", `SELECT 1 FROM group_events WHERE ` + prunableCommits, "group_events_commits", []any{Now(), 256}},
+		{"an export's changes by someone", exportEventsQuery, "group_events_sender", []any{"u", "u", "u", "u", "u", "u"}},
+		{"an export's changes to someone", exportEventsQuery, "group_events_target", []any{"u", "u", "u", "u", "u", "u"}},
 	} {
 		rows, err := db.conn.QueryContext(ctx, `EXPLAIN QUERY PLAN `+c.query, c.args...)
 		if err != nil {

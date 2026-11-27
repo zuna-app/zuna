@@ -624,4 +624,8 @@ CREATE INDEX IF NOT EXISTS key_packages_claim ON key_packages(device_id, last_re
 -- The furthest a group's epochs went, for when commits were undone back past it: its
 -- members still hold the keys of those epochs, and a grant of its history may carry them.
 ALTER TABLE groups ADD COLUMN top_epoch INTEGER NOT NULL DEFAULT 0;
+`, `
+-- An export counts the changes someone made in each conversation, and those made to them.
+CREATE INDEX IF NOT EXISTS group_events_sender ON group_events(sender_user);
+CREATE INDEX IF NOT EXISTS group_events_target ON group_events(target_user);
 `}
