@@ -423,6 +423,11 @@ fn a_plugin_reaches_the_core_only_as_the_table_allows(cx: &mut TestAppContext) {
     assert_eq!(app.calls_of("sendWithAttachments").last().unwrap(), &vec![json!("user:u-bob"), json!([]), json!({ "text": "files" })]);
     harness.ask(cx, "core.call", call("editMessage", Some(SERVER), json!([DM, "m01", "new", {}, [], "extra", "more"]))).ok();
     assert_eq!(app.calls_of("editMessage").last().unwrap().len(), 5);
+    // sendNow takes all sendMessage does and more, a link for the core to fetch among it, so it's no plugin's.
+    app.answer("sendNow", |_| Ok(Value::Null));
+    let refused = harness.ask(cx, "core.call", call("sendNow", Some(SERVER), json!(["user:u-bob", [], { "text": "https://example.com/", "signal": { "kind": "bot_settings" } }, { "previewUrl": "https://example.com/" }])));
+    assert!(refused.as_ref().is_err_and(|error| error.contains("No plugin may call sendNow")), "{refused:?}");
+    assert!(app.calls_of("sendNow").is_empty());
 
     // What comes back is made fit for it: no secrets, and no Telegram account among the servers.
     app.answer("getUsers", |_| Ok(json!([{ "id": BOB, "token": "t", "profile": { "secret": "s", "name": "Bob" } }])));

@@ -114,7 +114,7 @@ No permission reaches these, and no line of `surface.ts` may name one with anyth
   `clearVerification`, the log of keys.
 - Bots' setup and a server's administration.
 - Sound, video and screens themselves: a plugin can know who's talking, never hear it.
-- Any method that fetches a URL through the core.
+- Any method that fetches a URL through the core, as `sendNow` does with the link it's given.
 - The database, the cache folder, the disk, other programs.
 - Updates, the plugin manager, another plugin's data, the install dialogs.
 - Anything of a linked Telegram account: every `TelegramSession` method, and every event from it.

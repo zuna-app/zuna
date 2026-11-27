@@ -78,7 +78,9 @@ export const SESSION: Record<MethodName<ServerSession>, Rule> = {
 
   // Acting as the person.
   sendMessage: "messages.send",
-  sendNow: "messages.send",
+  // The share sheet's send, which takes a link for the core to preview, and whatever a message may
+  // carry, a signal and buttons among it, all of which the broker keeps from what a plugin sends.
+  sendNow: "never",
   editMessage: "messages.send",
   deleteMessage: "messages.send",
   deleteMessages: "messages.send",
