@@ -189,6 +189,10 @@ func (s *Server) handleSealedSend(w http.ResponseWriter, r *http.Request, q *sea
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That message is too long.")
 		return
 	}
+	if len(body.Files) > maxMessageFiles {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That's too large.")
+		return
+	}
 	for _, file := range body.Files {
 		if !store.ValidID(file.ID) || len(file.Secret) != store.ShareSecretLen {
 			writeError(w, http.StatusBadRequest, "bad_request", "An attachment isn't valid.")

@@ -342,3 +342,23 @@ func TestRetentionCantWrapAround(t *testing.T) {
 	}
 	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"retention_days": 36500}, nil)
 }
+
+// A message carries at most as many files as an app shows of one, so that a token's worth of
+// sending can't make the server look up and share thousands of files at once.
+func TestAMessageCarriesAtMost32Files(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	files := []map[string]any{}
+	for range 33 {
+		files = append(files, shareOf(owner.upload([]byte("photo"))))
+	}
+	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": files}); status != http.StatusRequestEntityTooLarge || resp["error"] != "too_large" {
+		t.Fatalf("33 files gave %d %v", status, resp)
+	}
+	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": files[:32]}); status != http.StatusCreated {
+		t.Fatalf("32 files gave %d %v", status, resp)
+	}
+}

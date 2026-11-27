@@ -452,6 +452,9 @@ const (
 	maxEnvelopeBytes = 256 << 10
 	// The longest a disappearing message may last, in seconds: a year.
 	maxExpiresIn = 366 * 24 * 60 * 60
+	// The most files one message may carry: as many as an app shows of one (MAX_ATTACHMENTS
+	// in packages/core/src/validate.ts). The apps attach at most 10 at once.
+	maxMessageFiles = 32
 	// A reaction, pin or deletion is a short envelope its device signed, with a hybrid
 	// signature of 2,485 bytes inside (docs/POST_QUANTUM.md). A reaction comes to under
 	// 3 KiB, which every member carries, so it's held closer than the rest.
