@@ -256,6 +256,29 @@ func TestRotationHasToFollowFromTheOneBefore(t *testing.T) {
 	}
 }
 
+// Z-25: a link names each device once, as every app holds it to.
+func TestRotationNamesEachDeviceOnce(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signUp("owner", h.invite)
+	body, next := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{})
+	link := body["link"].(map[string]any)
+	var payload map[string]any
+	if err := json.Unmarshal(link["payload"].([]byte), &payload); err != nil {
+		t.Fatal(err)
+	}
+	devices := payload["devices"].([]any)
+	payload["devices"] = append(devices, devices[0])
+	twice, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link["payload"], link["by_prev"], link["by_new"], link["by_device"] = twice, signed(owner.head, twice), signed(next, twice), signed(owner.device, twice)
+	if status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil); status != http.StatusBadRequest {
+		t.Fatalf("a link naming a device twice gave %d %v", status, resp)
+	}
+	owner.rotate()
+}
+
 func TestRotationAccountsForEveryDevice(t *testing.T) {
 	h := newHarness(t)
 	owner := h.signUp("owner", h.invite)

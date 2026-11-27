@@ -128,8 +128,15 @@ func checkLink(payload linkPayload, link store.IdentityLink, userID, deviceID st
 	if subtle.ConstantTimeCompare(payload.Prev, prev) != 1 {
 		return false
 	}
+	// Each device once, as every app holds a link to: one named twice would be taken here
+	// and refused by everyone else, which would leave the account's chain where nobody follows.
 	var signer []byte
+	named := map[string]bool{}
 	for _, device := range payload.Devices {
+		if named[device.ID] {
+			return false
+		}
+		named[device.ID] = true
 		if device.ID == deviceID {
 			signer = device.Key
 		}
