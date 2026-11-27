@@ -1523,8 +1523,10 @@ export class TelegramSession {
     const file = await this.engine.request({ "@type": "downloadFile", file_id: fileId, priority: 16, offset: 0, limit: 0, synchronous: true }).catch((error) => {
       throw explain(error);
     });
+    // Only a `localFile`'s path, which the broker held to the engine's folder: a path anywhere else
+    // in what the engine says was never looked at.
     const local = file.local as TdObject | undefined;
-    const path = str(local?.path, 4096);
+    const path = local?.["@type"] === "localFile" ? str(local.path, 4096) : "";
     if (local?.is_downloading_completed !== true || !path) throw new Error(t("telegram.telegramDidntSendThatFile"));
     return await this.adapter.file(path, typeof ref.mime === "string" ? ref.mime.slice(0, 128) : "application/octet-stream");
   }

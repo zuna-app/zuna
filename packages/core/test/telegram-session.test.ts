@@ -819,9 +819,14 @@ describe("sending, and what Telegram refuses", () => {
     expect(engine.requests("forwardMessages")[0]!.message_ids).toEqual([serverId(1)]);
     engine.refuse("sendMessage", "CHAT_WRITE_FORBIDDEN");
     await expect(session.sendSticker(`user:${GRACE}`, 801, "🐱", 512, 512)).rejects.toThrow("You can't send messages in this chat.");
-    engine.answer("downloadFile", { "@type": "file", id: 7, local: { path: "C:/x", is_downloading_completed: false } });
+    engine.answer("downloadFile", { "@type": "file", id: 7, local: { "@type": "localFile", path: "C:/x", is_downloading_completed: false } });
     await expect(session.downloadFile({ fileId: "tg:7" })).rejects.toThrow("Telegram didn't send that file.");
+    // A path in anything but a `localFile`, which the broker never looked at, is no file.
     engine.answer("downloadFile", { "@type": "file", id: 7, local: { path: "C:/x", is_downloading_completed: true } });
+    await expect(session.downloadFile({ fileId: "tg:7" })).rejects.toThrow("Telegram didn't send that file.");
+    engine.answer("downloadFile", { "@type": "file", id: 7, local: { "@type": "localFileX", path: "C:/x", is_downloading_completed: true } });
+    await expect(session.downloadFile({ fileId: "tg:7" })).rejects.toThrow("Telegram didn't send that file.");
+    engine.answer("downloadFile", { "@type": "file", id: 7, local: { "@type": "localFile", path: "C:/x", is_downloading_completed: true } });
     expect((await session.downloadFile({ fileId: "tg:7" })).type).toBe("application/octet-stream");
     // A number from before the engine started again, which is another file's now: never that file in its place.
     engine.answer("getFile", { "@type": "file", id: 7, remote: { unique_id: "AQADother" } });
