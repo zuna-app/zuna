@@ -30,6 +30,12 @@ const (
 	// A device that lost its connection to this server may still be in the room, and
 	// usually comes straight back, so it isn't taken out of the channel straight away.
 	voiceSocketGrace = 20 * time.Second
+	// roomPassLife is how long a device is taken to be possibly in a room after the last sign
+	// of it there that this server sees: a token given, a connection through /livekit/ coming in
+	// or closing, or LiveKit's word that it came in. A device that came in stays as long as its
+	// connection does, which only a connection through /livekit/ shows, so it's far longer than
+	// a token lasts.
+	roomPassLife = time.Hour
 )
 
 // sourceNames is what a token calls something to publish, as LiveKit's API names it.
@@ -94,10 +100,73 @@ type voiceRooms struct {
 	// The calls going on, by conversation, and how many rings there have been.
 	calls map[string]*callState
 	rings uint64
+	// The rooms each device was let into lately, whether or not it said it's there, so that
+	// it's taken out of them when it may no longer be in them, as a device that never says so
+	// has no state.
+	passes map[roomPassKey]*roomPass
+}
+
+type roomPassKey struct{ deviceID, room string }
+
+// roomPass is a device's way into a room: whose it is, until when it's kept, and how many
+// connections it has open through /livekit/, which keep it as long as they last.
+type roomPass struct {
+	userID string
+	until  time.Time
+	open   int
 }
 
 func newVoiceRooms() *voiceRooms {
-	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, shares: map[string]*screenShare{}, timers: map[string]*time.Timer{}, calls: map[string]*callState{}}
+	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, shares: map[string]*screenShare{}, timers: map[string]*time.Timer{}, calls: map[string]*callState{}, passes: map[roomPassKey]*roomPass{}}
+}
+
+// pass notes that a device may be in a room now, and forgets the passes that have run out,
+// which keeps the record to the rooms devices were let into within roomPassLife.
+func (v *voiceRooms) pass(userID, deviceID, room string) *roomPass {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	now := time.Now()
+	for key, pass := range v.passes {
+		if pass.open == 0 && now.After(pass.until) {
+			delete(v.passes, key)
+		}
+	}
+	key := roomPassKey{deviceID, room}
+	pass := v.passes[key]
+	if pass == nil || pass.userID != userID {
+		pass = &roomPass{userID: userID}
+		v.passes[key] = pass
+	}
+	pass.until = now.Add(roomPassLife)
+	return pass
+}
+
+// connected notes a connection into a room through /livekit/, and gives what to call as it closes.
+func (v *voiceRooms) connected(userID, deviceID, room string) func() {
+	pass := v.pass(userID, deviceID, room)
+	v.mu.Lock()
+	pass.open++
+	v.mu.Unlock()
+	return func() {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		pass.open--
+		pass.until = time.Now().Add(roomPassLife)
+	}
+}
+
+// takePasses forgets the passes the match picks, and says whose they were, and for which room.
+func (v *voiceRooms) takePasses(match func(userID, deviceID, room string) bool) []VoiceState {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	var taken []VoiceState
+	for key, pass := range v.passes {
+		if match(pass.userID, key.deviceID, key.room) {
+			taken = append(taken, VoiceState{ChannelID: key.room, UserID: pass.userID, DeviceID: key.deviceID})
+			delete(v.passes, key)
+		}
+	}
+	return taken
 }
 
 // inChannels is who's in the voice channels, which everyone may know. Calls are left out.
@@ -232,7 +301,7 @@ func (s *Server) liveKitProxy() http.Handler {
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, admitted, err := s.mayEnter(r)
+		token, claims, admitted, err := s.mayEnter(r)
 		if err != nil {
 			writeFailure(w, err)
 			return
@@ -240,6 +309,9 @@ func (s *Server) liveKitProxy() http.Handler {
 			writeFailure(w, store.ErrForbidden)
 			return
 		}
+		// A connection here is the device in the room, for as long as it lasts.
+		userID, deviceID, _ := strings.Cut(claims.Subject, ".")
+		defer s.voice.connected(userID, deviceID, claims.Video.Room)()
 		r = r.WithContext(context.WithValue(r.Context(), enteringWith{}, token))
 		// A socket here lasts as long as the call, far longer than a request's body may take.
 		controller := http.NewResponseController(w)
@@ -383,6 +455,7 @@ func (s *Server) handleVoiceToken(call bool) memberHandler {
 			writeFailure(w, err)
 			return
 		}
+		s.voice.pass(sess.UserID, sess.DeviceID, room.ID)
 		writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "server_muted": !room.Call && s.voice.isMuted(sess.UserID)})
 	}
 }
@@ -503,6 +576,21 @@ func (s *Server) leaveVoice(userID, deviceID string, quiet bool) {
 	}
 }
 
+// deviceGone takes a device that's revoked out of voice, and out of every room it was let
+// into, whether or not it said it's there.
+func (s *Server) deviceGone(ctx context.Context, userID, deviceID string) {
+	s.leaveVoice(userID, deviceID, true)
+	s.removePasses(ctx, func(user, device, _ string) bool { return user == userID && device == deviceID })
+}
+
+// removePasses takes the devices whose passes the match picks out of those rooms on the media
+// server, where they may be without having said so.
+func (s *Server) removePasses(ctx context.Context, match func(userID, deviceID, room string) bool) {
+	for _, state := range s.voice.takePasses(match) {
+		s.removeFromRoom(ctx, &state)
+	}
+}
+
 // voiceSocketClosed gives a device a moment to come back and say it's still there,
 // which stops the clock. One that comes back without saying so, such as an app that
 // restarted, has left. A new socket that got in before this one closed has already said.
@@ -539,11 +627,17 @@ func (s *Server) endVoiceFor(ctx context.Context, userID, reason string, calls b
 	for _, id := range ended {
 		s.tellCall(id, nil)
 	}
+	// Leaving the server, they may be in no room at all.
+	if calls {
+		s.removePasses(ctx, func(user, _, _ string) bool { return user == userID })
+	}
 }
 
 // endVoiceIn empties a room, when its channel or conversation is going.
 func (s *Server) endVoiceIn(ctx context.Context, roomID string) {
 	gone, _ := s.voice.takeOut(func(state *VoiceState) bool { return state.ChannelID == roomID })
+	// Deleting the room takes out everyone in it.
+	s.voice.takePasses(func(_, _, room string) bool { return room == roomID })
 	s.voice.mu.Lock()
 	if call := s.voice.calls[roomID]; call != nil {
 		for user := range call.ringing {
@@ -619,8 +713,12 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 	writeOK(w)
 }
 
-// removeFromRoom takes a device, and with it anything it shares, out of a room.
+// removeFromRoom takes a device, and with it anything it shares, out of a room, and forgets
+// its pass there.
 func (s *Server) removeFromRoom(ctx context.Context, state *VoiceState) {
+	s.voice.takePasses(func(user, device, room string) bool {
+		return user == state.UserID && device == state.DeviceID && room == state.ChannelID
+	})
 	if !s.liveKitConfigured() {
 		return
 	}

@@ -293,7 +293,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 	}
 	for _, id := range payload.Removed {
 		s.hub.ToUsers([]string{sess.UserID}, Event{Type: "device_revoked", Data: map[string]string{"device_id": id}})
-		s.leaveVoice(sess.UserID, id, true)
+		s.deviceGone(r.Context(), sess.UserID, id)
 		s.hub.Disconnect(sess.UserID, id)
 	}
 	s.notified.forget(payload.Removed...)

@@ -22,7 +22,8 @@ import (
 // token outlives what let someone have it: this server's last voiceTokenTTL, and those
 // LiveKit hands a participant to come back with, ten minutes. So taking someone off a
 // conversation's roster, banning them, or revoking a device, takes it out of the room, and
-// whatever it comes back in with is turned away here.
+// whatever it comes back in with is turned away here. A device is taken out of the rooms it
+// said it's in, and of those it was let into lately without saying so (voiceRooms.passes).
 //
 // Where apps reach LiveKit through this server, at /livekit/, a request that isn't let in
 // never gets there. Where they reach it at its own address, LiveKit says who came in, with
@@ -126,17 +127,17 @@ func liveKitTokenOf(r *http.Request) (string, bool) {
 
 // mayEnter says whether a request on its way to the media server through /livekit/ is let
 // through, and with which token: only one to join a room, for a device the room is for now.
-func (s *Server) mayEnter(r *http.Request) (string, bool, error) {
+func (s *Server) mayEnter(r *http.Request) (string, *liveKitClaims, bool, error) {
 	token, ok := liveKitTokenOf(r)
 	if !ok {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	claims, err := s.readLiveKitToken(token)
 	if err != nil || !claims.Video.RoomJoin {
-		return "", false, nil
+		return "", nil, false, nil
 	}
 	admitted, err := s.admitted(r.Context(), claims.Subject, claims.Video.Room)
-	return token, admitted, err
+	return token, claims, admitted, err
 }
 
 // enteringWith is the context's key for the token a request came through the door with.
@@ -195,6 +196,10 @@ func (s *Server) handleLiveKitEvent(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeFailure(w, err)
 			return
+		}
+		if admitted {
+			userID, deviceID, _ := strings.Cut(identity, ".")
+			s.voice.pass(userID, deviceID, room)
 		}
 		// LiveKit sends it again if this fails.
 		if !admitted {

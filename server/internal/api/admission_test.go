@@ -392,13 +392,17 @@ func TestARoomTakesBackOutWhoeverItIsntForAtItsOwnAddress(t *testing.T) {
 		t.Fatalf("taken out: %v", out)
 	}
 
-	// No longer an admin, alice comes back with the token she was given before, or with one
-	// LiveKit gave her, and is taken straight back out.
+	// No longer an admin, alice is taken out of the room she came into, though she never said
+	// so on her socket, and comes back with the token she was given before, or with one LiveKit
+	// gave her, and is taken straight back out.
 	h.mustDo("PUT", "/api/admin/users/"+alice.userID+"/role", owner.token, map[string]any{"role": "member"}, nil)
+	if media.takenOut(hidden.ID, alice.identity()) != 1 {
+		t.Fatalf("alice wasn't taken out as she stopped being an admin: %v", media.out())
+	}
 	if status := h.fromLiveKit(roomSecret, joined(hidden.ID, alice.identity())); status != http.StatusOK {
 		t.Fatalf("alice coming back: %d", status)
 	}
-	if media.takenOut(hidden.ID, alice.identity()) != 1 {
+	if media.takenOut(hidden.ID, alice.identity()) != 2 {
 		t.Fatalf("alice wasn't taken out: %v", media.out())
 	}
 	// As is anyone the server never let in, under any name.
@@ -467,6 +471,103 @@ func TestADeviceThatGoesIsTakenOutOfItsRoomAtOnce(t *testing.T) {
 		h.mustDo("GET", "/api/channels", owner.token, nil, &listed)
 		if len(listed.Voice) != 0 {
 			t.Fatalf("a device %s is still in the channel: %v", way, listed.Voice)
+		}
+	}
+}
+
+// A device that took a token for a room and went in without ever saying so on its socket has no
+// state there, and is still taken out of the room when it may no longer be in it: revoked,
+// signed out or rotated out, banned, its account deleted, or taken off the conversation,
+// leaving it. Only out of the rooms it may no longer be in.
+func TestADeviceThatNeverSaidItWasInARoomIsStillTakenOut(t *testing.T) {
+	media, url := newFakeMediaServer(t)
+	h := newHarness(t, withLiveKit("ws"+strings.TrimPrefix(url, "http")))
+	owner := h.signUp("owner", h.invite)
+	voice := owner.createChannel("voice", 0)
+	channel := "/api/channels/" + voice.ID + "/voice"
+
+	for _, way := range []string{"revoked", "signed out", "rotated out"} {
+		phone := owner.anotherDevice()
+		phone.roomToken(channel)
+		switch way {
+		case "revoked":
+			h.mustDo("DELETE", "/api/devices/"+phone.device, owner.token, nil, nil)
+		case "signed out":
+			h.mustDo("POST", "/api/auth/logout", phone.token, map[string]any{}, nil)
+		case "rotated out":
+			body, next := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{phone.device})
+			h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
+			owner.accepted(body, next)
+		}
+		if media.takenOut(voice.ID, phone.identity()) != 1 {
+			t.Fatalf("a device %s wasn't taken out of the room: %v", way, media.out())
+		}
+	}
+
+	// Banned, or with their account deleted, someone is taken out of every room they were let
+	// into: a voice channel's and a call's.
+	for _, way := range []string{"banned", "deleted"} {
+		name := map[string]string{"banned": "bob", "deleted": "dan"}[way]
+		someone := h.register(name, owner.newInvite())
+		someone.joinChannel(voice.ID, false)
+		group := owner.group(someone)
+		someone.roomToken(channel)
+		someone.roomToken("/api/groups/" + group.ID + "/call")
+		if way == "banned" {
+			h.mustDo("POST", "/api/admin/users/"+someone.userID+"/ban", owner.token, nil, nil)
+		} else {
+			h.mustDo("DELETE", "/api/account", someone.token, map[string]any{"auth_key": bytesOf(32, name[0])}, nil)
+		}
+		if media.takenOut(voice.ID, someone.identity()) != 1 || media.takenOut(group.ID, someone.identity()) != 1 {
+			t.Fatalf("someone %s wasn't taken out of both rooms: %v", way, media.out())
+		}
+	}
+
+	// Taken off a conversation, or leaving it, someone is taken out of its call's room, and of
+	// no other.
+	carol := h.register("carol", owner.newInvite())
+	carol.joinChannel(voice.ID, false)
+	carol.roomToken(channel)
+	removed := owner.group(carol)
+	carol.roomToken("/api/groups/" + removed.ID + "/call")
+	if status, resp := owner.commit(removed.ID, 1, map[string]any{"remove_users": []string{carol.userID}}); status != http.StatusOK {
+		t.Fatalf("removing carol: %d %v", status, resp)
+	}
+	if media.takenOut(removed.ID, carol.identity()) != 1 {
+		t.Fatalf("carol, taken off the group, wasn't taken out of its call: %v", media.out())
+	}
+	left := owner.group(carol)
+	carol.roomToken("/api/groups/" + left.ID + "/call")
+	h.mustDo("POST", "/api/groups/"+left.ID+"/leave", carol.token, map[string]any{}, nil)
+	if media.takenOut(left.ID, carol.identity()) != 1 {
+		t.Fatalf("carol, leaving a group, wasn't taken out of its call: %v", media.out())
+	}
+	if media.takenOut(voice.ID, carol.identity()) != 0 {
+		t.Fatalf("carol was taken out of a channel she's still in: %v", media.out())
+	}
+}
+
+// A device that came in through this server's door, or that LiveKit said came in, with no
+// token from this run of the server, is taken out too.
+func TestADeviceSeenComingInIsTakenOutWithoutAToken(t *testing.T) {
+	media, url := newFakeMediaServer(t)
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.LiveKitInternalURL, cfg.LiveKitKey, cfg.LiveKitSecret = url, "key", roomSecret
+	})
+	owner := h.owner()
+	voice := owner.createChannel("voice", 0)
+	through := owner.anotherDevice()
+	if status := h.enter("/rtc", comeBackWith(roomSecret, through.identity(), voice.ID)); status != http.StatusOK {
+		t.Fatalf("coming in through the door got %d", status)
+	}
+	webhook := owner.anotherDevice()
+	if status := h.fromLiveKit(roomSecret, joined(voice.ID, webhook.identity())); status != http.StatusOK {
+		t.Fatalf("webhook: %d", status)
+	}
+	for _, device := range []*client{through, webhook} {
+		h.mustDo("DELETE", "/api/devices/"+device.device, owner.token, nil, nil)
+		if media.takenOut(voice.ID, device.identity()) != 1 {
+			t.Fatalf("a device seen coming in wasn't taken out: %v", media.out())
 		}
 	}
 }

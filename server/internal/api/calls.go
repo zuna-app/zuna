@@ -340,6 +340,8 @@ func (s *Server) endVoiceOf(ctx context.Context, groupID string, users []string)
 	for _, id := range ended {
 		s.tellCall(id, nil)
 	}
+	// Off the roster, they may not be in its room, whether or not they said they were.
+	s.removePasses(ctx, func(user, _, room string) bool { return room == groupID && slices.Contains(users, user) })
 }
 
 // handleCalls lists the calls in this person's conversations, and who's in each.

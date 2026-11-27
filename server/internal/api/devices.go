@@ -62,7 +62,7 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request, sess
 	}
 	s.hub.ToUsers([]string{sess.UserID}, Event{Type: "device_revoked", Data: map[string]string{"device_id": deviceID}})
 	// Out of its room at once, rather than once its socket's moment to come back is up.
-	s.leaveVoice(sess.UserID, deviceID, true)
+	s.deviceGone(r.Context(), sess.UserID, deviceID)
 	s.hub.Disconnect(sess.UserID, deviceID)
 	s.notified.forget(deviceID)
 	s.broadcastUser(r, sess.UserID)
