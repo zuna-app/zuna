@@ -2,6 +2,7 @@ package hybrid
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
 )
 
 // The vectors the clients' Rust made (crypto/src/hybrid.rs), and the ones this package
@@ -140,5 +144,46 @@ func TestNeitherHalfHoldsOnItsOwn(t *testing.T) {
 	}
 	if _, err := NewKey(make([]byte, SeedSize)); err == nil {
 		t.Error("a bare seed made a key")
+	}
+}
+
+// Z-25: an Ed25519 key of small order, with a signature whose R is too, holds for any
+// message under RFC 8032's check. The clients' verify_strict refuses it, and so does this,
+// so that the server takes no link, head or proof that every app would then refuse.
+func TestAnEd25519HalfOfSmallOrderHoldsForNothing(t *testing.T) {
+	for _, kind := range []byte{Device, Lasting} {
+		for _, identity := range [][]byte{smallOrderPoints[1][:], append(append([]byte{0x01}, make([]byte, 30)...), 0x80)} {
+			key, _ := NewKey(NewSecret(kind))
+			public := key.Public()
+			copy(public[1:33], identity)
+			message := []byte("any message at all")
+			input := buildSignedInput(kind, sha256.Sum256(public), message)
+			signature := make([]byte, SignatureSize(kind))
+			signature[0] = kind
+			copy(signature[1:33], identity) // R, with s left at zero
+			var err error
+			if kind == Device {
+				err = mldsa44.SignTo(key.mldsa44, input, nil, true, signature[65:])
+			} else {
+				err = mldsa65.SignTo(key.mldsa65, input, nil, true, signature[65:])
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if Verify(public, message, signature) {
+				t.Errorf("kind %d: a key of small order (%x) holds", kind, identity)
+			}
+		}
+	}
+	for _, point := range smallOrderPoints {
+		signed := point
+		signed[31] |= 0x80
+		if !smallOrder(point[:]) || !smallOrder(signed[:]) {
+			t.Errorf("%x isn't taken for small order", point)
+		}
+	}
+	key, _ := NewKey(NewSecret(Device))
+	if smallOrder(key.Public()[1:33]) {
+		t.Error("an honest key is taken for one of small order")
 	}
 }
