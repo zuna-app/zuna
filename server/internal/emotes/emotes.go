@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -57,13 +58,36 @@ type Service struct {
 }
 
 func New(db *store.DB, dir string) *Service {
-	return &Service{
+	s := &Service{
 		db:      db,
 		dir:     dir,
-		client:  &http.Client{Timeout: 30 * time.Second},
 		APIBase: "https://7tv.io/v3",
 		CDNBase: "https://cdn.7tv.app",
 	}
+	s.client = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		if !s.mayFollow(req.URL) {
+			return fmt.Errorf("7TV redirected to %s, which isn't 7TV's", req.URL.Host)
+		}
+		return nil
+	}}
+	return s
+}
+
+// mayFollow says whether a redirect leads to one of 7TV's hosts, over HTTPS, or to where the
+// service was pointed, as tests point it at a fake: wherever else it leads, it isn't followed,
+// so that 7TV, or whoever answers for it, can't have this server fetch from anywhere else.
+func (s *Service) mayFollow(to *url.URL) bool {
+	for _, base := range []string{s.APIBase, s.CDNBase} {
+		if from, err := url.Parse(base); err == nil && from.Scheme == to.Scheme && from.Host == to.Host {
+			return true
+		}
+	}
+	host := strings.ToLower(to.Hostname())
+	sevenTV := host == "7tv.app" || host == "7tv.io" || strings.HasSuffix(host, ".7tv.app") || strings.HasSuffix(host, ".7tv.io")
+	return to.Scheme == "https" && (to.Port() == "" || to.Port() == "443") && sevenTV
 }
 
 // ParseSetID extracts a set ID from a 7TV link such as

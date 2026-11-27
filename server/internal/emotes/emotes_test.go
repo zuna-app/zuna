@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,4 +162,45 @@ func TestServeImage(t *testing.T) {
 	}
 	// The whole set, fetched ahead of time.
 	s.prefetch([]store.Emote{{ID: "01EMOTE0000000001"}})
+}
+
+// An image is fetched from 7TV's hosts alone: a redirect within them is followed, and one
+// anywhere else isn't, so a CDN that sends the server elsewhere can't have it fetch from there.
+func TestImagesComeOnlyFrom7TVsHosts(t *testing.T) {
+	_, db := service(t)
+	ctx := context.Background()
+	reached := 0
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached++
+		w.Write([]byte("an image"))
+	}))
+	t.Cleanup(elsewhere.Close)
+	var cdn *httptest.Server
+	cdn = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emote/01EMOTE0000000001/1x.webp":
+			http.Redirect(w, r, cdn.URL+"/moved/1x.webp", http.StatusFound)
+		case "/moved/1x.webp":
+			w.Write([]byte("an image"))
+		default:
+			http.Redirect(w, r, elsewhere.URL+"/anything", http.StatusFound)
+		}
+	}))
+	t.Cleanup(cdn.Close)
+	s := New(db, t.TempDir())
+	s.APIBase, s.CDNBase = cdn.URL, cdn.URL
+	if err := s.download(ctx, "01EMOTE0000000001", "1x.webp", filepath.Join(t.TempDir(), "kept")); err != nil {
+		t.Fatalf("a redirect within the CDN: %v", err)
+	}
+	if err := s.download(ctx, "01EMOTE0000000001", "2x.webp", filepath.Join(t.TempDir(), "kept")); err == nil || reached != 0 {
+		t.Fatalf("a redirect elsewhere was followed: %v, reached %d times", err, reached)
+	}
+	if _, _, _, err := s.Sync(ctx, "01GOODSET0000000000"); err == nil || reached != 0 {
+		t.Fatalf("the API's redirect elsewhere was followed: %v, reached %d times", err, reached)
+	}
+	for host, allowed := range map[string]bool{"cdn.7tv.app": true, "7tv.io": true, "files.7tv.app": true, "7tv.app.example.com": false, "example.com": false} {
+		if got := New(db, t.TempDir()).mayFollow(&url.URL{Scheme: "https", Host: host}); got != allowed {
+			t.Errorf("%s: %v", host, got)
+		}
+	}
 }
