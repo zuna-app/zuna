@@ -831,12 +831,13 @@ impl Plugins {
         self.fire(uid, "command", json!({ "id": command, "context": context }), cx);
     }
 
-    /// Where a command or button was used from, as the plugin may know it.
+    /// Where a command or button was used from, as the plugin may know it: never a chat of the
+    /// linked Telegram account's, which is told as no chat at all.
     pub fn context_for(&self, uid: &str, args: &str, cx: &App) -> Value {
         let conversation = if self.granted(uid, Permission::ConversationsRead) {
             crate::state::try_store(cx).and_then(|state| {
                 let state = state.read(cx);
-                let server = state.active()?;
+                let server = state.active().filter(|server| server.entry.id != crate::telegram::SERVER_ID && !server.entry.is_telegram())?;
                 let conversation = server.active_conversation()?;
                 Some(json!({ "serverId": server.entry.id, "key": conversation.key, "groupId": conversation.group_id, "name": conversation.title }))
             })
@@ -1242,7 +1243,8 @@ impl Plugins {
 
     /// What plugins did to a message's look here, asking for it the first time it's drawn.
     pub fn decorations_for(&self, server_id: &str, message: &crate::models::MessageView) -> Vec<Decoration> {
-        if message.system.is_some() || message.deleted_at.is_some() || message.sender_id.is_empty() || message.id.starts_with("sys-") {
+        // The linked Telegram account's messages are never handed a plugin to decorate.
+        if server_id == crate::telegram::SERVER_ID || message.system.is_some() || message.deleted_at.is_some() || message.sender_id.is_empty() || message.id.starts_with("sys-") {
             return Vec::new();
         }
         if !self.running.values().any(|running| running.ready && running.decorates) {

@@ -86,7 +86,12 @@ pub(crate) struct Harness {
 
 impl Harness {
     pub(crate) fn open(cx: &mut TestAppContext, id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Harness {
-        let app = App::open(cx, &World::new(id));
+        Harness::open_in(cx, &World::new(id), id, permissions, change)
+    }
+
+    /// The same, in front of a world of the test's own.
+    pub(crate) fn open_in(cx: &mut TestAppContext, world: &World, id: &str, permissions: &[&str], change: impl FnOnce(&mut Value)) -> Harness {
+        let app = App::open(cx, world);
         app.update(cx, |state, cx| state.select_server(SERVER, cx));
         let plugins = plugins_in(cx, &fresh(id), false);
         let dir = source(id, permissions, change);

@@ -731,6 +731,11 @@ impl Plugins {
             return None;
         }
         let Some(voice) = crate::voice::get(cx) else { return Some(Err("Voice isn't ready.".into())) };
+        // A call on the linked Telegram account is the device's one room while it lasts, and no
+        // plugin reaches it: it's left as it is, answered as anything else would be.
+        if voice.read(cx).server_id.as_deref() == Some(crate::telegram::SERVER_ID) {
+            return Some(Ok(Value::Null));
+        }
         match op {
             "voice.join" => {
                 let (server, channel) = (text(args, "serverId"), text(args, "channelId"));

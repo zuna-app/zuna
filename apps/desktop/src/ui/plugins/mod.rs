@@ -138,7 +138,8 @@ pub fn message_entries(server_id: &str, message: &MessageView, cx: &App) -> Vec<
 /// The actions plugins put on a message under the pointer.
 pub fn hover_actions(server_id: &str, message: &MessageView, cx: &mut App) -> Vec<AnyElement> {
     let slots = with_plugins(cx, |plugins| plugins.each_slot(|slots| &slots.message_actions)).unwrap_or_default();
-    if message.system.is_some() {
+    // No plugin acts on the linked Telegram account's messages, as in their menu.
+    if slots.is_empty() || message.system.is_some() || server_id == crate::telegram::SERVER_ID {
         return Vec::new();
     }
     let theme = theme(cx);
@@ -163,7 +164,8 @@ pub fn hover_actions(server_id: &str, message: &MessageView, cx: &mut App) -> Ve
 /// The entries plugins put in a chat's menu in the conversation list.
 pub fn conversation_entries(server_id: &str, conversation: &ConversationView, cx: &App) -> Vec<MenuEntry> {
     let slots = with_plugins(cx, |plugins| plugins.each_slot(|slots| &slots.conversation_actions)).unwrap_or_default();
-    if slots.is_empty() {
+    // Nor on its chats, which the conversation list doesn't offer it either.
+    if slots.is_empty() || server_id == crate::telegram::SERVER_ID {
         return Vec::new();
     }
     let mut entries = vec![MenuEntry::separator()];

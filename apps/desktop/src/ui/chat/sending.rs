@@ -277,8 +277,9 @@ impl ChatView {
                 let ids: Vec<&String> = if conversation.kind == "dm" { conversation.peer_id.iter().collect() } else { conversation.members.iter().map(|member| &member.user_id).collect() };
                 let bots: Vec<&UserView> = ids.into_iter().filter_map(|id| server.users.get(id)).filter(|user| user.bot.is_some() && !user.deleted && !user.banned).collect();
                 let several = bots.len() > 1;
-                // Then plugins' own, which run here rather than going to anyone.
-                let plugin_commands = crate::plugins::get(cx).map(|plugins| plugins.read(cx).slash_commands()).unwrap_or_default();
+                // Then plugins' own, which run here rather than going to anyone: never in a chat of
+                // the linked Telegram account's, where what's written goes to Telegram as it is.
+                let plugin_commands = if self.server_id == crate::telegram::SERVER_ID { Vec::new() } else { crate::plugins::get(cx).map(|plugins| plugins.read(cx).slash_commands()).unwrap_or_default() };
                 bots.iter()
                     .flat_map(|bot| bot.commands.iter().map(move |command| (*bot, command)))
                     .filter(|(_, command)| command.command.starts_with(query.as_str()))
@@ -503,8 +504,8 @@ impl ChatView {
             self.state.update(cx, |state, cx| state.toast(t("composer.tooLongFile"), ToastKind::Error, cx));
             return;
         }
-        // A plugin's slash command runs in place of sending.
-        if editing.is_none() && self.files.is_empty() {
+        // A plugin's slash command runs in place of sending, but for Telegram's, which no plugin reaches.
+        if editing.is_none() && self.files.is_empty() && self.server_id != crate::telegram::SERVER_ID {
             if let (Some(rest), Some(plugins)) = (value.strip_prefix('/'), crate::plugins::get(cx)) {
                 let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
                 if let Some((uid, command)) = plugins.read(cx).slash(name) {

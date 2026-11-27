@@ -106,7 +106,7 @@ struct LinkDraft {
 
 pub struct ChatView {
     state: Entity<AppState>,
-    server_id: String,
+    pub(crate) server_id: String,
     key: String,
     list: ListState,
     rows: Vec<(String, u64)>,

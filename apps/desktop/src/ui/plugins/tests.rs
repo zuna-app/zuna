@@ -245,3 +245,84 @@ fn what_plugins_put_in_the_app_is_drawn_where_they_put_it(cx: &mut TestAppContex
     assert!(app.read(cx, |state| state.panel.is_none() && state.plugin_page.is_none()));
     assert!(crate::ui::plugins::view::input_of(&uid, "0.6.3").is_none());
 }
+
+/// A world with a linked Telegram account, its one chat open.
+fn telegram_world() -> World {
+    use crate::telegram::SERVER_ID as TELEGRAM;
+    use crate::testing::fixtures::{NOW, message};
+    let mut world = World::new("plugins-telegram");
+    world.client["listServers"].as_array_mut().unwrap().push(json!({ "id": TELEGRAM, "kind": "telegram", "name": "Telegram", "username": "alice", "userId": "1" }));
+    world.telegram = world.server.clone();
+    world.telegram.insert("getSelf".into(), json!({ "userId": "1", "username": "alice", "role": "member", "deviceId": "" }));
+    world.telegram.insert("getUsers".into(), json!([{ "id": "2", "username": "", "displayName": "Grace Hopper", "role": "member", "trust": "unverified" }]));
+    let members: Vec<serde_json::Value> = ["1", "2"].iter().map(|id| json!({ "userId": id, "role": "member", "joinedAt": NOW })).collect();
+    world.telegram.insert("getConversations".into(), json!([{ "key": "group:77", "kind": "group", "groupId": "77", "title": "Hackers", "ready": true, "lastActivityAt": NOW, "ownRead": 0, "members": members }]));
+    world.telegram.insert("getChannels".into(), json!([]));
+    world.telegram.insert("loadMessages".into(), json!({ "messages": [message("m1", "77", 5.0, "2", "Lunch?", json!({}))], "hasMore": false }));
+    world.telegram.insert("getDraft".into(), json!(""));
+    world.telegram.insert("saveDraft".into(), serde_json::Value::Null);
+    world
+}
+
+#[gpui::test]
+fn nothing_of_a_telegram_chat_reaches_a_plugin(cx: &mut TestAppContext) {
+    use crate::plugins::tests_running::Harness;
+    use crate::telegram::SERVER_ID as TELEGRAM;
+    crate::ui::motion::set_reduced(true);
+    let harness = Harness::open_in(cx, &telegram_world(), "telegram-reader", &["conversations.read", "messages.read", "messages.decorate", "voice.control"], |m| {
+        m["contributes"] = json!({ "commands": [{ "id": "hello", "title": "Say hello", "slash": "hello" }] });
+    });
+    let (app, uid) = (&harness.app, harness.uid.clone());
+    app.answer("sendMessage", |_| Ok(serde_json::Value::Null));
+    harness.ask(cx, "ui.register", json!({ "kind": "messageAction", "id": "quote", "title": "Quote", "hover": true })).unwrap();
+    harness.ask(cx, "ui.register", json!({ "kind": "conversationAction", "id": "pin", "title": "Pin" })).unwrap();
+    harness.ask(cx, "decorate.register", json!({})).unwrap();
+    app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.select_server(TELEGRAM, cx);
+        state.select_conversation(Some("group:77".into()), cx);
+    });
+    app.settle(cx, |state| state.lists.get("77").is_some_and(|list| list.loaded));
+    app.run(cx);
+    harness.sent(cx);
+
+    // No control of a plugin's is offered on its messages or its chat, and none is asked to decorate them.
+    let message: crate::models::MessageView = serde_json::from_value(crate::testing::fixtures::message("m1", "77", 5.0, "2", "Lunch?", json!({}))).unwrap();
+    assert!(cx.update(|cx| crate::ui::plugins::hover_actions(TELEGRAM, &message, cx)).is_empty(), "no action under the pointer");
+    let conversation = app.read(cx, |state| state.active().and_then(|server| server.active_conversation().cloned())).expect("Telegram's chat is open");
+    assert!(cx.read(|cx| crate::ui::plugins::conversation_entries(TELEGRAM, &conversation, cx)).is_empty());
+    assert!(cx.read(|cx| harness.plugins.read(cx).decorations_for(TELEGRAM, &message)).is_empty());
+    cx.executor().advance_clock(std::time::Duration::from_millis(20));
+    cx.run_until_parked();
+    assert!(!harness.sent(cx).iter().any(|message| message["fn"] == "decorate"), "nothing of it was handed over to decorate");
+
+    // A command run while it's open, from its keys or the palette, is told of no chat.
+    assert_eq!(cx.read(|cx| harness.plugins.read(cx).context_for(&uid, "", cx)), json!({ "conversation": null, "args": "" }));
+    harness.plugins.update(cx, |plugins, cx| plugins.run_command(&uid, "hello", "", cx));
+    let call = harness.sent(cx).into_iter().find(|message| message["fn"] == "command").expect("the command runs");
+    assert_eq!(call["args"]["context"]["conversation"], serde_json::Value::Null);
+    harness.say(cx, json!({ "t": "done", "n": call["n"], "ok": true }));
+
+    // What's written there goes to Telegram as it's written, a slash and all, and what a plugin
+    // would put in its message box goes nowhere.
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_input("/hello there");
+    app.run(cx);
+    let mut window = VisualTestContext::from_window(app.window.into(), cx);
+    window.simulate_keystrokes("enter");
+    app.run(cx);
+    assert_eq!(app.calls_of("sendMessage").last().map(|args| args[1]["text"].clone()), Some(json!("/hello there")));
+    assert!(!harness.sent(cx).iter().any(|message| message["fn"] == "command"), "the plugin's command didn't take it");
+    harness.activate(cx);
+    harness.ask(cx, "composer.insert", json!({ "text": "from a plugin" })).unwrap();
+    app.run(cx);
+    let chat = app.window.update(cx, |root, _, _| root.chat.as_ref().map(|(_, chat)| chat.clone())).unwrap().expect("a chat is open");
+    assert_eq!(cx.read(|cx| chat.read(cx).composer_text(cx)), "", "a plugin writes nothing in a Telegram chat's box");
+
+    // A call on the Telegram account, the device's one room, is left as it is.
+    let voice = cx.read(|cx| crate::voice::get(cx)).expect("voice");
+    voice.update(cx, |voice, _| voice.server_id = Some(TELEGRAM.into()));
+    harness.ask(cx, "voice.mute", json!({ "muted": true })).unwrap();
+    app.run(cx);
+    assert!(!cx.read(|cx| voice.read(cx).muted), "a plugin doesn't mute it");
+}

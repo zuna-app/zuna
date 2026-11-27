@@ -119,6 +119,9 @@ No permission reaches these, and no line of `surface.ts` may name one with anyth
 - The database, the cache folder, the disk, other programs.
 - Updates, the plugin manager, another plugin's data, the install dialogs.
 - Anything of a linked Telegram account: every `TelegramSession` method, and every event from it.
+  Its chats offer no plugin's buttons, actions or slash commands, a command run while one is open
+  is told of no chat, and what a plugin writes in the message box then, or asks of voice during
+  a call on it, is dropped.
 
 ## The API
 

@@ -420,10 +420,11 @@ impl Render for Root {
         };
 
         motion::set_reduced(self.state.read(cx).settings.reduce_motion);
-        // What plugins put in the message box goes into the open chat's, where the cursor is.
+        // What plugins put in the message box goes into the open chat's, where the cursor is, and
+        // nowhere when that's a chat of the linked Telegram account's, which no plugin reaches.
         if !self.state.read(cx).composer_inserts.is_empty() {
             let inserts = self.state.update(cx, |state, _| std::mem::take(&mut state.composer_inserts));
-            if let Some((_, chat)) = self.chat.clone() {
+            if let Some((_, chat)) = self.chat.clone().filter(|(_, chat)| chat.read(cx).server_id != crate::telegram::SERVER_ID) {
                 chat.update(cx, |chat, cx| {
                     for text in inserts {
                         chat.insert_into_composer(&text, window, cx);

@@ -308,7 +308,7 @@ impl ChatView {
                         .on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx)))
                         .child(icon("plus-circle-filled", 22., theme.text2).group_hover("attach", move |style| style.text_color(theme.text1))),
                 )
-                .children(crate::ui::plugins::composer_buttons(cx).into_iter().map(|button| div().h(px(44.)).flex().items_center().child(button)))
+                .children(if telegram { Vec::new() } else { crate::ui::plugins::composer_buttons(cx) }.into_iter().map(|button| div().h(px(44.)).flex().items_center().child(button)))
         } else {
             let plugin_buttons = if editing.is_none() && !telegram { crate::ui::plugins::composer_buttons(cx) } else { Vec::new() };
             div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
