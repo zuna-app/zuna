@@ -512,6 +512,33 @@ describe("heads in messages", () => {
     }
   });
 
+  it("compares a signed head that came after one of the same size and root with a signature that isn't the log's (Z-49)", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const groupId = await groupWith(dave, [erin]);
+    await caughtUp(dave);
+    await caughtUp(erin);
+    const real = serverEntries();
+    appendToLog(harmless());
+    const session = sessionOf(erin);
+    const log = session.api.log;
+    session.api.log = secondLog([...real, makeEntry(harmless())]);
+    try {
+      await sessionOf(dave).syncLog();
+      await session.syncLog();
+      const head = toWireHead(heldHead(erin));
+      // Erin's head of the log she was given, first under a signature that isn't the log's, then as the server signed it.
+      session.headForMessage = () => ({ ...head, s: toBase64(wasm.sign(newLastingKey().secretKey, headInput(head.e, head.n, decode(head.r)))) });
+      await sentAndSeen(erin, [dave], groupId, "signed with something else");
+      await waitFor(() => warned(dave, "didn't sign for you"), "the milder warning");
+      session.headForMessage = () => head;
+      await sentAndSeen(erin, [dave], groupId, "signed by the server");
+      await waitFor(() => warned(dave, "different key records"), "dave to notice the two logs");
+    } finally {
+      session.api.log = log;
+    }
+  });
+
   it("reads on when someone's head is ahead, then agrees", async () => {
     const dave = await person("dave");
     const erin = await person("erin");

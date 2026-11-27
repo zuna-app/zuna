@@ -1727,7 +1727,8 @@ export abstract class SessionDirectory extends SessionChains {
     if (!head || !key) return;
     const seen = `${head.era}/${head.size}/${toBase64(head.root)}`;
     if (this.headsCompared.has(seen)) return;
-    this.headsCompared.add(seen);
+    // Only a head the log's key signed is kept from being compared again: one with another
+    // signature, sent first, would keep the real one from ever being compared.
     if (!headSigned(fromBase64(key), head)) {
       const name = this.users.get(from)?.profile.displayName;
       return this.warnOnce(
@@ -1736,6 +1737,7 @@ export abstract class SessionDirectory extends SessionChains {
         from,
       );
     }
+    this.headsCompared.add(seen);
     let state = this.logState();
     if (head.era < state.era) return this.comparePast(head, wire, from).catch((error) => this.headNotCompared(seen, error));
     if (head.era > state.era || head.size > state.frontier.size) {
