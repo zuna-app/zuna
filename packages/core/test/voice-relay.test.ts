@@ -116,6 +116,32 @@ describe("the kinds of message the relay knows", () => {
       expect(toLiveKit(broken)).toHaveProperty("dropped");
     }
   });
+
+  it("drop a message with a tag past 32 bits, wherever in it, which the SDKs refuse or read as another field's", () => {
+    const varint = (value: bigint) => {
+      const out: number[] = [];
+      let rest = value;
+      for (; rest >= 0x80n; rest >>= 7n) out.push(Number(rest & 0x7fn) | 0x80);
+      return [...out, Number(rest)];
+    };
+    /** A length-delimited field of one byte under this tag, inside a kind the relay reads into each way: a `join` from LiveKit and an `offer` to it, both 1. */
+    const inside = (tag: bigint) => {
+      const body = [...varint(tag), 1, 0];
+      return Uint8Array.from([(1 << 3) | 2, body.length, ...body]);
+    };
+    // The largest field number there is, 2^29 - 1, is one neither way knows, and passes as any such does.
+    const largest = 0xfffffffan;
+    expect(fromLiveKit(inside(largest), () => null)).toEqual({ message: inside(largest) });
+    expect(toLiveKit(inside(largest))).toEqual({ message: inside(largest) });
+    // One past it; the five bytes nanopb reads as the largest, taking the rest for a sign; and the ten it reads so.
+    for (const tag of [0x100000002n, 0x7fffffffan, 0xfffffffffffffffan]) {
+      expect(fromLiveKit(inside(tag), () => null), tag.toString(16)).toMatchObject({ dropped: expect.stringMatching(/couldn't read.*32 bits/) });
+      expect(toLiveKit(inside(tag)), tag.toString(16)).toMatchObject({ dropped: expect.stringMatching(/couldn't read.*32 bits/) });
+      const top = Uint8Array.from([...varint(tag), 1, 0]);
+      expect(fromLiveKit(top, () => null), tag.toString(16)).toMatchObject({ dropped: expect.stringMatching(/couldn't read.*32 bits/) });
+      expect(toLiveKit(top), tag.toString(16)).toMatchObject({ dropped: expect.stringMatching(/couldn't read.*32 bits/) });
+    }
+  });
 });
 
 describe("what LiveKit sent", () => {

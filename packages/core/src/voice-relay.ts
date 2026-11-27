@@ -143,6 +143,9 @@ function fields(bytes: Uint8Array): Field[] {
   while (at < bytes.length) {
     const start = at;
     const [tag, afterTag] = readVarint(bytes, at);
+    // prost refuses a tag past 32 bits, and nanopb refuses it or reads its low 32 bits as another
+    // field's, so the message is dropped before this and an SDK could disagree on what a field is.
+    if (tag > 0xffffffff) throw new Malformed("a tag past 32 bits");
     const number = Math.floor(tag / 8);
     const wire = tag % 8;
     if (number < 1) throw new Malformed("field number 0");
