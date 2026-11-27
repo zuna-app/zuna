@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -734,5 +735,161 @@ func TestOneServerCantStarveAnothersPushes(t *testing.T) {
 	}
 	if refused > rounds-15 {
 		t.Fatalf("the phone's registrations were refused %d times of %d", refused, rounds)
+	}
+}
+
+// timings is how long each of some requests took to be answered, in order.
+type timings []time.Duration
+
+func (t timings) at(quantile float64) time.Duration {
+	sorted := slices.Clone(t)
+	slices.Sort(sorted)
+	return sorted[int(quantile*float64(len(sorted)-1))]
+}
+
+func (t timings) String() string {
+	return fmt.Sprintf("p10 %v, median %v, p90 %v", t.at(0.1).Round(10*time.Microsecond), t.at(0.5).Round(10*time.Microsecond), t.at(0.9).Round(10*time.Microsecond))
+}
+
+// pushTimed is a push from an address, what it was answered and how long that took.
+func (h *harness) pushTimed(address, handle, kind string) (int, string, time.Duration) {
+	h.t.Helper()
+	data, _ := json.Marshal(map[string]any{"handle": handle, "type": kind, "data": map[string]string{"r": "x"}})
+	request, _ := http.NewRequest(http.MethodPost, h.url+"/v1/push", bytes.NewReader(data))
+	request.Header.Set("X-Forwarded-For", address)
+	start := time.Now()
+	response, err := h.client.Do(request)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	took := time.Since(start)
+	response.Body.Close()
+	return response.StatusCode, string(body), took
+}
+
+// Whoever can post to the relay learns nothing from how long an answer takes, nor from what
+// it says, about whether a push was sent: one over a phone's limit, which says the same as one
+// sent, or one for a handle that's made up, expired or gone, which only says gone. Otherwise a
+// push answered at once, while Apple takes a while, shows that a phone's limit is used up, and
+// two servers, or one with two handles, learn that the handles name the same phone, by using
+// up its rings through one and ringing through the other.
+func TestAnswersDontShowWhetherAPushWasSent(t *testing.T) {
+	h := newHarness(t)
+	h.relay.Callers, _ = clientip.New(true, nil, false)
+	const apple = 25 * time.Millisecond
+	h.apns.reply = func(string) (int, string) { time.Sleep(apple); return http.StatusOK, "" }
+	const phones, rings = 6, 5
+	var handles []string
+	for i := range phones {
+		status, reply := h.registerFrom(fmt.Sprintf("192.0.2.%d", i+1), map[string]any{"token": fmt.Sprintf("%064x", 0x500+i), "environment": "production", "count": 2})
+		if status != http.StatusOK || len(reply.Handles) != 2 {
+			t.Fatalf("register: %d %v", status, reply)
+		}
+		handles = append(handles, reply.Handles...)
+	}
+
+	// Each phone rings a few times through one server's handle, and then no more, through it or
+	// another's: the same answer, in the time Apple takes.
+	var sent, dropped timings
+	for i := range phones {
+		for range rings {
+			status, body, took := h.pushTimed("203.0.113.7", handles[2*i], "call")
+			if status != http.StatusNoContent || body != "" {
+				t.Fatalf("a ring: %d %q", status, body)
+			}
+			sent = append(sent, took)
+		}
+	}
+	reached := h.apns.sent()
+	for i := range phones {
+		for _, handle := range []string{handles[2*i], handles[2*i+1]} {
+			status, body, took := h.pushTimed("198.51.100.9", handle, "call")
+			if status != http.StatusNoContent || body != "" {
+				t.Fatalf("a ring past the phone's limit: %d %q", status, body)
+			}
+			dropped = append(dropped, took)
+		}
+	}
+	if h.apns.sent() != reached {
+		t.Fatalf("%d rings past the limit reached Apple", h.apns.sent()-reached)
+	}
+
+	// Handles that are made up, out of date or for a phone Apple said is gone are all answered
+	// as gone, in that time too.
+	expired := handles[1]
+	h.relay.Now = func() time.Time { return time.Now().Add(relay.HandleLifetime + time.Hour) }
+	status, body, _ := h.pushTimed("198.51.100.9", expired, "")
+	h.relay.Now = time.Now
+	if status != http.StatusGone || body != `{"error":"gone"}` {
+		t.Fatalf("an expired handle: %d %q", status, body)
+	}
+	var unknown timings
+	for i := range 2 * phones {
+		forged := mustDecode(t, handles[3])
+		forged[len(forged)-1] ^= byte(i + 1)
+		status, body, took := h.pushTimed("198.51.100.9", base64.RawURLEncoding.EncodeToString(forged), "")
+		if status != http.StatusGone || body != `{"error":"gone"}` {
+			t.Fatalf("a made-up handle: %d %q", status, body)
+		}
+		unknown = append(unknown, took)
+	}
+
+	t.Logf("sent: %v; past the limit: %v; made up: %v", sent, dropped, unknown)
+	for name, answered := range map[string]timings{"past the limit": dropped, "made up": unknown} {
+		for _, quantile := range []float64{0.1, 0.5} {
+			if answered.at(quantile) < sent.at(quantile)*7/10 {
+				t.Errorf("%s, answered in %v at %v, while sent in %v", name, answered.at(quantile), quantile, sent.at(quantile))
+			}
+		}
+	}
+}
+
+// Guessing at handles spends the guesser's own limit, not a phone's: past its limit an address
+// is turned away at once, whatever it names, and another address still reaches the phone.
+func TestGuessingSpendsTheGuessersLimit(t *testing.T) {
+	h := newHarness(t)
+	h.relay.Callers, _ = clientip.New(true, nil, false)
+	handle := h.register(token, "production")
+	// A request the relay can't read costs the address as much as any other, and is answered at once.
+	unreadable := func() int {
+		request, _ := http.NewRequest(http.MethodPost, h.url+"/v1/push", strings.NewReader("{not json"))
+		request.Header.Set("X-Forwarded-For", "203.0.113.7")
+		response, err := h.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		return response.StatusCode
+	}
+	limited := false
+	for range 10_000 {
+		if limited = unreadable() == http.StatusTooManyRequests; limited {
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("an address was never limited")
+	}
+	// Its limit comes back a little at a time, which what it keeps sending spends.
+	turnedAway := 0
+	const guesses = 20
+	for i := range guesses {
+		for range 5 {
+			unreadable()
+		}
+		guess := handle
+		if i%2 == 1 {
+			guess = "c2hvcnQ"
+		}
+		if status, _, took := h.pushTimed("203.0.113.7", guess, ""); status == http.StatusTooManyRequests && took < 10*time.Millisecond {
+			turnedAway++
+		}
+	}
+	if turnedAway < guesses/2 {
+		t.Fatalf("past its limit, an address was turned away at once %d times of %d", turnedAway, guesses)
+	}
+	if status := h.pushFrom("198.51.100.9", handle, ""); status != http.StatusNoContent {
+		t.Fatalf("another address pushing the phone got %d", status)
 	}
 }

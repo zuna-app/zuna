@@ -22,8 +22,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	mrand "math/rand/v2"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -51,6 +53,13 @@ const (
 	// apart from them how many registrations, which anyone can make up.
 	maxSending     = 256
 	maxRegistering = 32
+	// How many of the latest pushes Apple took are kept, for how long they took, which a
+	// push that isn't sent is held back by one of.
+	sendTimesKept = 64
+	// Until Apple has taken one, a push that isn't sent is held back about as long as Apple
+	// usually takes, and never longer than this, however long Apple took lately.
+	usualSend = 40 * time.Millisecond
+	maxHold   = 5 * time.Second
 )
 
 var handleLabel = []byte("zuna-push/handle/v2")
@@ -74,7 +83,8 @@ type Relay struct {
 
 	apns    *APNs
 	handles cipher.AEAD
-	// Pushes that reach Apple, by caller.
+	// Pushes, by caller: every one it asks for, sent or not, so that guessing at handles costs
+	// whoever guesses, never a phone.
 	perAddress *ratelimit.Keyed
 	// Registrations, by the caller's network.
 	registers *ratelimit.Keyed
@@ -93,6 +103,10 @@ type Relay struct {
 	badTokens   *ratelimit.Keyed
 	sending     chan struct{}
 	registering chan struct{}
+	// How long the latest pushes Apple took took to send.
+	sendTimes sendTimes
+	// How much later than asked holdBack's timers woke lately, in nanoseconds.
+	late atomic.Int64
 
 	dead [deadShards]deadShard
 
@@ -396,6 +410,11 @@ func decodeToken(text string) ([]byte, bool) {
 }
 
 func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
+	caller := r.Callers.Key(req)
+	if !r.perAddress.Allow(caller) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
 	var body struct {
 		Handle string `json:"handle"`
 		// "background" for a silent push, "call" for a call ringing; anything else shows an alert.
@@ -406,15 +425,15 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	if !readJSON(w, req, &body) {
 		return
 	}
+	// Whatever isn't sent from here on is answered as late as if it had been, so that how long
+	// an answer takes doesn't say whether a handle names a phone, or whether a phone's limit
+	// was used up through another handle. A handle that's made up, out of date or for a
+	// phone Apple said is gone is gone alike, and the server forgets it.
 	target, ok := r.open(body.Handle)
-	switch {
-	case !ok:
-		// Not this relay's, or sealed with a key it no longer has: the server forgets
-		// it, and the app registers again.
-		writeError(w, http.StatusGone, "unknown")
-		return
-	case r.Now().Sub(target.issued) > HandleLifetime:
-		writeError(w, http.StatusGone, "expired")
+	if !ok || r.Now().Sub(target.issued) > HandleLifetime {
+		// Not this relay's, sealed with a key it no longer has, or too old: the app registers again.
+		r.holdBack(req)
+		writeError(w, http.StatusGone, "gone")
 		return
 	}
 	size := 0
@@ -427,36 +446,41 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	}
 	// iOS stops waking an app that's pushed through PushKit for anything but a call it rings for.
 	if size > maxDataBytes || (target.voip && kind != KindCall) {
+		r.holdBack(req)
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
 	if r.isDead(target) {
+		r.holdBack(req)
 		writeError(w, http.StatusGone, "gone")
 		return
 	}
 	// Past a phone's limit a push is dropped, but answered as if it were sent: a
 	// refusal would tell a server that another's handle names the same phone.
-	caller := r.Callers.Key(req)
 	tokenHex := hex.EncodeToString(target.token)
 	limit, key := r.perToken, tokenHex+"|"+caller
 	if kind == KindCall {
 		limit, key = r.rings, tokenHex
 	}
 	if !limit.Allow(key) {
+		if len(r.sending) == cap(r.sending) {
+			// As a push that may be sent is answered now, with every place to send one taken.
+			writeError(w, http.StatusServiceUnavailable, "busy")
+			return
+		}
+		r.holdBack(req)
 		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !r.perAddress.Allow(caller) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
 	if r.apns == nil {
 		writeError(w, http.StatusServiceUnavailable, "no_apns")
 		return
 	}
+	started := time.Now()
 	err := r.send(req, r.sending, tokenHex, target, kind, body.Data, body.CollapseID)
 	switch {
 	case err == nil:
+		r.sendTimes.add(time.Since(started))
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, ErrGone):
 		r.bury(target)
@@ -467,6 +491,55 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		slog.Warn("pushing through APNs", "environment", target.environment(), "error", err)
 		writeError(w, http.StatusBadGateway, "push_failed")
 	}
+}
+
+// holdBack waits as long as a push Apple takes, drawn from how long the latest took, before a
+// push that isn't sent is answered, or until whoever asked goes away. A caller's limit is
+// spent before anything is held back, so one caller holds back no more than that many.
+func (r *Relay) holdBack(req *http.Request) {
+	want := r.sendTimes.draw()
+	// A timer wakes a little later than asked, a millisecond or two on some systems, which
+	// Apple's answer doesn't, so it's asked for that much sooner.
+	asked := max(want-time.Duration(r.late.Load()), 0)
+	start := time.Now()
+	timer := time.NewTimer(asked)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		late, now := r.late.Load(), int64(time.Since(start)-asked)
+		if late != 0 {
+			now = late + (now-late)/8
+		}
+		r.late.Store(max(now, 1))
+	case <-req.Context().Done():
+	}
+}
+
+// sendTimes keeps how long the latest pushes Apple took took to send.
+type sendTimes struct {
+	mu    sync.Mutex
+	times [sendTimesKept]time.Duration
+	kept  int
+	next  int
+}
+
+func (s *sendTimes) add(took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.times[s.next] = took
+	s.next = (s.next + 1) % len(s.times)
+	s.kept = min(s.kept+1, len(s.times))
+}
+
+// draw is one of them, any of them as likely, or before there are any, about as long as
+// Apple usually takes.
+func (s *sendTimes) draw() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.kept == 0 {
+		return usualSend/2 + mrand.N(usualSend)
+	}
+	return min(s.times[mrand.IntN(s.kept)], maxHold)
 }
 
 func readJSON(w http.ResponseWriter, req *http.Request, into any) bool {
@@ -495,8 +568,6 @@ var staticErrors = map[string][]byte{
 	"no_apns":      []byte(`{"error":"no_apns"}`),
 	"busy":         []byte(`{"error":"busy"}`),
 	"push_failed":  []byte(`{"error":"push_failed"}`),
-	"unknown":      []byte(`{"error":"unknown"}`),
-	"expired":      []byte(`{"error":"expired"}`),
 	"gone":         []byte(`{"error":"gone"}`),
 }
 
