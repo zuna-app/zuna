@@ -52,8 +52,11 @@ export abstract class SessionIngest extends SessionChanges {
    * this device can't open yet: under an epoch it holds no key for, as when one comes in live before
    * the commit that made its epoch, or signed by a device it doesn't know yet (`unknown`). `junk` are
    * those that open for nobody, under a key MLS gave, which a group's admin has the server drop.
+   * `place` is the message's place in the conversation, as this device holds it: one under an
+   * epoch that had ended by then is about something its signer never saw, and isn't taken, but
+   * waits, as its epoch's start may yet be undone (`commit_voided`).
    */
-  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[]): { seen: SeenReaction[]; waiting: ApiReaction[]; junk: string[]; unknown: Signer[] } {
+  protected readReactions(groupId: string, messageId: string, raw: ApiReaction[], place: number | null): { seen: SeenReaction[]; waiting: ApiReaction[]; junk: string[]; unknown: Signer[] } {
     const seen: SeenReaction[] = [];
     const waiting: ApiReaction[] = [];
     const junk: string[] = [];
@@ -69,6 +72,10 @@ export abstract class SessionIngest extends SessionChanges {
       if (checked?.state === "unknown") {
         waiting.push(reaction);
         unknown.push(checked.signer);
+        continue;
+      }
+      if (checked?.state === "signed" && this.endedBy(groupId, reaction.epoch, place)) {
+        waiting.push(reaction);
         continue;
       }
       // A copy of someone's real one under an ID of its own opens too, and is nobody's. So is one from a
@@ -108,7 +115,7 @@ export abstract class SessionIngest extends SessionChanges {
 
   /** What's shown of reactions as they came, opening each. */
   protected openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
-    return this.viewsOf(this.readReactions(groupId, messageId, raw).seen).reactions;
+    return this.viewsOf(this.readReactions(groupId, messageId, raw, this.messageRow(groupId, messageId)?.seq ?? null).seen).reactions;
   }
 
   /** Whatever reading reactions turned up besides what's shown: junk for an admin to clear, and devices to learn. */
@@ -167,7 +174,7 @@ export abstract class SessionIngest extends SessionChanges {
       seen = seen.filter((item) => item.id !== change.removed);
       pending = waiting.filter((item) => item.id !== change.removed);
     } else if (!seen.some((item) => item.id === change.reaction!.id) && !waiting.some((item) => item.id === change.reaction!.id)) {
-      const read = this.readReactions(change.group_id, change.message_id, [change.reaction!]);
+      const read = this.readReactions(change.group_id, change.message_id, [change.reaction!], row.seq);
       seen = [...seen, ...read.seen];
       pending = [...waiting, ...read.waiting];
       this.afterReadingReactions(change.group_id, change.message_id, read);
@@ -196,7 +203,7 @@ export abstract class SessionIngest extends SessionChanges {
         if (!stored) continue;
         // One kept before reactions came one at a time kept all of them as they came, so all are read.
         const rawReactions = this.rawReactionsOf(row);
-        const read = this.readReactions(groupId, row.id, rawReactions);
+        const read = this.readReactions(groupId, row.id, rawReactions, row.seq);
         if (read.waiting.length === rawReactions.length && read.junk.length === 0) continue;
         const held = (stored.seen ?? []).filter((item) => !read.seen.some((other) => other.id === item.id));
         this.storeReactions(row, stored, [...held, ...read.seen], read.waiting, stored.reactionsAt ?? row.updated_seq);
@@ -491,7 +498,7 @@ export abstract class SessionIngest extends SessionChanges {
    */
   protected reactionsFor(message: ApiMessage, existing: MessageRow | undefined): { value: Pick<StoredBody, "reactions" | "mine" | "seen" | "reactionsAt">; waiting: ApiReaction[] } {
     const read = (raw: ApiReaction[], at: number) => {
-      const result = this.readReactions(message.group_id, message.id, raw);
+      const result = this.readReactions(message.group_id, message.id, raw, existing?.seq ?? message.seq);
       this.afterReadingReactions(message.group_id, message.id, result);
       return { value: { ...this.viewsOf(result.seen), seen: result.seen, reactionsAt: at }, waiting: result.waiting };
     };
@@ -646,14 +653,31 @@ export abstract class SessionIngest extends SessionChanges {
         left: () => this.departedAt(groupId, userId, deviceId),
         joined: () => this.joinedEpoch(groupId),
         arrived: () => this.arrivedAt(groupId, userId, deviceId),
-        nextStart: () => {
-          const next = this.db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
-          const { name, row, careful } = sealedRows.epochStart;
-          return next ? this.openValue(name, row(groupId, message.epoch + 1), next.seq, careful) : null;
-        },
+        nextStart: () => this.epochStart(groupId, message.epoch + 1),
       },
       message,
     );
+  }
+
+  /** The server's sequence number an epoch of a group began at, as this device saw the commit that began it. */
+  protected epochStart(groupId: string, epoch: number): number | null {
+    const row = this.db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+    const { name, row: rowOf, careful } = sealedRows.epochStart;
+    return row ? this.openValue(name, rowOf(groupId, epoch), row.seq, careful) : null;
+  }
+
+  /**
+   * Whether an epoch had ended by a place in a conversation: the next had begun at or before it. What's
+   * signed under it can't be about a message there, which nobody saw while it was current. The server takes
+   * a reaction, pin or deletion only under the epoch it's at, after the message it's about, so on an honest
+   * one this never holds, however late it comes; only someone who left, still holding an old epoch's key,
+   * could sign one, about what was said after they'd gone. By sequence number, not epoch, as an edit moves
+   * a message's epoch on and leaves its place. Where this device didn't see that epoch end, nothing is known.
+   */
+  protected endedBy(groupId: string, epoch: number, place: number | null): boolean {
+    if (place === null) return false;
+    const next = this.epochStart(groupId, epoch + 1);
+    return next !== null && next <= place;
   }
 
   /**
@@ -689,7 +713,7 @@ export abstract class SessionIngest extends SessionChanges {
     const none = { at: null, by: null, revision: null };
     if (message.deleted_at !== null) return none;
     const held = existing ? { at: existing.pinned_at, by: existing.pinned_by, revision: existing.pin_revision } : none;
-    const signed = this.openPin(message);
+    const signed = this.openPin(message, existing?.seq ?? message.seq ?? null);
     if (signed && signed.revision >= (held.revision ?? 0)) {
       return signed.pinned ? { at: signed.revision, by: signed.by, revision: signed.revision } : { ...none, revision: signed.revision };
     }
@@ -699,8 +723,10 @@ export abstract class SessionIngest extends SessionChanges {
   /**
    * Who signed something about a message, if a device this one knows did, under an
    * epoch from before that device left the group, and it names them as who it's by.
+   * `place` is the message's place, as this device holds it: an epoch that had ended
+   * by then signed nothing about it (`endedBy`).
    */
-  protected signedAbout<T extends { by?: unknown }>(message: ApiMessage, kind: "pin" | "deletion", framed: string | undefined): { by: string; value: T } | null {
+  protected signedAbout<T extends { by?: unknown }>(message: ApiMessage, kind: "pin" | "deletion", framed: string | undefined, place: number | null): { by: string; value: T } | null {
     const signed = framed ? readSigned(decode(framed)) : null;
     const key = signed && this.epochKey(message.group_id, signed.epoch);
     if (!signed || !key) return null;
@@ -713,11 +739,12 @@ export abstract class SessionIngest extends SessionChanges {
     const joined = this.joinedEpoch(message.group_id);
     const arrived = joined !== null && signed.epoch >= joined ? this.arrivedAt(message.group_id, checked.signer.userId, checked.signer.deviceId) : null;
     if (arrived !== null && signed.epoch < arrived) return null;
+    if (this.endedBy(message.group_id, signed.epoch, place)) return null;
     return { by: checked.signer.userId, value: checked.value };
   }
 
-  protected openPin(message: ApiMessage): { by: string; pinned: boolean; revision: number } | null {
-    const signed = this.signedAbout<{ by?: unknown; pinned?: unknown; revision?: unknown }>(message, "pin", message.pin);
+  protected openPin(message: ApiMessage, place: number | null): { by: string; pinned: boolean; revision: number } | null {
+    const signed = this.signedAbout<{ by?: unknown; pinned?: unknown; revision?: unknown }>(message, "pin", message.pin, place);
     if (!signed || typeof signed.value.pinned !== "boolean") return null;
     const { revision } = signed.value;
     return typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0 ? { by: signed.by, pinned: signed.value.pinned, revision } : null;
@@ -729,7 +756,7 @@ export abstract class SessionIngest extends SessionChanges {
    * Its author is whoever signed the copy this device holds.
    */
   protected deletionProven(message: ApiMessage, existing: MessageRow): boolean {
-    const signed = this.signedAbout(message, "deletion", message.deletion);
+    const signed = this.signedAbout(message, "deletion", message.deletion, existing.seq ?? message.seq);
     if (!signed) return false;
     if (existing.sender_user && signed.by === existing.sender_user) return true;
     const group = this.groups.get(message.group_id);
