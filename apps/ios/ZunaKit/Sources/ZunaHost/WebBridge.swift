@@ -70,6 +70,8 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     /// Whether an address, as a resolver gives it, is on this device or a private network (privateAddress in links.ts).
     static func privateAddress(_ address: String) -> Bool {
+        // A public page's address names no interface, which inet_pton takes as a number.
+        if address.contains("%") { return true }
         if address.contains(":") {
             guard let bytes = ipv6Bytes(address) else { return true }
             if inRange(bytes, ipv6Bytes("::ffff:0:0") ?? [], bits: 96) {
@@ -88,7 +90,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     /// Besides this device and private networks: documentation, and the ways of carrying
     /// IPv4 inside IPv6, which can lead anywhere in IPv4 with none of the checks on it.
     private static let privateIPv6: [(network: [UInt8], bits: Int)] = [
-        ("::", 96), ("64:ff9b::", 96), ("64:ff9b:1::", 48), ("100::", 64), ("2001::", 32), ("2001:db8::", 32),
+        ("::", 96), ("::ffff:0:0:0", 96), ("64:ff9b::", 96), ("64:ff9b:1::", 48), ("100::", 64), ("2001::", 32), ("2001:db8::", 32),
         ("2002::", 16), ("fc00::", 7), ("fe80::", 10), ("fec0::", 10), ("ff00::", 8),
     ].map { (network: ipv6Bytes($0.0) ?? [], bits: $0.1) }
 
