@@ -32,6 +32,10 @@ describe("which links may be fetched", () => {
       expect(previewable(url), url).toBe(false);
     }
     expect(previewable("https://[2001:db8::1]/")).toBe(false);
+    // An address with a zone, or IPv4 translated into IPv6, beside the usual ::ffff:0:0/96.
+    for (const url of ["https://[64:ff9b::169.254.169.254%251]/", "https://[fec0::1%25eth0]/", "https://[2606:4700::1111%251]/", "https://[::ffff:0:127.0.0.1]/", "https://[::ffff:0:808:808]/"]) {
+      expect(previewable(url), url).toBe(false);
+    }
     expect(previewable("https://[2606:4700::1111]/")).toBe(true);
   });
 

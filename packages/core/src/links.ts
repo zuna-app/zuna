@@ -98,6 +98,8 @@ function inRange(bytes: Uint8Array, network: string, bits: number): boolean {
 // IPv4 inside IPv6, which can lead anywhere in IPv4 with none of the checks on it.
 const PRIVATE_IPV6: readonly (readonly [string, number])[] = [
   ["::", 96],
+  // IPv4 translated into IPv6, beside the usual ::ffff:0:0/96, which is judged as IPv4.
+  ["::ffff:0:0:0", 96],
   ["64:ff9b::", 96],
   ["64:ff9b:1::", 48],
   ["100::", 64],
@@ -111,6 +113,8 @@ const PRIVATE_IPV6: readonly (readonly [string, number])[] = [
 ];
 
 function privateIpv6(host: string): boolean {
+  // A public page's address names no interface.
+  if (host.includes("%")) return true;
   const bytes = ipv6Bytes(host);
   if (!bytes) return true;
   if (inRange(bytes, "::ffff:0:0", 96)) return privateIpv4([...bytes.subarray(12)].join("."));
