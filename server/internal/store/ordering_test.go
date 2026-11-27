@@ -339,3 +339,53 @@ func TestAppendsAtOnceOnlyEverCollide(t *testing.T) {
 	}
 	checkLogWhole(t, db, uint64(kept.Load()))
 }
+
+// Two devices of one account rotating its keys at once: one rotation goes through and
+// the others are told they were overtaken, even from two servers on one database, where
+// they'd otherwise meet on the generation's link, taken, which isn't retried. A rotation
+// appends to the log, so it takes the log before anything else (claimLog).
+func TestRotationsAtOnceEndOneWayOrTheOther(t *testing.T) {
+	ctx := context.Background()
+	one, other := twoServers(t)
+	for round := range 20 {
+		user, err := one.CreateUser(ctx, NewUser{
+			Username: fmt.Sprintf("r%d", round), KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
+			RecoveryHash: []byte("h"), RecoverySalt: []byte("s"), IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
+		}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var went, overtaken atomic.Int64
+		errs := make(chan error, 4)
+		for i := range 4 {
+			db := one
+			if i%2 == 1 {
+				db = other
+			}
+			wg.Go(func() {
+				err := db.ApplyRotation(ctx, Rotation{
+					UserID: user, TokenHash: []byte("t"), Expected: 0, IdentityHead: []byte("h"), VaultCore: []byte("v"),
+					Link: IdentityLink{Generation: 1, Payload: []byte(NewID()), ByPrev: []byte("a"), ByNew: []byte("b"), ByDevice: []byte("d")},
+				})
+				var conflict *GenerationConflictError
+				switch {
+				case err == nil:
+					went.Add(1)
+				case errors.As(err, &conflict) && conflict.Current == 1:
+					overtaken.Add(1)
+				default:
+					errs <- err
+				}
+			})
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatal(err)
+		}
+		if went.Load() != 1 || overtaken.Load() != 3 {
+			t.Fatalf("%d rotations went through and %d were overtaken", went.Load(), overtaken.Load())
+		}
+	}
+}
