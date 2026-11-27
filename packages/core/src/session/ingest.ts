@@ -708,8 +708,10 @@ export abstract class SessionIngest extends SessionChanges {
     if (checked.state !== "signed" || checked.value?.by !== checked.signer.userId) return null;
     const left = this.departedAt(message.group_id, checked.signer.userId, checked.signer.deviceId);
     if (left !== null && signed.epoch >= left) return null;
-    // Nor under one from before it came, whose key it could only have been handed.
-    const arrived = this.arrivedAt(message.group_id, checked.signer.userId, checked.signer.deviceId);
+    // Nor under one from before it came, whose key it could only have been handed. Only for an epoch this device was
+    // there for, as a message's sender is (`couldBeSent`): everyone it found in the tree when it came in came then, as far as it knows.
+    const joined = this.joinedEpoch(message.group_id);
+    const arrived = joined !== null && signed.epoch >= joined ? this.arrivedAt(message.group_id, checked.signer.userId, checked.signer.deviceId) : null;
     if (arrived !== null && signed.epoch < arrived) return null;
     return { by: checked.signer.userId, value: checked.value };
   }
