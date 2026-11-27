@@ -21,6 +21,41 @@ type keyed struct {
 	head   *hybrid.Key
 	device *hybrid.Key
 	links  [][]byte
+	// The public halves of the account's slots, seal key and then sign key, as its links name them.
+	slots map[string][2][]byte
+}
+
+// slotsHashOf is what a link says of slots, as an app makes it (slotsHash in packages/core/src/generations.ts).
+func slotsHashOf(slots map[string][2][]byte) []byte {
+	sum := sha256.New()
+	sum.Write([]byte("zuna/account-slots/v1"))
+	for _, kind := range []string{"password", "recovery"} {
+		keys, ok := slots[kind]
+		if !ok {
+			sum.Write([]byte{0})
+			continue
+		}
+		sum.Write([]byte{1})
+		sum.Write(keys[0])
+		sum.Write(keys[1])
+	}
+	return sum.Sum(nil)
+}
+
+// wholeSlot is a new slot of a kind, as a device sends one along with the secret that opens it.
+func wholeSlot(kind string, b byte) map[string]any {
+	return map[string]any{"kind": kind, "seal_key": hpkeShape(b), "sign_key": lastingShape(b + 1), "sealed_secret": []byte("secret-" + kind + string(rune('a'+b))), "sealed_key": []byte("key-" + kind)}
+}
+
+// keptSlots are a rotation's slots that only get the new key: one for each the account has.
+func (k *keyed) keptSlots() []map[string]any {
+	kept := []map[string]any{}
+	for _, kind := range []string{"password", "recovery"} {
+		if _, ok := k.slots[kind]; ok {
+			kept = append(kept, map[string]any{"kind": kind, "sealed_key": []byte("new key for " + kind)})
+		}
+	}
+	return kept
 }
 
 // newKey is a new identity key, a lasting hybrid one, and newDeviceKey a device's.
@@ -65,7 +100,8 @@ func (h *harness) signUp(name, invite string) *keyed {
 	h.signing.Lock()
 	h.keys[c.token] = device
 	h.signing.Unlock()
-	return &keyed{client: c, h: h, root: root, head: root, device: device}
+	both := [2][]byte{hpkeShape(1), lastingShape(2)}
+	return &keyed{client: c, h: h, root: root, head: root, device: device, slots: map[string][2][]byte{"password": both, "recovery": both}}
 }
 
 func signed(key *hybrid.Key, payload []byte) []byte {
@@ -76,9 +112,34 @@ func signed(key *hybrid.Key, payload []byte) []byte {
 	return signature
 }
 
-// rotation builds a valid request for the account's next generation.
+// rotation builds a valid request for the account's next generation, which keeps its slots.
 func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[string]any, *hybrid.Key) {
 	k.h.t.Helper()
+	return k.replacingSlots(devices, removed)
+}
+
+// replacingSlots is a rotation that replaces each slot given, whole, and keeps the
+// rest. Its link names the slots it leaves.
+func (k *keyed) replacingSlots(devices map[string][]byte, removed []string, whole ...map[string]any) (map[string]any, *hybrid.Key) {
+	k.h.t.Helper()
+	slots := map[string][2][]byte{}
+	for kind, keys := range k.slots {
+		slots[kind] = keys
+	}
+	sent := []map[string]any{}
+	for _, kept := range k.keptSlots() {
+		replaced := false
+		for _, slot := range whole {
+			if slot["kind"] == kept["kind"] {
+				replaced = true
+				sent = append(sent, slot)
+				slots[slot["kind"].(string)] = [2][]byte{slot["seal_key"].([]byte), slot["sign_key"].([]byte)}
+			}
+		}
+		if !replaced {
+			sent = append(sent, kept)
+		}
+	}
 	next := newKey(k.h.t)
 	generation := int64(len(k.links)) + 1
 	var prev [32]byte
@@ -93,12 +154,13 @@ func (k *keyed) rotation(devices map[string][]byte, removed []string) (map[strin
 	}
 	payload, err := json.Marshal(map[string]any{
 		"v": 1, "user": k.userID, "gen": generation, "prev": prev[:], "identity": publicOf(next), "hpke": hpkeShape(5),
-		"key_commit": bytesOf(32, 6), "slots_hash": bytesOf(32, 7), "devices": list, "removed": removed, "signer": k.client.device,
+		"key_commit": bytesOf(32, 6), "slots_hash": slotsHashOf(slots), "devices": list, "removed": removed, "signer": k.client.device,
 	})
 	if err != nil {
 		k.h.t.Fatal(err)
 	}
 	return map[string]any{
+		"slots":               sent,
 		"expected_generation": generation - 1,
 		"link": map[string]any{
 			"generation": generation, "payload": payload, "by_prev": signed(k.head, payload), "by_new": signed(next, payload), "by_device": signed(k.device, payload),
@@ -111,8 +173,18 @@ func (k *keyed) rotate() {
 	k.h.t.Helper()
 	body, next := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
 	k.h.mustDo("POST", "/api/account/rotate", k.token, body, nil)
+	k.accepted(body, next)
+}
+
+// accepted takes on a rotation the server took, with whatever slots it replaced.
+func (k *keyed) accepted(body map[string]any, next *hybrid.Key) {
 	k.links = append(k.links, body["link"].(map[string]any)["payload"].([]byte))
 	k.head = next
+	for _, slot := range body["slots"].([]map[string]any) {
+		if seal, whole := slot["seal_key"].([]byte); whole {
+			k.slots[slot["kind"].(string)] = [2][]byte{seal, slot["sign_key"].([]byte)}
+		}
+	}
 }
 
 func TestRotationAdvancesTheAccountOnce(t *testing.T) {
@@ -248,7 +320,7 @@ func TestPasswordChangesWithTheRotationOrNotAtAll(t *testing.T) {
 	carried := map[string][]byte{owner.client.device: publicOf(owner.device)}
 	kdf := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
 
-	body, _ := owner.rotation(carried, []string{})
+	body, _ := owner.replacingSlots(carried, []string{}, wholeSlot("password", 3))
 	body["password"] = map[string]any{"current_auth_key": bytesOf(32, 0xee), "kdf": kdf, "auth_key": bytesOf(32, 0xab)}
 	if status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil); status != http.StatusForbidden || resp["error"] != "invalid_credentials" {
 		t.Fatalf("wrong password gave %d %v", status, resp)
@@ -274,7 +346,7 @@ func TestChangingThePasswordIsNoFasterAWayToGuessIt(t *testing.T) {
 	for _, change := range []string{"password", "recovery"} {
 		h := newHarness(t, func(cfg *api.Config) { cfg.AuthBurst = 100_000 })
 		owner := h.signUp("owner", h.invite)
-		body, _ := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{})
+		body, _ := owner.replacingSlots(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{}, wholeSlot(change, 3))
 		kdf := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
 		body[change] = map[string]any{"current_auth_key": bytesOf(32, 0xff), "kdf": kdf, "auth_key": bytesOf(32, 0xab), "recovery_auth_key": bytesOf(32, 0xac)}
 		limited := 0
@@ -432,14 +504,81 @@ func TestARotationKeepsWhatItIsntSentOfASlot(t *testing.T) {
 	h := newHarness(t)
 	owner := h.signUp("owner", h.invite)
 	body, _ := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{})
-	body["slots"] = []map[string]any{{"kind": "password", "sealed_key": []byte("new key")}}
 	h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
 	var signedIn struct {
 		Slot     *store.Slot         `json:"slot"`
 		HeadLink *store.IdentityLink `json:"head_link"`
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &signedIn)
-	if signedIn.Slot == nil || string(signedIn.Slot.SealedKey) != "new key" || string(signedIn.Slot.SealedSecret) != "secret-password" || signedIn.HeadLink == nil {
+	if signedIn.Slot == nil || string(signedIn.Slot.SealedKey) != "new key for password" || string(signedIn.Slot.SealedSecret) != "secret-password" || signedIn.HeadLink == nil {
 		t.Fatalf("after the rotation: %+v", signedIn)
+	}
+}
+
+// Z-01 of the audit of 2026-11-26: a device with a session, which may be a stolen
+// one, can't replace a slot without the secret that opens it, so it can't leave
+// itself a way back in once it's removed. And what the server keeps is what the
+// link says, which is what every device goes on sealing to.
+func TestASlotIsOnlyReplacedByWhoeverKnowsItsSecret(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signUp("owner", h.invite)
+	carried := map[string][]byte{owner.client.device: publicOf(owner.device)}
+	kdf := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
+	refused := func(what string, body map[string]any) {
+		t.Helper()
+		if status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil); status != http.StatusBadRequest {
+			t.Fatalf("%s gave %d %v", what, status, resp)
+		}
+	}
+
+	body, _ := owner.replacingSlots(carried, nil, wholeSlot("recovery", 9))
+	refused("a recovery slot of the device's own", body)
+	body, _ = owner.replacingSlots(carried, nil, wholeSlot("password", 9))
+	refused("a password slot of the device's own", body)
+	body, _ = owner.replacingSlots(carried, nil, wholeSlot("password", 9), wholeSlot("recovery", 9))
+	refused("both slots of the device's own", body)
+	// One secret's proof doesn't replace the other's slot.
+	body, _ = owner.replacingSlots(carried, nil, wholeSlot("recovery", 9))
+	body["password"] = map[string]any{"current_auth_key": bytesOf(32, 'o'), "kdf": kdf, "auth_key": bytesOf(32, 'n')}
+	refused("a new recovery slot with a new password", body)
+	// A link that names slots of the device's own, while the server keeps the account's.
+	body, _ = owner.replacingSlots(carried, nil, wholeSlot("recovery", 9))
+	body["slots"] = owner.keptSlots()
+	refused("a link naming other slots than are kept", body)
+	// And the other way: a proven new slot, under a link that names the old one.
+	body, _ = owner.rotation(carried, nil)
+	body["slots"] = []map[string]any{owner.keptSlots()[0], wholeSlot("recovery", 9)}
+	body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'o'), "recovery_auth_key": bytesOf(32, 'y')}
+	refused("a new slot the link doesn't name", body)
+
+	var signedIn struct {
+		Slot       *store.Slot `json:"slot"`
+		Generation int64       `json:"generation"`
+	}
+	h.mustDo("POST", "/api/auth/recover", "", map[string]any{"username": "owner", "recovery_auth_key": bytesOf(32, 'p')}, &signedIn)
+	if signedIn.Generation != 0 || string(signedIn.Slot.SealedSecret) != "secret-recovery" {
+		t.Fatalf("after what was refused: %+v", signedIn)
+	}
+
+	// With the password, a new recovery key comes with its slot.
+	body, next := owner.replacingSlots(carried, nil, wholeSlot("recovery", 9))
+	body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'o'), "recovery_auth_key": bytesOf(32, 'y')}
+	h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
+	owner.accepted(body, next)
+	// With the recovery key, as a recovery sets it, a new password does.
+	body, next = owner.replacingSlots(carried, nil, wholeSlot("password", 4))
+	body["password"] = map[string]any{"recovery_auth_key": bytesOf(32, 'y'), "kdf": kdf, "auth_key": bytesOf(32, 'n')}
+	h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
+	owner.accepted(body, next)
+	// And a rotation that knows neither keeps both.
+	owner.rotate()
+
+	h.mustDo("POST", "/api/auth/recover", "", map[string]any{"username": "owner", "recovery_auth_key": bytesOf(32, 'y')}, &signedIn)
+	if signedIn.Generation != 3 || string(signedIn.Slot.SealedSecret) != "secret-recoveryj" {
+		t.Fatalf("after a new recovery key: %+v", signedIn)
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'n')}, &signedIn)
+	if string(signedIn.Slot.SealedSecret) != "secret-passworde" {
+		t.Fatalf("after a new password: %+v", signedIn)
 	}
 }

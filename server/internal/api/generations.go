@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 
 	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
@@ -30,6 +31,51 @@ func validNewSlots(slots []store.Slot) bool {
 	return len(slots) == 2 && validSlot(slots[0]) && validSlot(slots[1]) && slots[0].Kind != slots[1].Kind
 }
 
+// nextSlots are the slots a rotation leaves an account with: one for each it has,
+// and none added. A slot sent with only its new key keeps the rest of what's
+// stored, and one sent whole replaces it, which replaced says.
+func nextSlots(stored map[string]store.Slot, sent []store.Slot) ([]store.Slot, map[string]bool, bool) {
+	if len(sent) != len(stored) {
+		return nil, nil, false
+	}
+	slots := []store.Slot{}
+	replaced := map[string]bool{}
+	for _, slot := range sent {
+		old, ok := stored[slot.Kind]
+		if !ok || slices.ContainsFunc(slots, func(other store.Slot) bool { return other.Kind == slot.Kind }) {
+			return nil, nil, false
+		}
+		if len(slot.SealKey) == 0 && len(slot.SignKey) == 0 && len(slot.SealedSecret) == 0 {
+			slot.SealKey, slot.SignKey, slot.SealedSecret = old.SealKey, old.SignKey, old.SealedSecret
+		} else {
+			replaced[slot.Kind] = true
+		}
+		if !validSlot(slot) {
+			return nil, nil, false
+		}
+		slots = append(slots, slot)
+	}
+	return slots, replaced, true
+}
+
+// slotsHash is what a link says of the slots, as slotsHash in packages/core/src/generations.ts
+// makes it: each kind's public keys, in a fixed order, or a zero for one that's absent.
+func slotsHash(slots []store.Slot) []byte {
+	sum := sha256.New()
+	sum.Write([]byte("zuna/account-slots/v1"))
+	for _, kind := range []string{"password", "recovery"} {
+		at := slices.IndexFunc(slots, func(slot store.Slot) bool { return slot.Kind == kind })
+		if at < 0 {
+			sum.Write([]byte{0})
+			continue
+		}
+		sum.Write([]byte{1})
+		sum.Write(slots[at].SealKey)
+		sum.Write(slots[at].SignKey)
+	}
+	return sum.Sum(nil)
+}
+
 func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	state, err := s.db.Account(r.Context(), sess.UserID, sess.DeviceID)
 	if err != nil {
@@ -50,8 +96,9 @@ type linkPayload struct {
 		ID  string `json:"id"`
 		Key []byte `json:"key"`
 	} `json:"devices"`
-	Removed []string `json:"removed"`
-	Signer  string   `json:"signer"`
+	Removed   []string `json:"removed"`
+	Signer    string   `json:"signer"`
+	SlotsHash []byte   `json:"slots_hash"`
 }
 
 func rootLinkHash(userID string, root []byte) []byte {
@@ -153,6 +200,22 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		return
 	}
 
+	// Every slot gets the new key, and a slot is only replaced along with the secret
+	// that opens it, proven below: otherwise a device, with neither secret, could
+	// leave itself a way back in once it's removed. What's stored is what the link
+	// names, since that's what every device goes on sealing to.
+	stored, err := s.db.Slots(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	slots, replaced, ok := nextSlots(stored, body.Slots)
+	if !ok || replaced["password"] != (body.Password != nil) || replaced["recovery"] != (body.Recovery != nil) ||
+		subtle.ConstantTimeCompare(slotsHash(slots), payload.SlotsHash) != 1 {
+		writeError(w, http.StatusBadRequest, "bad_request", "That rotation isn't valid.")
+		return
+	}
+
 	rotation := store.Rotation{
 		UserID:       sess.UserID,
 		TokenHash:    hashToken(bearerToken(r)),
@@ -163,6 +226,7 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		IdentityHead: payload.Identity,
 		VaultCore:    body.VaultCore,
 		ProfileSig:   body.ProfileSig,
+		Slots:        slots,
 		Bundles:      body.Bundles,
 		Items:        body.Items,
 	}
@@ -177,27 +241,6 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 	if err != nil {
 		writeFailure(w, err)
 		return
-	}
-	// A slot sent whole is new, and has to be a complete one. One sent with only a
-	// key keeps the rest of what's stored.
-	for _, slot := range body.Slots {
-		if len(slot.SealedSecret) == 0 {
-			stored, err := s.db.SlotOf(r.Context(), sess.UserID, slot.Kind)
-			if err != nil {
-				writeFailure(w, err)
-				return
-			}
-			if stored == nil {
-				writeError(w, http.StatusBadRequest, "bad_request", "That rotation isn't valid.")
-				return
-			}
-			slot.SealKey, slot.SignKey, slot.SealedSecret = stored.SealKey, stored.SignKey, stored.SealedSecret
-		}
-		if !validSlot(slot) {
-			writeError(w, http.StatusBadRequest, "bad_request", "That rotation isn't valid.")
-			return
-		}
-		rotation.Slots = append(rotation.Slots, slot)
 	}
 	// Checking the current password or recovery key counts as a sign-in does, or a
 	// session token would be a faster way to guess it.

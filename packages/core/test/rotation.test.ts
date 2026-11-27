@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
 import { HPKE_PUBLIC_BYTES, openVaultItem, sealVaultItem } from "../src/crypto";
 import { concat, toBase64, utf8 } from "../src/encoding";
+import { createSlot, hash, openFromSlot } from "../src/generations";
 import { TestApp, sleep, waitFor } from "./helpers";
 import {
   server,
@@ -77,22 +78,79 @@ describe("slots and seal keys", () => {
     const username = dave.session.getSelf().username;
     const theirs = wasm.hpkeKeygen();
     const db = serverDatabase();
+    const real = db.prepare("SELECT seal_key FROM account_slots WHERE user_id = ? AND kind = 'password'").get(dave.userId) as { seal_key: Uint8Array };
     db.prepare("UPDATE account_slots SET seal_key = ? WHERE user_id = ? AND kind = 'password'").run(theirs.publicKey as Uint8Array, dave.userId);
     db.close();
+    const sent: { link: { payload: string }; slots: { kind: string; sealed_key: string }[] }[] = [];
+    const api = apiOf(dave);
+    const rotate = api.rotate;
+    api.rotate = (body) => {
+      sent.push(body as (typeof sent)[number]);
+      return rotate(body);
+    };
+    // The server's own code holds what it keeps to the slots the link names, so it takes none of this.
+    await expect(dave.session.rotate()).rejects.toMatchObject({ code: "bad_request" });
+    expect(generationOf(dave)).toBe(0);
+    const password = sent[0].slots.find((slot) => slot.kind === "password")!;
+    expect(() => openFromSlot(theirs.secretKey, "password", username, 1, hash(decode(sent[0].link.payload)), decode(password.sealed_key))).toThrow();
+
+    // Put back, it takes the same, and the real password opens what it sealed.
+    const fixed = serverDatabase();
+    fixed.prepare("UPDATE account_slots SET seal_key = ? WHERE user_id = ? AND kind = 'password'").run(real.seal_key, dave.userId);
+    fixed.close();
     await dave.session.rotate();
-    const stored = serverDatabase();
-    const slot = stored.prepare("SELECT sealed_key FROM account_slots WHERE user_id = ? AND kind = 'password'").get(dave.userId) as { sealed_key: Uint8Array };
-    stored.close();
-    const { openFromSlot } = await import("../src/generations");
-    const hash = sessionOf(dave).headOf(dave.userId).hash;
-    expect(() => openFromSlot(theirs.secretKey, "password", username, 1, hash, slot.sealed_key)).toThrow();
-    // The real password still opens it.
+    expect(generationOf(dave)).toBe(1);
     const phone = await new TestApp("dave-phone").open();
     open.push(phone);
     await phone.login(server.url, username);
     expect(toBase64(accountKeyOf(phone))).toBe(toBase64(accountKeyOf(dave)));
   });
 
+  it("won't let a device that knows neither secret replace a slot, so a stolen one keeps no way back in (Z-01)", async () => {
+    const dave = await new TestApp("dave").open();
+    const username = `dave${nextNumber()}`;
+    const recoveryKey = await dave.register(invite, username);
+    open.push(dave);
+    const stolen = await secondDevice(dave, "dave-stolen");
+    const slots = () => {
+      const db = serverDatabase();
+      try {
+        return (db.prepare("SELECT kind, seal_key, sign_key, sealed_secret FROM account_slots WHERE user_id = ? ORDER BY kind").all(dave.userId) as Record<string, Uint8Array | string>[]).map((row) =>
+          Object.values(row).map((value) => (typeof value === "string" ? value : toBase64(value))).join("|"),
+        );
+      } finally {
+        db.close();
+      }
+    };
+    const before = slots();
+    const root = sessionOf(stolen).account.core.rootPublic;
+    const own = (kind: "password" | "recovery") => createSlot(kind, wasm.randomBytes(32), root).slot;
+
+    // Slots of its own, which only it can open, sent as a rotation with no proof of anything.
+    await expect(stolen.session.rotate({ slots: [own("recovery")] })).rejects.toMatchObject({ code: "bad_request" });
+    await expect(stolen.session.rotate({ slots: [own("password"), own("recovery")] })).rejects.toMatchObject({ code: "bad_request" });
+    // A link that names them, with the account's slots kept beside it, as a server that took them would show it.
+    const api = apiOf(stolen);
+    const rotate = api.rotate;
+    api.rotate = (body) => {
+      const request = body as { slots: { kind: string; sealed_key: string }[] };
+      return rotate({ ...request, slots: request.slots.map(({ kind, sealed_key }) => ({ kind, sealed_key })) });
+    };
+    await expect(stolen.session.rotate({ slots: [own("recovery")] })).rejects.toMatchObject({ code: "bad_request" });
+    api.rotate = rotate;
+    expect(generationOf(stolen)).toBe(0);
+    expect(slots()).toEqual(before);
+
+    // Once it's removed, the account's own secrets are still what opens it.
+    await dave.session.revokeDevice(stolen.session.getSelf().deviceId);
+    await atGeneration(dave, 1);
+    expect(slots().map((row) => row.split("|").slice(0, 3).join("|"))).toEqual(before.map((row) => row.split("|").slice(0, 3).join("|")));
+    const again = await new TestApp("dave-again").open();
+    open.push(again);
+    again.serverId = await again.client.recover(server.url, username, recoveryKey, "a new password here");
+    await again.online();
+    expect(toBase64(accountKeyOf(again))).toBe(toBase64(accountKeyOf(dave)));
+  });
 });
 
 describe("rotating (Z-04)", () => {

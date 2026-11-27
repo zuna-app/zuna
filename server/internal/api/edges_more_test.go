@@ -26,7 +26,7 @@ func (k *keyed) rotationWith(devices map[string][]byte, removed []string, mutate
 	}
 	fields := map[string]any{
 		"v": 1, "user": k.userID, "gen": generation, "prev": prev[:], "identity": publicOf(next), "hpke": hpkeShape(5),
-		"key_commit": bytesOf(32, 6), "slots_hash": bytesOf(32, 7), "devices": list, "removed": removed, "signer": k.client.device,
+		"key_commit": bytesOf(32, 6), "slots_hash": slotsHashOf(k.slots), "devices": list, "removed": removed, "signer": k.client.device,
 	}
 	mutate(fields)
 	payload, err := json.Marshal(fields)
@@ -34,6 +34,7 @@ func (k *keyed) rotationWith(devices map[string][]byte, removed []string, mutate
 		k.h.t.Fatal(err)
 	}
 	return map[string]any{
+		"slots":               k.keptSlots(),
 		"expected_generation": generation - 1,
 		"link":                map[string]any{"generation": generation, "payload": payload, "by_prev": signed(k.head, payload), "by_new": signed(next, payload), "by_device": signed(k.device, payload)},
 		"vault_core":          []byte("core at the new generation"),
@@ -73,22 +74,51 @@ func TestRotationsThatArentRight(t *testing.T) {
 		{"a slot of a kind there isn't", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) {
 			body["slots"] = []map[string]any{{"kind": "fingerprint", "sealed_key": []byte("k")}}
 		})},
-		{"a slot keeping what it had, with a new key", http.StatusOK, rotate(func(_ *keyed, body map[string]any) {
-			body["slots"] = []map[string]any{{"kind": "password", "sealed_key": []byte("new key")}}
+		// wholeSlot(kind, 1) has the public halves the account signed up with, so the link still names the slots it leaves.
+		{"every slot keeping what it had, with a new key", http.StatusOK, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = k.keptSlots()
 		})},
-		{"a new slot that isn't whole", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) {
-			body["slots"] = []map[string]any{{"kind": "password", "seal_key": []byte("short"), "sign_key": lastingShape(2), "sealed_secret": []byte("s"), "sealed_key": []byte("k")}}
+		{"a slot left out", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = k.keptSlots()[:1]
 		})},
-		{"a new password, without the current one", http.StatusForbidden, rotate(func(_ *keyed, body map[string]any) {
+		{"no slots at all", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) { delete(body, "slots") })},
+		{"a slot twice", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			kept := k.keptSlots()
+			body["slots"] = []map[string]any{kept[0], kept[0]}
+		})},
+		{"a new slot that isn't whole", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{{"kind": "password", "seal_key": []byte("short"), "sign_key": lastingShape(2), "sealed_secret": []byte("s"), "sealed_key": []byte("k")}, k.keptSlots()[1]}
+		})},
+		{"a slot with new keys and nothing they open", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{{"kind": "password", "seal_key": hpkeShape(1), "sign_key": lastingShape(2), "sealed_key": []byte("k")}, k.keptSlots()[1]}
+		})},
+		{"a new password slot without the password", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{wholeSlot("password", 1), k.keptSlots()[1]}
+		})},
+		{"a new recovery slot without the password", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{k.keptSlots()[0], wholeSlot("recovery", 1)}
+		})},
+		{"a new password without a slot for it", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) {
+			body["password"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "kdf": kdf, "auth_key": bytesOf(32, 'z')}
+		})},
+		{"a new recovery key without a slot for it", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) {
+			body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(32, 'y')}
+		})},
+		{"slots other than the ones the link names", http.StatusBadRequest, mutated(func(fields map[string]any) { fields["slots_hash"] = bytesOf(32, 7) })},
+		{"a new password, without the current one", http.StatusForbidden, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{wholeSlot("password", 1), k.keptSlots()[1]}
 			body["password"] = map[string]any{"current_auth_key": bytesOf(32, 0), "kdf": kdf, "auth_key": bytesOf(32, 'z')}
 		})},
 		{"a new password that's incomplete", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{wholeSlot("password", 1), k.keptSlots()[1]}
 			body["password"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "kdf": map[string]any{"salt": bytesOf(4, 1)}, "auth_key": bytesOf(32, 'z')}
 		})},
-		{"a new recovery key, without the password", http.StatusForbidden, rotate(func(_ *keyed, body map[string]any) {
+		{"a new recovery key, without the password", http.StatusForbidden, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{k.keptSlots()[0], wholeSlot("recovery", 1)}
 			body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 0), "recovery_auth_key": bytesOf(32, 'y')}
 		})},
-		{"a new recovery key that's incomplete", http.StatusBadRequest, rotate(func(_ *keyed, body map[string]any) {
+		{"a new recovery key that's incomplete", http.StatusBadRequest, rotate(func(k *keyed, body map[string]any) {
+			body["slots"] = []map[string]any{k.keptSlots()[0], wholeSlot("recovery", 1)}
 			body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(8, 'y')}
 		})},
 		{"a bundle for a device the link doesn't carry", http.StatusConflict, rotate(func(_ *keyed, body map[string]any) {

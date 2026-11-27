@@ -16,6 +16,11 @@ import (
 // account has now, so whoever sent it should look again.
 var ErrDevicesChanged = errors.New("devices changed")
 
+// ErrSlotsChanged reports that a rotation's slots aren't the ones the account has,
+// one of each. Only a rotation changes them, under the generation it's guarded by,
+// so this is a mistake, not a race.
+var ErrSlotsChanged = errors.New("slots changed")
+
 // GenerationConflictError reports that a request was for another generation of
 // the account's keys than the current one.
 type GenerationConflictError struct{ Current int64 }
@@ -91,17 +96,59 @@ type AccountState struct {
 	MissingBundles []string `json:"missing_bundles"`
 }
 
+// insertSlots writes a new account's slots, the only time any are added.
 func (d *DB) insertSlots(ctx context.Context, tx handle, userID string, slots []Slot) error {
 	for _, slot := range slots {
-		_, err := tx.ExecContext(ctx, `INSERT INTO account_slots(user_id, kind, seal_key, sign_key, sealed_secret, sealed_key) VALUES(?,?,?,?,?,?)
-			ON CONFLICT(user_id, kind) DO UPDATE SET seal_key = excluded.seal_key, sign_key = excluded.sign_key,
-				sealed_secret = excluded.sealed_secret, sealed_key = excluded.sealed_key`,
+		_, err := tx.ExecContext(ctx, `INSERT INTO account_slots(user_id, kind, seal_key, sign_key, sealed_secret, sealed_key) VALUES(?,?,?,?,?,?)`,
 			userID, slot.Kind, slot.SealKey, slot.SignKey, slot.SealedSecret, slot.SealedKey)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// replaceSlots writes a rotation's slots over the ones the account has, and adds
+// none: what a rotation may do to them is decided before it gets here.
+func replaceSlots(ctx context.Context, tx handle, userID string, slots []Slot) error {
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM account_slots WHERE user_id = ?`, userID).Scan(&count); err != nil {
+		return err
+	}
+	if count != len(slots) {
+		return ErrSlotsChanged
+	}
+	for _, slot := range slots {
+		result, err := tx.ExecContext(ctx, `UPDATE account_slots SET seal_key = ?, sign_key = ?, sealed_secret = ?, sealed_key = ? WHERE user_id = ? AND kind = ?`,
+			slot.SealKey, slot.SignKey, slot.SealedSecret, slot.SealedKey, userID, slot.Kind)
+		if err != nil {
+			return err
+		}
+		if changed, err := result.RowsAffected(); err != nil {
+			return err
+		} else if changed != 1 {
+			return ErrSlotsChanged
+		}
+	}
+	return nil
+}
+
+// Slots are all of a person's slots, by kind.
+func (d *DB) Slots(ctx context.Context, userID string) (map[string]Slot, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT kind, seal_key, sign_key, sealed_secret, sealed_key FROM account_slots WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	slots := map[string]Slot{}
+	for rows.Next() {
+		var slot Slot
+		if err := rows.Scan(&slot.Kind, &slot.SealKey, &slot.SignKey, &slot.SealedSecret, &slot.SealedKey); err != nil {
+			return nil, err
+		}
+		slots[slot.Kind] = slot
+	}
+	return slots, rows.Err()
 }
 
 // SlotOf is a person's slot of a kind, or nil if they don't have one.
@@ -221,7 +268,7 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 			rotation.Link.Generation, rotation.IdentityHead, rotation.VaultCore, rotation.ProfileSig, now, rotation.UserID); err != nil {
 			return err
 		}
-		if err := d.insertSlots(ctx, tx, rotation.UserID, rotation.Slots); err != nil {
+		if err := replaceSlots(ctx, tx, rotation.UserID, rotation.Slots); err != nil {
 			return err
 		}
 		if p := rotation.Password; p != nil {

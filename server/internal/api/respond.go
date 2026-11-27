@@ -91,6 +91,8 @@ func writeFailure(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "stale_version", "Another of your devices saved this first. Look again and retry.")
 	case errors.Is(err, store.ErrDevicesChanged):
 		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Check the current list and try again.")
+	case errors.Is(err, store.ErrSlotsChanged):
+		writeError(w, http.StatusBadRequest, "bad_request", "That rotation isn't valid.")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "That doesn't exist anymore.")
 	case errors.Is(err, store.ErrForbidden):

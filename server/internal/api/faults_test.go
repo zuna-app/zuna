@@ -425,15 +425,13 @@ func TestFailingDatabaseElsewhere(t *testing.T) {
 		}},
 		{"rotate with a new password", http.StatusOK, func() func() int {
 			k := keyed()
-			body, _ := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
-			body["slots"] = newSlots()
+			body, _ := k.replacingSlots(map[string][]byte{k.client.device: publicOf(k.device)}, []string{}, wholeSlot("password", 3))
 			body["password"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(32, 'k'+1), "kdf": map[string]any{"salt": bytesOf(16, 9), "memory": 65536, "iterations": 3, "parallelism": 1}, "auth_key": bytesOf(32, 'z')}
 			return w.status("POST", "/api/account/rotate", k.client, body)
 		}},
 		{"rotate with a new recovery key", http.StatusOK, func() func() int {
 			k := keyed()
-			body, _ := k.rotation(map[string][]byte{k.client.device: publicOf(k.device)}, []string{})
-			body["slots"] = newSlots()
+			body, _ := k.replacingSlots(map[string][]byte{k.client.device: publicOf(k.device)}, []string{}, wholeSlot("recovery", 3))
 			body["recovery"] = map[string]any{"current_auth_key": bytesOf(32, 'k'), "recovery_auth_key": bytesOf(32, 'y')}
 			return w.status("POST", "/api/account/rotate", k.client, body)
 		}},
