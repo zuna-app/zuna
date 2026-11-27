@@ -387,6 +387,11 @@ func (s *Server) handleVoiceToken(call bool) memberHandler {
 // updateVoice takes what a device says it's doing in a voice channel or a call. Being in
 // one on a second device ends it on the first, which is told why.
 func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
+	// A bot takes no part in voice, so what it says of itself goes nowhere, as a bot's
+	// socket saying it's being used does.
+	if c.quiet {
+		return
+	}
 	if frame.Voice == nil || frame.GroupID == "" {
 		s.leaveVoice(c.userID, c.deviceID, false)
 		return

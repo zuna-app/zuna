@@ -360,6 +360,9 @@ func (s *Server) handleCalls(w http.ResponseWriter, r *http.Request, sess *store
 // handleRing rings members of a conversation, from someone in its call: those it names, or
 // everyone who isn't in the call.
 func (s *Server) handleRing(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+	if refuseBot(w, sess) {
+		return
+	}
 	if !s.voiceLimiter.Allow(sess.UserID) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
 		return

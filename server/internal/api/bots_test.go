@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"zuna/server/internal/api"
 	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
@@ -648,4 +649,70 @@ func TestABotGoesWithItsOwner(t *testing.T) {
 	carol.commit(carolsGroup.ID, 0, map[string]any{"add_users": []string{owner.userID, carolsBot.userID}})
 	h.mustDo("DELETE", "/api/account", carol.token, map[string]any{"auth_key": bytesOf(32, 'c')}, nil)
 	gone(carolsBot)
+}
+
+// A bot takes no part in voice. What its socket says of it in a call or a voice channel is
+// dropped, so it starts no call and rings nobody, and every route by which a device does
+// something in a room refuses it, as it would be refused were it in the room.
+func TestABotTakesNoPartInVoice(t *testing.T) {
+	_, liveKit := newFakeLiveKit(t)
+	relay := newFakeRelay(t)
+	h := newHarness(t, withLiveKit(liveKit), func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	bot := owner.runBot("helper", map[string]any{"listed": true})
+	group := owner.group(bob, bot)
+	voice := owner.createChannel("voice", 0)
+	h.mustDo("PUT", "/api/bots/"+bot.userID+"/channels", owner.token, map[string]any{"channels": []string{voice.ID}}, nil)
+	bot.joinChannel(voice.ID, false)
+	h.mustDo("PUT", "/api/push", bob.token, map[string]any{"relay": relay.URL, "handle": "bob-phone", "call_handle": "bob-voip", "key": bytesOf(32, 5), "registration": store.NewID()}, nil)
+	owners := owner.connect()
+	owners.ping()
+	bots := bot.connect()
+	sound := map[string]any{"data": []byte("which")}
+	type route struct {
+		what, path string
+		body       map[string]any
+	}
+	inRoom := func(roomID string, voice map[string]any, routes []route) {
+		t.Helper()
+		bots.sendVoice(roomID, voice)
+		bots.ping()
+		for _, kind := range owners.heard() {
+			if kind == "voice" || kind == "call" {
+				t.Errorf("the bot's socket saying it's in %s told the others %q", roomID, kind)
+			}
+		}
+		for _, route := range routes {
+			if status, body := h.do("POST", route.path, bot.token, route.body, nil); status != http.StatusForbidden || body["error"] != "bot" {
+				t.Errorf("a bot asking for %s gave %d %v", route.what, status, body)
+			}
+		}
+	}
+
+	inRoom(group.ID, map[string]any{"ring": true}, []route{
+		{"a call's token", "/api/groups/" + group.ID + "/call", nil},
+		{"ringing", "/api/groups/" + group.ID + "/call/ring", map[string]any{}},
+		{"a sound in a call", "/api/groups/" + group.ID + "/call/sound", sound},
+		{"a share in a call", "/api/groups/" + group.ID + "/call/screen", map[string]any{}},
+		{"watching in a call", "/api/groups/" + group.ID + "/call/watch", sound},
+	})
+	if list := owner.calls(); len(list.Calls) != 0 || len(list.Voice) != 0 {
+		t.Errorf("after the bot's frame, the calls are %+v", list)
+	}
+	relay.none(t)
+
+	inRoom(voice.ID, map[string]any{}, []route{
+		{"a voice channel's token", "/api/channels/" + voice.ID + "/voice", nil},
+		{"a sound in a voice channel", "/api/channels/" + voice.ID + "/voice/sound", sound},
+		{"a share in a voice channel", "/api/channels/" + voice.ID + "/voice/screen", map[string]any{}},
+		{"watching in a voice channel", "/api/channels/" + voice.ID + "/voice/watch", sound},
+	})
+	var channels struct {
+		Voice []api.VoiceState `json:"voice"`
+	}
+	h.mustDo("GET", "/api/channels", owner.token, nil, &channels)
+	if len(channels.Voice) != 0 {
+		t.Errorf("after the bot's frame, the voice channels have %+v", channels.Voice)
+	}
 }

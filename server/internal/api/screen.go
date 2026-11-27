@@ -178,6 +178,9 @@ func (s *Server) handleStartScreen(call bool) memberHandler {
 			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "Voice isn't set up on this server yet.")
 			return
 		}
+		if refuseBot(w, sess) {
+			return
+		}
 		if !s.voiceLimiter.Allow(sess.UserID) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
 			return

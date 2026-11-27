@@ -109,6 +109,9 @@ func (s *Server) handleDeleteSound(w http.ResponseWriter, r *http.Request, _ *st
 // muted, by themselves or by an admin, or deafened, plays nothing.
 func (s *Server) handlePlaySound(call bool) memberHandler {
 	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+		if refuseBot(w, sess) {
+			return
+		}
 		var body struct {
 			Data []byte `json:"data"`
 		}
