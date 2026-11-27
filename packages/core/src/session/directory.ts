@@ -417,6 +417,9 @@ export abstract class SessionDirectory extends SessionChains {
         this.db.run("INSERT INTO log_kept_records(idx, record, gone) SELECT idx, record, CASE WHEN opened = 0 THEN 0 ELSE 1 END FROM log_records WHERE opened != 1");
         this.db.run("INSERT INTO log_kept_names(tag, sealed) SELECT tag, sealed FROM log_names");
       }
+      // Who held each username in the era this device counted by stays too, beside what eras before
+      // it said of names it doesn't give, for the one it's moving to to be held to (`nameWasTheirs`).
+      if (!first) this.db.run("INSERT OR REPLACE INTO log_past_names(tag, sealed) SELECT tag, sealed FROM log_names");
       this.db.run("DELETE FROM log_records");
       this.db.run("DELETE FROM log_accounts");
       this.db.run("DELETE FROM log_names");
@@ -772,6 +775,21 @@ export abstract class SessionDirectory extends SessionChains {
     this.db.run("INSERT OR REPLACE INTO log_names(tag, sealed) VALUES(?, ?)", [tag, this.sealJson("log-name", tag, holder)]);
   }
 
+  /**
+   * Whether a username is an account's, as this device knew before the log was written again: the
+   * era it counted by last gave it to the account, and didn't say the account was deleted, or it's
+   * this device's own account and name. An honest server writes an era again with every username
+   * held as it was, and gives a name to another only once its holder is deleted, so an account
+   * this era gave it to first, which isn't deleted, is one of the server's making.
+   */
+  protected nameWasTheirs(username: string, userId: string): boolean {
+    if (userId === this.account.userId) return username.toLowerCase() === this.account.username.toLowerCase();
+    const tag = this.nameKey(username);
+    const row = this.db.get<{ sealed: Uint8Array }>("SELECT sealed FROM log_past_names WHERE tag = ?", [tag]);
+    const holder = row ? this.openValue<{ user: string; deleted?: number } | null>("log-name", tag, row.sealed, null) : null;
+    return !!holder && holder.user === userId && holder.deleted === undefined;
+  }
+
   // What the era a link's or manifest's head was of said, kept across the server's later ones
   // (`readEraOfFloor`): its records that came without their bodies, and the usernames it gave.
 
@@ -844,6 +862,26 @@ export abstract class SessionDirectory extends SessionChains {
     if (from) this.warnOnce(`log/floor/${from}`, t(WARNINGS[from]));
     else this.warnOnce(`log/name-kept/${here.idx}`, t(WARNINGS.withheld), userId);
     return true;
+  }
+
+  /**
+   * An account that held a username in this era, which the account it was held for comes after
+   * (`nameWasTheirs`): it was made under a name another held, so it counts for nothing from here,
+   * its devices with it, and the person is told. It held the name only because it came first.
+   */
+  protected unholdName(userId: string, owner: string): void {
+    const account = this.loggedAccount(userId);
+    if (account && !account.void) {
+      account.void = true;
+      this.unsavedAccounts.add(userId);
+      this.logTouched.add(userId);
+      this.logBumps.set(userId, (this.logBumps.get(userId) ?? 0) + 1);
+      this.standingCache.clear();
+      this.cleanEpochs.clear();
+    }
+    const self = this.account.userId;
+    if (owner === self) this.warnOnce(`log/name/${userId}`, t(WARNINGS.nameTaken), self);
+    else this.warnOnce("log/odd", t(WARNINGS.odd));
   }
 
   /**
@@ -1018,7 +1056,13 @@ export abstract class SessionDirectory extends SessionChains {
         account.account = { idx, username: body.username, root: toBase64(body.root), hpke: toBase64(body.hpke) };
         const before = body.user === self ? [] : this.bareBefore(idx);
         if (body.username) {
-          const holder = this.nameHolder(body.username);
+          let holder = this.nameHolder(body.username);
+          if (holder && holder.user !== body.user && holder.deleted === undefined && holder.user !== self && this.nameWasTheirs(body.username, body.user)) {
+            // The name was this account's before, and the server wrote another account under it
+            // ahead of this one: that one was made under a held name, and counts for nothing.
+            this.unholdName(holder.user, body.user);
+            holder = null;
+          }
           if (holder && holder.user !== body.user && holder.deleted === undefined) {
             account.void = true;
             if (holder.user === self) this.warnOnce(`log/name/${body.user}`, t(WARNINGS.nameTaken), self);

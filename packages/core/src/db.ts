@@ -233,6 +233,10 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS epoch_keys_uploaded ON epoch_keys(uploaded) WHERE uploaded = 0;
   CREATE INDEX IF NOT EXISTS identity_state_unsaved ON identity_state(user_id) WHERE chain_uploaded = 0 OR trust_uploaded = 0;
   `,
+  // The usernames the eras of the log a device moved on from gave, as log_names holds this era's,
+  // the latest era's word for each, so that a log written again can't give one to another account
+  // ahead of the one that had it.
+  `CREATE TABLE log_past_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);`,
 ];
 
 export function migrate(db: LocalDb): void {

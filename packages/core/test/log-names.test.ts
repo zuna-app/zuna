@@ -10,11 +10,18 @@ import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { createCertificate, newDeviceKey, newLastingKey, randomId } from "../src/crypto";
 import { fromUtf8, toBase64 } from "../src/encoding";
+import { t } from "../src/i18n";
 import { TestApp, waitFor } from "./helpers";
-import { accountKeys, entryOf, makeEntry, restoreLog, startNewEra, truncateLog } from "./log-setup";
-import { alice, open, person, securityEvents, server, sessionOf, startServer, warned } from "./security-setup";
+import { accountKeys, entryOf, logSize, makeEntry, restoreLog, startNewEra, truncateLog } from "./log-setup";
+import { alice, groupWith, open, person, securityEvents, sentAndSeen, server, sessionOf, startServer, warned, withServerDatabase } from "./security-setup";
 
 startServer({ perTest: true });
+
+/** Whether a device has read the log as far as the server's goes, once it's asked to. */
+const caughtUp = async (app: TestApp) => {
+  await sessionOf(app).syncLog();
+  return sessionOf(app).logState().frontier.size === logSize();
+};
 
 const dataDir = () => (server as unknown as { dir: string }).dir;
 let made = 0;
@@ -76,5 +83,75 @@ describe("a false account under someone's username, ahead of theirs", () => {
     // The server departed from what the link's era said, which frank is told.
     expect(warned(frank, "associated with your invite link")).toBe(true);
     expect(securityEvents(frank).length).toBe(1);
+  });
+
+  it("leaves the real one counting for a device that knew them before the log was written again", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const groupId = await groupWith(dave, [erin]);
+    await caughtUp(dave);
+    await caughtUp(erin);
+    const before = { dave: securityEvents(dave).length, erin: securityEvents(erin).length };
+    startNewEra(dataDir());
+    const impostor = falseAccountUnder(erin.session.getSelf().username);
+    writtenAheadOf(erin.userId, impostor.rows);
+
+    await caughtUp(dave);
+    const session = sessionOf(dave);
+    expect(session.loggedVoid(impostor.user)).toBe(true);
+    expect(session.loggedVoid(erin.userId)).toBe(false);
+    expect(named(dave, erin)).toBe("named");
+    expect(named(dave, dave)).toBe("named");
+    await sentAndSeen(dave, [erin], groupId, "after the log was written again");
+    const since = securityEvents(dave).slice(before.dave).map((event) => (event as { message: string }).message);
+    expect(since.filter((message) => !message.includes("reset its record"))).toEqual([t("security.logOdd")]);
+
+    // Erin's own device knows the name is hers, and that someone else was put under it.
+    await caughtUp(erin);
+    expect(sessionOf(erin).loggedVoid(impostor.user)).toBe(true);
+    expect(sessionOf(erin).loggedVoid(erin.userId)).toBe(false);
+    expect(named(erin, erin)).toBe("named");
+    expect(securityEvents(erin).slice(before.erin).some((event) => (event as { message: string }).message.includes("under your username"))).toBe(true);
+  });
+});
+
+describe("a log written again by an honest server", () => {
+  it("says nothing of names given again after their holders went, before it or after", async () => {
+    const dave = await person("dave");
+    await caughtUp(dave);
+    const invite = await alice.session.createInvite(0, 0);
+    const newcomer = async (name: string, username = unique(name)) => {
+      const app = await new TestApp(name).open();
+      open.push(app);
+      await app.register(invite, username);
+      return app;
+    };
+    // A name its holder freed by deleting their account, and someone else took, before the log is written again.
+    const amy = await newcomer("amy");
+    const amysName = amy.session.getSelf().username;
+    await amy.session.deleteAccount("correct horse battery");
+    const bea = await newcomer("bea", amysName);
+    // And one the backup restored doesn't have, whose holder signs up again under it once it's written.
+    const zed = await newcomer("zed");
+    const zedsName = zed.session.getSelf().username;
+    await waitFor(async () => (await caughtUp(dave)) && counts(dave, bea) && counts(dave, zed), "dave to count bea and zed");
+    zed.client.stop();
+    withServerDatabase((db) => {
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.prepare("DELETE FROM devices WHERE user_id = ?").run(zed.userId);
+      db.prepare("DELETE FROM users WHERE id = ?").run(zed.userId);
+    });
+    const before = securityEvents(dave).length;
+    startNewEra(dataDir());
+    const zed2 = await newcomer("zed-again", zedsName);
+
+    const session = sessionOf(dave);
+    await waitFor(async () => (await caughtUp(dave)) && counts(dave, bea) && counts(dave, zed2), "dave to count whoever holds the names now");
+    expect(session.loggedVoid(bea.userId)).toBe(false);
+    expect(session.loggedVoid(zed2.userId)).toBe(false);
+    expect(session.loggedAccount(amy.userId).deleted).toBeDefined();
+    expect(named(dave, bea)).toBe("named");
+    expect(named(dave, zed2)).toBe("named");
+    expect(securityEvents(dave).slice(before).map((event) => (event as { message: string }).message).filter((message) => !message.includes("reset its record"))).toEqual([]);
   });
 });
