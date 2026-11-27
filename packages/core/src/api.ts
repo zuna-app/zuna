@@ -903,18 +903,49 @@ export class Api {
   uploadChunk = (id: string, n: number, data: Uint8Array) => this.request("PUT", at`/api/files/${id}/chunks/${n}`, undefined, data);
   completeFile = (id: string, attach = false) => this.request("POST", `${at`/api/files/${id}/complete`}${attach ? "?attach=1" : ""}`, {});
 
-  async downloadChunk(id: string, n: number): Promise<Uint8Array> {
+  /**
+   * One chunk of a file. With `maxBytes`, one longer than that is refused as soon as that shows, its
+   * length given or the part read so far, before the rest is held, as a phone's notification extension
+   * has little memory to spare; where the response can't be read a part at a time, once it's in.
+   */
+  async downloadChunk(id: string, n: number, maxBytes = Number.POSITIVE_INFINITY): Promise<Uint8Array> {
     let response: Response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120_000);
+    const tooLong = () => {
+      controller.abort();
+      return new ApiError(0, "download_failed", t("errors.thisFileIsDamagedOr"));
+    };
     try {
-      response = await fetch(`${this.baseUrl}${at`/api/files/${id}/chunks/${n}`}`, {
-        headers: { Authorization: `Bearer ${this.token}` },
-        signal: AbortSignal.timeout(120_000),
-      });
-    } catch {
-      throw new ApiError(0, "network", t("errors.downloadNetwork"));
+      try {
+        response = await fetch(`${this.baseUrl}${at`/api/files/${id}/chunks/${n}`}`, { headers: { Authorization: `Bearer ${this.token}` }, signal: controller.signal });
+      } catch {
+        throw new ApiError(0, "network", t("errors.downloadNetwork"));
+      }
+      if (!response.ok) throw new ApiError(response.status, "download_failed", t("errors.downloadGone"));
+      if (Number(response.headers.get("Content-Length") ?? 0) > maxBytes) throw tooLong();
+      const reader = maxBytes < Number.POSITIVE_INFINITY ? response.body?.getReader?.() : undefined;
+      if (!reader) {
+        const whole = new Uint8Array(await response.arrayBuffer());
+        if (whole.length > maxBytes) throw tooLong();
+        return whole;
+      }
+      const parts: Uint8Array[] = [];
+      let length = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > maxBytes) {
+          void reader.cancel().catch(() => undefined);
+          throw tooLong();
+        }
+        parts.push(value);
+      }
+      return concat(...parts);
+    } finally {
+      clearTimeout(timer);
     }
-    if (!response.ok) throw new ApiError(response.status, "download_failed", t("errors.downloadGone"));
-    return new Uint8Array(await response.arrayBuffer());
   }
 
   // Emotes

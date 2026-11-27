@@ -17,7 +17,9 @@ import { CONTENT_LABEL, checkEnvelope, namesItsSender, parseCertificate, type Si
 import type { DbProvider, LocalDb } from "./db";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, u64Bytes, utf8 } from "./encoding";
 import { notificationText, previewText } from "./notify";
+import { readRoster } from "./roster";
 import { couldBeSent, sealedRows } from "./sendable";
+import { CHUNK_SIZE } from "./session/shared";
 import { isMuted, onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
 import { parseChannelDetails, parseMessageBody } from "./validate";
 
@@ -31,7 +33,7 @@ export interface PushPreview {
   decrypted: boolean;
   /** The chat is muted or notifies only about mentions, and the message doesn't mention you or reply to you. */
   muted: boolean;
-  /** Nothing to show: your own message, one deleted since, or one from someone you blocked. */
+  /** Nothing to show: your own message, one deleted since, one from someone you blocked, or one no chat shows. */
   hidden: boolean;
   /** For a notification laid out as a conversation: who wrote it, with their picture when asked for. */
   sender?: { id: string; name: string; picture?: string };
@@ -51,6 +53,8 @@ export interface PushPreview {
 
 /** Pictures are small; anything bigger isn't worth a notification extension's time. */
 const MAX_PICTURE_CHUNKS = 4;
+/** The most one sealed chunk can be, as the session holds a download to (`downloadChunk` in session/sending.ts). */
+const MAX_SEALED_CHUNK = CHUNK_SIZE + 256;
 
 /**
  * How long a preview's steps may take, in ms. iOS gives a notification extension about half a
@@ -74,7 +78,7 @@ export const pushTiming = {
 interface StoredUser {
   username: string;
   profile: Profile;
-  devices: { id: string; signatureKey: string }[];
+  devices: { id: string; signatureKey: string; revoked?: boolean }[];
   trust?: string;
 }
 
@@ -123,6 +127,8 @@ interface Followed {
   holds(signer: Signer, signatureKey: Uint8Array): boolean;
   /** The server's sequence number the epoch after it started at, if one was seen. */
   nextStart: number | null;
+  /** The group's roster, or a direct message's or channel's charter, which following left as this device last checked it. */
+  roster: Uint8Array | null;
 }
 
 /**
@@ -190,6 +196,7 @@ async function follow(
       key: mls.exportSecret(group, CONTENT_LABEL, u64Bytes(epoch), 32),
       holds: (signer, signatureKey) => leaves.some((leaf) => leaf.cert?.userId === signer.userId && leaf.cert.deviceId === signer.deviceId && equalBytes(leaf.signatureKey, signatureKey)),
       nextStart,
+      roster: roster ?? null,
     };
   } catch {
     // A commit MLS won't take, or changes that aren't as the server should give them.
@@ -250,7 +257,7 @@ export async function previewPush(
       const prefix = fromBase64(avatar.prefix);
       const parts: Uint8Array[] = [];
       for (let index = 0; index < avatar.chunks; index++) {
-        const sealed = await api.downloadChunk(avatar.fileId, index);
+        const sealed = await api.downloadChunk(avatar.fileId, index, MAX_SEALED_CHUNK);
         parts.push(wasm.streamOpen(key, prefix, index, index === avatar.chunks - 1, sealed));
       }
       return toBase64(concat(...parts));
@@ -325,11 +332,25 @@ export async function previewPush(
       },
       message,
     );
-  // Of an epoch followed to, this device has no records of its own yet: the epoch's tree says whose devices were in it.
-  const sendable = followed ? followed.holds(checked.signer, deviceKey(checked.signer)!) && (followed.nextStart === null || message.seq < followed.nextStart) : recorded();
+  // Of an epoch followed to, this device has no records of its own yet: the epoch's tree says whose devices were in it,
+  // and who may be in it what this device last checked: a group's roster, which following didn't let change, the two
+  // people of a direct message, and anyone in a channel. Nor a device the log or the server says is gone, which the
+  // session would have taken out of the tree (`ensureTreeClean`) before anything else, as it has here what it was told.
+  const allowed = (): boolean => {
+    if (group.kind === "channel") return true;
+    if (group.kind === "dm") return senderUser === group.peerId;
+    const roster = followed?.roster ? readRoster(groupId, followed.roster) : null;
+    return !!roster && roster.roster.members.includes(senderUser);
+  };
+  const removed = sender.devices.find((item) => item.id === senderDevice)?.revoked === true;
+  const sendable = followed
+    ? !removed && allowed() && followed.holds(checked.signer, deviceKey(checked.signer)!) && (followed.nextStart === null || message.seq < followed.nextStart)
+    : recorded();
   if (!sendable || sender.trust === "changed") return unread();
   const body = parseMessageBody(checked.value);
   if (!body) return unread();
+  // One that carries something to act on is shown nowhere (`noteSignal`), and an honest server pushes none.
+  if (body.signal) return preview({ hidden: true });
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv", "prefs", prefsRow.v) : {};
