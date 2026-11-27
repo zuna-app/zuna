@@ -7,7 +7,7 @@ import * as wasm from "@zuna/crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ApiError, decode } from "../src/api";
+import { Api, ApiError, decode } from "../src/api";
 import { createCertificate, lastingKeyFromSeed, newLastingKey, randomId } from "../src/crypto";
 import { equalBytes, fromHex, toBase64, toHex, utf8 } from "../src/encoding";
 import { Frontier, bodyFits, bodyHash, fromWireHead, headInput, headSigned, leafHash, linkHead, logKeyHash, nameTag, parseBody, parseLinkHead, readRecord, toWireHead, userTag } from "../src/transparency";
@@ -656,6 +656,31 @@ describe("the manifest, invite links and signing in", () => {
     const phone = await new TestApp("dave-phone").open();
     await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/differ from its own record/);
     phone.client.stop();
+  });
+
+  it("refuses a page at sign-in that says there's more and gives none of it (Z-27)", async () => {
+    const dave = await person("dave");
+    const username = dave.session.getSelf().username;
+    const real = serverHead();
+    const seed = logSeed();
+    const known = new Set(open.map((app) => apiOf(app)));
+    const request = (Api.prototype as any).request;
+    let asked = 0;
+    // To the device signing in, the server says its log goes further, and gives it nothing more, each time it asks.
+    (Api.prototype as any).request = async function (this: Api, method: string, path: string, ...rest: unknown[]) {
+      if (known.has(this) || !path.startsWith("/api/log?")) return request.call(this, method, path, ...rest);
+      if (++asked > 20) throw new Error("asked for ever");
+      const root = new Frontier().root();
+      return { era: real.era, size: real.size, records: [], head: { era: real.era, size: 0, root: b64(root), sig: b64(wasm.sign(seed, headInput(real.era, 0, root))) } };
+    };
+    const phone = await new TestApp("dave-phone").open();
+    try {
+      await expect(phone.client.login(server.url, username, "correct horse battery")).rejects.toThrow(/differ from its own record/);
+      expect(asked).toBe(1);
+    } finally {
+      (Api.prototype as any).request = request;
+      phone.client.stop();
+    }
   });
 });
 

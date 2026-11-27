@@ -3,7 +3,7 @@
 // bodies. Whoever it does that to holds that account's devices as unchecked, and is told.
 
 import { describe, expect, it } from "vitest";
-import { ApiError, decode, type ApiUser } from "../src/api";
+import { Api, ApiError, decode, type ApiUser } from "../src/api";
 import { TestApp, sleep, waitFor } from "./helpers";
 import { logSize } from "./log-setup";
 import { groupWith, person, securityEvents, sessionOf, startServer } from "./security-setup";
@@ -154,6 +154,35 @@ describe("what the log says of someone, kept back from one person", () => {
       expect(session.logStanding(erin.userId, phoneId, signatureKey, certificate)).toBe("gone");
       expect(session.withheldUsers.has(erin.userId)).toBe(true);
     } finally {
+      restore();
+      phone.client.stop();
+    }
+  });
+
+  it("holds them unchecked from the start of the next session, when the log can't be read then (Z-27)", async () => {
+    const { dave, erin, phone, session, restore, bare, readToEnd } = await setUp();
+    const request = (Api.prototype as any).request;
+    try {
+      bare();
+      session.api.logBodies = () => Promise.reject(new ApiError(503, "unavailable", "The server is busy."));
+      const laptop = await new TestApp("erin-laptop").open();
+      await laptop.login(sessionOf(erin).account.serverUrl, erin.session.getSelf().username);
+      laptop.client.stop();
+      await readToEnd();
+      await waitFor(() => session.keptBack(erin.userId), "dave to hold erin's devices unchecked");
+
+      // Dave's app starts again, and the server keeps the log from it.
+      const token = session.api.token;
+      (Api.prototype as any).request = function (this: { token: string | null }, method: string, path: string, ...rest: unknown[]) {
+        if (this.token === token && path.startsWith("/api/log")) return Promise.reject(new ApiError(503, "unavailable", "The server is busy."));
+        return request.call(this, method, path, ...rest);
+      };
+      await dave.restart();
+      await sleep(300);
+      expect(sessionOf(dave).logRead).toBe(false);
+      expect(sessionOf(dave).keptBack(erin.userId)).toBe(true);
+    } finally {
+      (Api.prototype as any).request = request;
       restore();
       phone.client.stop();
     }

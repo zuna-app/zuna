@@ -27,6 +27,8 @@ export abstract class SessionLifecycle extends SessionServer {
     this.forgetUnprovenDeletions();
     this.forgetLongExpired();
     void this.rebuildSearchIndex();
+    // What the log kept back from this device is still kept back until it's read again.
+    this.holdWithheld();
     this.connect();
   }
 

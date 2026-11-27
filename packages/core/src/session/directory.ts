@@ -1248,6 +1248,36 @@ export abstract class SessionDirectory extends SessionChains {
     return [...ids];
   }
 
+  /** Which of the IDs given each of these records is about, as the places of the records about each. */
+  protected recordsAbout(rows: { idx: number; record: Uint8Array }[], ids: string[]): Map<string, number[]> {
+    const wanted = new Map<string, number[]>();
+    for (const row of rows) {
+      const parts = readRecord(row.record);
+      if (!parts) continue;
+      for (const id of ids) {
+        if (equalBytes(userTag(id, parts.nonce), parts.userTag)) {
+          let list = wanted.get(id);
+          if (!list) wanted.set(id, (list = []));
+          list.push(row.idx);
+        }
+      }
+    }
+    return wanted;
+  }
+
+  /**
+   * As a session starts, before the log can be read: whoever this device knows that records it holds
+   * without their bodies are about counts for nothing new again, as it did when the session before
+   * ended, so a server that then keeps the log from it doesn't have them encrypted to. They're asked
+   * for once the log has been read (`lookForWithheld`).
+   */
+  protected holdWithheld(): void {
+    const unopened = this.db.all<{ idx: number; record: Uint8Array }>("SELECT idx, record FROM log_records WHERE opened = 0");
+    if (unopened.length === 0) return;
+    for (const id of this.recordsAbout(unopened, this.knownIds()).keys()) this.withheldUsers.add(id);
+    this.cleanEpochs.clear();
+  }
+
   /** Every record held without its body, tested against the IDs given. Those it fits are asked for. */
   protected lookForWithheld(ids?: string[]): void {
     const fullScan = ids === undefined;
@@ -1260,18 +1290,7 @@ export abstract class SessionDirectory extends SessionChains {
       const last = unopened[unopened.length - 1]!.idx;
       if (last + 1 > this.withheldScannedUpTo) this.withheldScannedUpTo = last + 1;
     }
-    const wanted = new Map<string, number[]>();
-    for (const row of unopened) {
-      const parts = readRecord(row.record);
-      if (!parts) continue;
-      for (const id of targets) {
-        if (equalBytes(userTag(id, parts.nonce), parts.userTag)) {
-          let list = wanted.get(id);
-          if (!list) wanted.set(id, (list = []));
-          list.push(row.idx);
-        }
-      }
-    }
+    const wanted = this.recordsAbout(unopened, targets);
     for (const [id, places] of wanted) {
       if (!this.withheldUsers.has(id)) {
         this.withheldUsers.add(id);

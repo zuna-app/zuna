@@ -475,6 +475,10 @@ async function checkSignInLog(api: Api, session: LoginResponse): Promise<NonNull
   let links: Uint8Array[] = [];
   for (;;) {
     const page = await api.log(era, frontier.size, 2000);
+    // An era begun after the first page is one that got in between, and the sign-in is tried again.
+    if (era !== 0 && page.era !== era) throw new ApiError(409, "stale_generation", unfit.message);
+    // A page with nothing in it that says there's more would be asked for again and again.
+    if (page.records.length === 0 && frontier.size < page.size) throw unfit;
     // Asked about another era, the server answers from the start of its own.
     if (page.era !== era) {
       frontier = new Frontier();
