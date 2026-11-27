@@ -2,7 +2,7 @@
 // encrypted media. Keys come from the channel's MLS group through the core.
 
 import type { RemoteSession } from "@zuna/core/rpc";
-import { parseVoiceIdentity, voiceKeyIndex, voiceSenderKey, VOICE_KEY_RING } from "@zuna/core/voice";
+import { parseVoiceIdentity, voiceSenderKey, VoiceKeySlots, VOICE_KEY_RING } from "@zuna/core/voice";
 import {
   BaseKeyProvider,
   ConnectionQuality,
@@ -52,14 +52,45 @@ const SYSTEM_AUDIO = { echoCancellation: false, noiseSuppression: false, autoGai
 setLogLevel("warn");
 
 class MemberKeys extends BaseKeyProvider {
+  /** The slot this device sends under. */
+  private sending = 0;
+
   constructor() {
     // A key that doesn't open a frame is no reason to give up on it: the sender may just be ahead.
     super({ sharedKey: false, ratchetWindowSize: 0, failureTolerance: -1, keyringSize: VOICE_KEY_RING });
   }
 
-  async install(roomKey: Uint8Array, identity: string, index: number): Promise<void> {
+  /** Sets a sender's key in a slot, unless `still` says by then it's no longer the slot's. */
+  async install(roomKey: Uint8Array, identity: string, index: number, still: () => boolean = () => true): Promise<void> {
     const material = await createKeyMaterialFromBuffer(await voiceSenderKey(roomKey, identity));
+    if (still()) this.onSetEncryptionKey(material, identity, index);
+  }
+
+  /** This device's own key, which it sends under from now on. */
+  async installOwn(roomKey: Uint8Array, identity: string, index: number): Promise<void> {
+    const material = await createKeyMaterialFromBuffer(await voiceSenderKey(roomKey, identity));
+    this.sending = index;
     this.onSetEncryptionKey(material, identity, index);
+  }
+
+  /**
+   * Gives a slot a random key for everyone it held a key for, so that nothing sealed under the
+   * key it held opens any more: there's no taking a key out of LiveKit's ring. Unless `still`
+   * says by then the slot has a new key.
+   */
+  async retire(index: number, identities: Iterable<string>, still: () => boolean): Promise<void> {
+    const material = await createKeyMaterialFromBuffer(crypto.getRandomValues(new Uint8Array(32)).buffer);
+    if (!still()) return;
+    for (const identity of identities) this.onSetEncryptionKey(material, identity, index);
+  }
+
+  /**
+   * LiveKit takes the slot a key was last set in as the one this device sends under when it sets
+   * every key again on connecting, which a retired slot's random key or someone else's would
+   * otherwise be.
+   */
+  override getLatestManuallySetKeyIndex(): number {
+    return this.sending;
   }
 }
 
@@ -126,6 +157,10 @@ export class VoiceRoom {
   private micPublication: LocalTrackPublication | undefined;
   /** The keys in use, newest first: what's being sent under may be one behind for a moment. */
   private roomKeys: { index: number; key: Uint8Array; epoch: number }[] = [];
+  /** Which epoch each slot holds, and when one that's been replaced is retired. */
+  private readonly slots = new VoiceKeySlots();
+  /** Everyone keys have been set for here, whose slots LiveKit keeps until the room is left, whether they're here or not. */
+  private readonly keyed = new Set<string>();
   private sendTimer: ReturnType<typeof setTimeout> | undefined;
   private statsTimer: ReturnType<typeof setInterval> | undefined;
   private identity = "";
@@ -361,21 +396,37 @@ export class VoiceRoom {
   async updateKeys(first = false): Promise<void> {
     const { epoch, key } = await this.session.voiceKey(this.channelId);
     if (this.closed || this.roomKeys[0]?.epoch === epoch) return;
-    const index = voiceKeyIndex(epoch);
+    const { index, retireAt } = this.slots.take(epoch, Date.now());
+    if (retireAt !== undefined) this.slots.retireAt(retireAt, Date.now(), (old, oldEpoch) => void this.retire(old, oldEpoch));
     this.roomKeys = [{ index, key, epoch }, ...this.roomKeys.slice(0, 1)];
-    for (const participant of this.room.remoteParticipants.values()) await this.keys.install(key, participant.identity, index);
+    for (const participant of this.room.remoteParticipants.values()) await this.installOne(key, participant.identity, index, epoch);
     clearTimeout(this.sendTimer);
     if (first) {
-      await this.keys.install(key, this.identity, index);
+      await this.keys.installOwn(key, this.identity, index);
       return;
     }
-    this.sendTimer = setTimeout(() => void this.keys.install(key, this.identity, index), NEW_KEY_SEND_DELAY_MS);
+    this.sendTimer = setTimeout(() => void this.keys.installOwn(key, this.identity, index), NEW_KEY_SEND_DELAY_MS);
+  }
+
+  /** Someone else's key for an epoch, as long as its slot is still that epoch's once it's worked out. */
+  private installOne(key: Uint8Array, identity: string, index: number, epoch: number): Promise<void> {
+    this.keyed.add(identity);
+    return this.keys.install(key, identity, index, () => !this.closed && this.slots.holds(index, epoch));
   }
 
   /** The keys a participant may be sending under: the older first, so the newer ends up current. */
   private async installFor(identity: string): Promise<void> {
     if (identity === this.identity) return;
-    for (const { key, index } of [...this.roomKeys].reverse()) await this.keys.install(key, identity, index);
+    for (const { key, index, epoch } of [...this.roomKeys].reverse()) await this.installOne(key, identity, index, epoch);
+  }
+
+  /**
+   * An epoch's key was replaced a while ago: what's under it is taken from nobody from now on,
+   * whoever comes in later included. This device's own slots are left, as it never opens anything with them.
+   */
+  private async retire(index: number, epoch: number): Promise<void> {
+    this.roomKeys = this.roomKeys.filter((held) => held.epoch !== epoch);
+    await this.keys.retire(index, [...this.keyed], () => !this.closed && this.slots.free(index));
   }
 
   // --- Microphone ---
@@ -613,6 +664,7 @@ export class VoiceRoom {
     if (this.closed) return;
     this.closed = true;
     clearTimeout(this.sendTimer);
+    this.slots.close();
     clearInterval(this.statsTimer);
     this.mic?.stop();
     void this.room.disconnect();

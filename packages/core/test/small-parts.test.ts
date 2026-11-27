@@ -1,13 +1,14 @@
 // Small pieces of the core with no server in them: YouTube links and which watch state wins,
-// soundboard WAV files, and the trust manifest split into vault items.
+// soundboard WAV files, the trust manifest split into vault items, and when a voice key's slot is retired.
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { manifestParts, parseManifest, readManifestPart, joinManifestParts, manifestPartId, isManifestPart, MANIFEST_MOST_PARTS } from "../src/manifest";
 import { heldRoster, readmitsNobody, readRoster, rosterHash, rosterJump } from "../src/roster";
 import { readWav, writeWav } from "../src/sounds";
 import { readYouTubeLink, sameWatch, watchBeats, watchPosition, type WatchState } from "../src/watch";
 import { fromRecoveryText, toRecoveryText, utf8 } from "../src/encoding";
 import { previewText } from "../src/notify";
+import { VOICE_KEY_RING, VOICE_OLD_KEY_MS, VoiceKeySlots, voiceKeyIndex } from "../src/voice";
 import { ZunaClient } from "../src/client";
 import { MemoryDbProvider } from "./helpers";
 import { loadCrypto } from "./helpers";
@@ -178,5 +179,93 @@ describe("a link's preview, as the client keeps it", () => {
     expect(await without.linkPreview("https://example.com/page")).toBeNull();
     client.stop();
     without.stop();
+  });
+});
+
+describe("a voice room's key slots", () => {
+  it("retire a replaced epoch's slot once, after its time and not before, and never the current one", () => {
+    const slots = new VoiceKeySlots();
+    expect(slots.take(5, 0)).toEqual({ index: 5 });
+    expect(slots.take(6, 1000)).toEqual({ index: 6, retireAt: 1000 + VOICE_OLD_KEY_MS });
+    expect(slots.holds(5, 5) && slots.holds(6, 6)).toBe(true);
+    expect(slots.due(VOICE_OLD_KEY_MS)).toEqual([]);
+    expect(slots.holds(5, 5)).toBe(true);
+    expect(slots.due(1000 + VOICE_OLD_KEY_MS)).toEqual([{ index: 5, epoch: 5 }]);
+    expect(slots.free(5) && !slots.holds(5, 5)).toBe(true);
+    // Once.
+    expect(slots.due(10 * VOICE_OLD_KEY_MS)).toEqual([]);
+    // The current one never is, however long it lasts.
+    expect(slots.holds(6, 6) && !slots.free(6)).toBe(true);
+    // An epoch heard again changes nothing.
+    expect(slots.take(6, 2000)).toEqual({ index: 6 });
+  });
+
+  it("retire each epoch in turn when several come quickly, the one sent under last as late as any", () => {
+    const slots = new VoiceKeySlots();
+    slots.take(1, 0);
+    slots.take(2, 100);
+    slots.take(3, 200);
+    expect(slots.due(100 + VOICE_OLD_KEY_MS - 1)).toEqual([]);
+    expect(slots.due(100 + VOICE_OLD_KEY_MS)).toEqual([{ index: 1, epoch: 1 }]);
+    expect(slots.due(200 + VOICE_OLD_KEY_MS)).toEqual([{ index: 2, epoch: 2 }]);
+    expect(slots.holds(3, 3)).toBe(true);
+    // A device that skipped epochs retires the last it held.
+    expect(slots.take(9, 300)).toEqual({ index: 9, retireAt: 300 + VOICE_OLD_KEY_MS });
+    expect(slots.due(300 + VOICE_OLD_KEY_MS)).toEqual([{ index: 3, epoch: 3 }]);
+  });
+
+  it("leave a slot the ring has come round to with a newer epoch's key", () => {
+    const slots = new VoiceKeySlots();
+    // A whole ring's worth of joins and leaves within the time: epoch 0's slot is epoch 16's by then.
+    for (let epoch = 0; epoch <= VOICE_KEY_RING; epoch++) slots.take(epoch, epoch);
+    expect(voiceKeyIndex(VOICE_KEY_RING)).toBe(0);
+    const due = slots.due(VOICE_KEY_RING + VOICE_OLD_KEY_MS);
+    expect(due.map(({ epoch }) => epoch)).toEqual([...Array(VOICE_KEY_RING - 1).keys()].map((epoch) => epoch + 1));
+    expect(slots.holds(0, VOICE_KEY_RING)).toBe(true);
+    // And when epoch 16 is replaced in turn, its slot is retired after its own time.
+    expect(slots.take(VOICE_KEY_RING + 1, 100)).toEqual({ index: 1, retireAt: 100 + VOICE_OLD_KEY_MS });
+    expect(slots.due(100 + VOICE_OLD_KEY_MS)).toEqual([{ index: 0, epoch: VOICE_KEY_RING }]);
+    // Straight from epoch 3 to 19, the same slot: nothing older is left in it to retire.
+    const skipping = new VoiceKeySlots();
+    skipping.take(3, 0);
+    expect(skipping.take(3 + VOICE_KEY_RING, 1)).toEqual({ index: 3 });
+    expect(skipping.due(10 * VOICE_OLD_KEY_MS)).toEqual([]);
+    expect(skipping.holds(3, 3 + VOICE_KEY_RING)).toBe(true);
+  });
+
+  it("keep an epoch a group was taken back to, and retire the one it was taken back from", () => {
+    const slots = new VoiceKeySlots();
+    slots.take(4, 0);
+    slots.take(5, 10);
+    // A commit nobody could apply is undone, and the group is back at 4.
+    expect(slots.take(4, 20)).toEqual({ index: 4, retireAt: 20 + VOICE_OLD_KEY_MS });
+    expect(slots.due(10 * VOICE_OLD_KEY_MS)).toEqual([{ index: 5, epoch: 5 }]);
+    expect(slots.holds(4, 4)).toBe(true);
+  });
+
+  it("retire on a timer, which leaving the room cancels", () => {
+    vi.useFakeTimers();
+    try {
+      const retired: [number, number][] = [];
+      const retire = (index: number, epoch: number) => retired.push([index, epoch]);
+      const slots = new VoiceKeySlots();
+      slots.take(7, Date.now());
+      const { retireAt } = slots.take(8, Date.now());
+      slots.retireAt(retireAt!, Date.now(), retire);
+      vi.advanceTimersByTime(VOICE_OLD_KEY_MS - 1);
+      expect(retired).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(retired).toEqual([[7, 7]]);
+      const { retireAt: next } = slots.take(9, Date.now());
+      slots.retireAt(next!, Date.now(), retire);
+      slots.close();
+      vi.advanceTimersByTime(10 * VOICE_OLD_KEY_MS);
+      expect(retired).toEqual([[7, 7]]);
+      // Nor does a slot replaced after leaving start a timer.
+      slots.retireAt(slots.take(10, Date.now()).retireAt!, Date.now(), retire);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
