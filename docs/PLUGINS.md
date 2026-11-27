@@ -187,8 +187,9 @@ A view is a tree the app draws with its own components. The nodes: `column`, `ro
 `scroll`, `list`, `text`, `heading`, `markup`, `button`, `iconButton`, `switch`, `slider`,
 `select`, `input`, `field`, `notice`, `image` (from `assets/`, or a `data:` URL of at most
 10,000 characters), `avatar`, `icon`, `divider`, `spacer`, `spinner` and `canvas`, which draws
-`rect`, `circle`, `line` and `text` shapes. Colors are the theme's tokens (`text1`, `text2`,
-`text3`, `accent`, `accentText`, `green`, `red`, `amber`, `bg1`, `bg2`, `bg3`) or `#rrggbb`.
+`rect`, `circle`, `line` and `text` shapes, none of which shows outside the canvas's own box.
+Colors are the theme's tokens (`text1`, `text2`, `text3`, `accent`, `accentText`, `green`, `red`,
+`amber`, `bg1`, `bg2`, `bg3`) or `#rrggbb`.
 Icons are the Lucide ones the app carries (`apps/desktop/assets/icons`). A tree is at most 2,000
 nodes, 24 levels and 200,000 characters. Handlers are `onClick`, `onChange` and `onSubmit`.
 

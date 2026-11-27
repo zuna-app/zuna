@@ -24,6 +24,18 @@ thread_local! {
 
 const MAX_IMAGE_CACHE: usize = 64;
 
+#[cfg(test)]
+thread_local! {
+    /// Each canvas painted, for the tests: its box, and the area its shapes could land in.
+    static PAINTED: RefCell<Vec<(gpui::Bounds<gpui::Pixels>, gpui::Bounds<gpui::Pixels>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Each canvas painted since this was last asked, for the tests: its box, and where its shapes could land.
+#[cfg(test)]
+pub fn painted_canvases() -> Vec<(gpui::Bounds<gpui::Pixels>, gpui::Bounds<gpui::Pixels>)> {
+    PAINTED.with(|painted| std::mem::take(&mut *painted.borrow_mut()))
+}
+
 /// The field a plugin's view holds at a place, for the tests.
 #[cfg(test)]
 pub fn input_of(uid: &str, path: &str) -> Option<Entity<TextInput>> {
@@ -366,40 +378,48 @@ fn canvas(shapes: Vec<crate::plugins::view::Shape>, width: f32, height: f32, the
     gpui::canvas(
         |_, _, _| {},
         move |bounds, _, window, cx| {
-            for shape in &shapes {
-                let color = shape.color.as_ref().map(|color| color_of(color, &theme)).unwrap_or(theme.text1);
-                let at = gpui::point(bounds.origin.x + px(shape.x), bounds.origin.y + px(shape.y));
-                match shape.kind.as_str() {
-                    "rect" => {
-                        let area = gpui::Bounds::new(at, gpui::size(px(shape.width.max(0.)), px(shape.height.max(0.))));
-                        let quad = if shape.fill { gpui::fill(area, color) } else { gpui::outline(area, color, gpui::BorderStyle::Solid) };
-                        window.paint_quad(quad.corner_radii(px(shape.radius.max(0.))));
-                    }
-                    "circle" => {
-                        let radius = shape.radius.max(0.);
-                        let area = gpui::Bounds::new(gpui::point(at.x - px(radius), at.y - px(radius)), gpui::size(px(radius * 2.), px(radius * 2.)));
-                        let quad = if shape.fill { gpui::fill(area, color) } else { gpui::outline(area, color, gpui::BorderStyle::Solid) };
-                        window.paint_quad(quad.corner_radii(px(radius)));
-                    }
-                    "line" => {
-                        let mut path = gpui::PathBuilder::stroke(px(shape.width.max(1.)));
-                        path.move_to(at);
-                        path.line_to(gpui::point(bounds.origin.x + px(shape.x2), bounds.origin.y + px(shape.y2)));
-                        if let Ok(path) = path.build() {
-                            window.paint_path(path, color);
-                        }
-                    }
-                    "text" => {
-                        let run = gpui::TextRun { len: shape.text.len(), font: gpui::font(theme::FONT_UI), color, background_color: None, underline: None, strikethrough: None };
-                        let line = window.text_system().shape_line(shape.text.clone().into(), px(shape.size), &[run], None);
-                        line.paint(at, px(shape.size * 1.3), gpui::TextAlign::Left, None, window, cx).ok();
-                    }
-                    _ => {}
-                }
-            }
+            // Nothing of it lands outside its own box, wherever its shapes say they go: not over
+            // the app's own controls, the frame's name and mark, or another plugin's view.
+            window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| paint_shapes(&shapes, bounds, &theme, window, cx));
         },
     )
     .w(px(width))
     .h(px(height))
     .into_any_element()
+}
+
+fn paint_shapes(shapes: &[crate::plugins::view::Shape], bounds: gpui::Bounds<gpui::Pixels>, theme: &Theme, window: &mut gpui::Window, cx: &mut App) {
+    #[cfg(test)]
+    PAINTED.with(|painted| painted.borrow_mut().push((bounds, window.content_mask().bounds)));
+    for shape in shapes {
+        let color = shape.color.as_ref().map(|color| color_of(color, theme)).unwrap_or(theme.text1);
+        let at = gpui::point(bounds.origin.x + px(shape.x), bounds.origin.y + px(shape.y));
+        match shape.kind.as_str() {
+            "rect" => {
+                let area = gpui::Bounds::new(at, gpui::size(px(shape.width.max(0.)), px(shape.height.max(0.))));
+                let quad = if shape.fill { gpui::fill(area, color) } else { gpui::outline(area, color, gpui::BorderStyle::Solid) };
+                window.paint_quad(quad.corner_radii(px(shape.radius.max(0.))));
+            }
+            "circle" => {
+                let radius = shape.radius.max(0.);
+                let area = gpui::Bounds::new(gpui::point(at.x - px(radius), at.y - px(radius)), gpui::size(px(radius * 2.), px(radius * 2.)));
+                let quad = if shape.fill { gpui::fill(area, color) } else { gpui::outline(area, color, gpui::BorderStyle::Solid) };
+                window.paint_quad(quad.corner_radii(px(radius)));
+            }
+            "line" => {
+                let mut path = gpui::PathBuilder::stroke(px(shape.width.max(1.)));
+                path.move_to(at);
+                path.line_to(gpui::point(bounds.origin.x + px(shape.x2), bounds.origin.y + px(shape.y2)));
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+            "text" => {
+                let run = gpui::TextRun { len: shape.text.len(), font: gpui::font(theme::FONT_UI), color, background_color: None, underline: None, strikethrough: None };
+                let line = window.text_system().shape_line(shape.text.clone().into(), px(shape.size), &[run], None);
+                line.paint(at, px(shape.size * 1.3), gpui::TextAlign::Left, None, window, cx).ok();
+            }
+            _ => {}
+        }
+    }
 }

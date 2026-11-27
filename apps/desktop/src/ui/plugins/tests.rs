@@ -99,6 +99,38 @@ fn every_node() -> serde_json::Value {
 }
 
 #[gpui::test]
+fn a_canvas_draws_nothing_outside_its_own_box(cx: &mut TestAppContext) {
+    use crate::plugins::tests_running::Harness;
+    crate::ui::motion::set_reduced(true);
+    let harness = Harness::open(cx, "painter", &[], |_| {});
+    harness.ask(cx, "ui.register", json!({ "kind": "panel", "id": "art", "title": "Art" })).unwrap();
+    harness.app.update(cx, |state, cx| {
+        state.settings.reduce_motion = true;
+        state.select_conversation(Some(format!("user:{}", crate::testing::fixtures::BOB)), cx);
+    });
+    cx.update(|cx| crate::ui::plugins::open(&harness.uid, "panel", "art", cx));
+    // Shapes that reach far past the canvas, every way, as one painting over the app would.
+    let canvas = json!({ "type": "canvas", "props": { "width": 100, "height": 60, "shapes": [
+        { "kind": "rect", "x": -10000, "y": -10000, "width": 1e300, "height": 20000, "color": "red" },
+        { "kind": "circle", "x": 50, "y": 30, "radius": 1e30, "color": "red" },
+        { "kind": "line", "x": -1e300, "y": -1e300, "x2": 1e300, "y2": 1e300, "width": 9000 },
+        { "kind": "text", "x": -5000, "y": 5000, "text": "Enter your password", "size": 96 },
+    ] }, "children": [] });
+    let parsed = crate::plugins::view::parse(&canvas).unwrap();
+    let crate::plugins::view::Node::Canvas { shapes, .. } = &parsed else { panic!("a canvas") };
+    assert!(shapes.iter().all(|shape| [shape.x, shape.y, shape.x2, shape.y2, shape.width, shape.height, shape.radius, shape.size].iter().all(|n| n.is_finite() && n.abs() <= 10_000.)), "every number is held to something finite");
+    crate::ui::plugins::view::painted_canvases();
+    harness.ask(cx, "ui.view", json!({ "id": "panel:art", "tree": { "type": "column", "props": {}, "children": [canvas] } })).unwrap();
+    harness.app.run(cx);
+    let painted = crate::ui::plugins::view::painted_canvases();
+    assert!(!painted.is_empty(), "the canvas was painted");
+    for (bounds, mask) in painted {
+        assert!(mask.size.width > gpui::px(0.) && mask.size.height > gpui::px(0.), "it's on screen: {mask:?}");
+        assert!(mask.origin.x >= bounds.origin.x && mask.origin.y >= bounds.origin.y && mask.bottom_right().x <= bounds.bottom_right().x && mask.bottom_right().y <= bounds.bottom_right().y, "its shapes land only in its own box: {mask:?} within {bounds:?}");
+    }
+}
+
+#[gpui::test]
 fn what_plugins_put_in_the_app_is_drawn_where_they_put_it(cx: &mut TestAppContext) {
     use crate::plugins::tests_running::Harness;
     use crate::state::Panel;
