@@ -739,6 +739,7 @@ export abstract class SessionGroups extends SessionRotation {
 
   protected forgetMlsState(groupId: string): void {
     this.welcomesUnchecked.delete(groupId);
+    this.db.run("DELETE FROM welcomes_unchecked WHERE group_id = ?", [groupId]);
     this.confirmedEpochs.delete(groupId);
     this.cleanEpochs.delete(groupId);
     this.treeUsersCache.delete(groupId);

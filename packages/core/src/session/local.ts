@@ -96,6 +96,13 @@ export abstract class SessionLocal extends SessionBase {
       const group = this.openJson<CachedGroup>("group", row.id, row.data);
       this.groups.set(group.id, group);
     }
+    // A Welcome whose check a restart cut short is checked again (`processWelcomes`).
+    this.welcomesUnchecked.clear();
+    for (const row of this.db.all<{ group_id: string; data: Uint8Array }>("SELECT group_id, data FROM welcomes_unchecked")) {
+      const held = this.openValue<{ epoch?: unknown; key?: unknown } | null>("welcome", row.group_id, row.data, null);
+      const fine = !!held && Number.isSafeInteger(held.epoch) && typeof held.key === "string";
+      this.welcomesUnchecked.set(row.group_id, fine ? { epoch: held.epoch as number, key: fromBase64(held.key as string) } : null);
+    }
     // This account's own key comes from its vault, never from what the server says.
     this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [this.account.userId, this.sealPin(this.account.userId, this.account.core.rootPublic)]);
     // And a bot's owner's from its setup link, since the bot does what its owner says.

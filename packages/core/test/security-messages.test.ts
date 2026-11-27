@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
 import { createCertificate, frameSigned, readSigned, randomId, sealEnvelope, sealSignal, sealVaultItem, subkey } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
-import { TestApp, waitFor, sendKeyOf } from "./helpers";
+import { TestApp, waitFor, sendKeyOf, sleep } from "./helpers";
 import { appendToLog, b64, entryOf } from "./log-setup";
 import {
   server,
@@ -422,14 +422,16 @@ describe("a Welcome delivered as being for another group (Z-46)", () => {
 });
 
 describe("a Welcome whose roster is refused (Z-29)", () => {
-  it("leaves nothing behind: no epoch, key or arrival, nothing in the vault, and no group in MLS", async () => {
-    const victim = await person("rhea");
-    const attacker = await person("saul");
-    const groupId = await attacker.session.createGroup("Saul's", [], false);
+  /**
+   * A group of the attacker's own under a real one's ID, with no roster, whose Welcome a real commit adding the victim
+   * carries. The real group is the victim's to join by itself, but the server keeps it from that, so that what the
+   * victim holds after is what the Welcome left.
+   */
+  async function forgedWelcome(attacker: TestApp, victim: TestApp): Promise<string> {
+    const groupId = await attacker.session.createGroup("Not this one", [], false);
     const session = sessionOf(attacker);
     const deviceId = sessionOf(victim).account.deviceId as string;
     const packages = (await apiOf(attacker).claimKeyPackages(victim.userId, groupId)).filter((item) => item.device_id === deviceId).map((item) => decode(item.data));
-    // A group of the attacker's own under the real one's ID, with no roster, whose Welcome a real commit adding the victim carries.
     const forger = new wasm.MlsClient(session.account.devicePublic, session.account.deviceSecret, session.account.certificate, []);
     forger.createGroup(utf8(groupId));
     const forged = forger.commitChanges(utf8(groupId), packages as unknown as any[], new Uint32Array(0)) as { welcome: Uint8Array };
@@ -446,10 +448,16 @@ describe("a Welcome whose roster is refused (Z-29)", () => {
       welcome_to: [deviceId],
     });
     session.mls.mergePending(utf8(groupId));
+    withServerDatabase((db) => db.prepare("DELETE FROM group_infos WHERE group_id = ?").run(groupId));
+    return groupId;
+  }
+
+  it("leaves nothing behind: no epoch, key or arrival, nothing in the vault, and no group in MLS", async () => {
+    const victim = await person("rhea");
+    const attacker = await person("saul");
+    const groupId = await forgedWelcome(attacker, victim);
 
     const own = sessionOf(victim);
-    // The real group is the victim's to join by itself, but not here, so that what's held after is what the Welcome left.
-    apiOf(victim).groupInfo = async () => ({ epoch: 0, group_info: null }) as any;
     await own.processWelcomes();
     await own.uploadEpochKeys();
     expect(warned(victim, "no roster")).toBe(true);
@@ -460,6 +468,35 @@ describe("a Welcome whose roster is refused (Z-29)", () => {
     // Nor is the group in what MLS keeps on disk, which names each of a group's rows by its ID as JSON's list of its bytes.
     const named = utf8(`[${[...utf8(groupId)].join(",")}]`);
     expect(own.db.get("SELECT 1 FROM mls_kv WHERE instr(k, ?) > 0", [named])).toBeUndefined();
+    expect(own.db.get("SELECT 1 FROM welcomes_unchecked WHERE group_id = ?", [groupId])).toBeUndefined();
+  });
+
+  it("leaves nothing behind either when the app is stopped between using it and refusing it", async () => {
+    const victim = await person("rory");
+    const attacker = await person("sven");
+    const own = sessionOf(victim);
+    let reached = false;
+    own.adoptJoinedRoster = () => {
+      reached = true;
+      return new Promise(() => {});
+    };
+    const groupId = await forgedWelcome(attacker, victim);
+    await waitFor(() => reached && own.hasMlsGroup(groupId), "the Welcome to be used");
+    // Held apart, and counted for nothing meanwhile.
+    expect(own.db.get("SELECT 1 FROM welcomes_unchecked WHERE group_id = ?", [groupId])).toBeTruthy();
+    for (const table of ["joined_epochs", "epoch_keys", "device_arrivals"]) expect(own.db.get(`SELECT 1 FROM ${table} WHERE group_id = ?`, [groupId])).toBeUndefined();
+    victim.client.stop();
+    await sleep(50);
+    await victim.open();
+    const again = sessionOf(victim);
+    await victim.online();
+    await waitFor(() => warned(victim, "no roster"), "the Welcome to be refused");
+    await again.uploadEpochKeys();
+    expect(again.hasMlsGroup(groupId)).toBe(false);
+    for (const table of ["joined_epochs", "epoch_keys", "device_arrivals", "welcomes_unchecked"]) expect(again.db.get(`SELECT 1 FROM ${table} WHERE group_id = ?`, [groupId])).toBeUndefined();
+    expect(withServerDatabase((db) => db.prepare("SELECT id FROM vault_items WHERE user_id = ? AND id LIKE ?").all(victim.userId, `ek:${groupId}:%`))).toEqual([]);
+    const named = utf8(`[${[...utf8(groupId)].join(",")}]`);
+    expect(again.db.get("SELECT 1 FROM mls_kv WHERE instr(k, ?) > 0", [named])).toBeUndefined();
   });
 
   it("is checked again when it couldn't be, and nothing of it is kept or sealed to meanwhile", async () => {
@@ -487,6 +524,44 @@ describe("a Welcome whose roster is refused (Z-29)", () => {
     expect(own.joinedEpoch(groupId)).toBe(epoch);
     await waitFor(() => member.texts(`group:${groupId}`).includes("in the first epoch"), "what was said in the Welcome's epoch");
     await sentAndSeen(member, [owner], groupId, "and back");
+  });
+
+  it.each([
+    ["the server still has the Welcome", true],
+    ["the server no longer has it", false],
+  ])("loses nothing to a restart between using a Welcome and taking its roster on, when %s", async (_, kept) => {
+    const owner = await person("vera");
+    const member = await person("wim");
+    const own = sessionOf(member);
+    // So that the server hands the same Welcome again after the restart, which finds the group in MLS already.
+    if (kept) apiOf(member).deleteWelcome = async () => undefined;
+    // The check never ends, as when iOS ends the app in the middle of it.
+    let reached = false;
+    own.adoptJoinedRoster = () => {
+      reached = true;
+      return new Promise(() => {});
+    };
+    const groupId = await owner.session.createGroup("Restarted", [member.userId], false);
+    const epoch = sessionOf(owner).mlsEpoch(groupId) as number;
+    await waitFor(() => reached && own.hasMlsGroup(groupId), "the Welcome to be used");
+    owner.session.sendMessage(`group:${groupId}`, { text: "in the Welcome's epoch" });
+    await waitFor(() => withServerDatabase((db) => db.prepare("SELECT 1 FROM messages WHERE group_id = ?").get(groupId)) !== undefined, "it to reach the server");
+    await member.restart();
+
+    // The group moves on, and more is said.
+    await sessionOf(owner).withLock(groupId, () => sessionOf(owner).commitWithRetry(groupId, async () => ({ kind: "update" })));
+    owner.session.sendMessage(`group:${groupId}`, { text: "after a commit" });
+    const again = sessionOf(member);
+    await waitFor(() => member.texts(`group:${groupId}`).includes("after a commit"), "what was said after the commit");
+    await waitFor(() => member.texts(`group:${groupId}`).includes("in the Welcome's epoch"), "what was said in the Welcome's epoch");
+    expect(again.joinedEpoch(groupId)).toBe(epoch);
+    expect(again.rosterOf(again.groups.get(groupId))).toBeTruthy();
+    expect(again.welcomesUnchecked.size).toBe(0);
+    expect(again.db.get("SELECT 1 FROM welcomes_unchecked WHERE group_id = ?", [groupId])).toBeUndefined();
+    await sentAndSeen(member, [owner], groupId, "and back after the restart");
+    // The Welcome's epoch's key went into the vault once the roster was taken on, as any other.
+    await again.uploadEpochKeys();
+    expect(withServerDatabase((db) => db.prepare("SELECT 1 FROM vault_items WHERE user_id = ? AND id = ?").get(member.userId, `ek:${groupId}:${epoch}`))).toBeTruthy();
   });
 });
 

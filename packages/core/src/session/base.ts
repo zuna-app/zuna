@@ -132,9 +132,11 @@ export abstract class SessionBase {
   protected externalJoins = new Set<string>();
   /**
    * Groups this device was welcomed into whose roster it hasn't taken on yet, with the epoch the Welcome made and
-   * that epoch's key from MLS. Nothing of the join is kept until the roster is: one refused leaves nothing behind.
+   * that epoch's key from MLS, or null for a record of one that didn't open. Nothing of the join counts until the
+   * roster is taken on: one refused leaves nothing behind. Each is kept in `welcomes_unchecked` as well, apart from
+   * everything else, so that a restart in the middle of the check loses neither (`rememberWelcome`).
    */
-  protected welcomesUnchecked = new Map<string, { epoch: number; key: Uint8Array }>();
+  protected welcomesUnchecked = new Map<string, { epoch: number; key: Uint8Array } | null>();
   /** The epoch each group's tree was last found clean at, so sending needn't check it every time. */
   protected cleanEpochs = new Map<string, number>();
   /** Groups the server says are past what their feed brought, read once more before that's taken for a commit this device couldn't apply. */

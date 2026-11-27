@@ -237,6 +237,10 @@ const MIGRATIONS: string[] = [
   // the latest era's word for each, so that a log written again can't give one to another account
   // ahead of the one that had it.
   `CREATE TABLE log_past_names (tag TEXT PRIMARY KEY, sealed BLOB NOT NULL);`,
+  // A Welcome this device used whose roster it hasn't taken on yet: the epoch it made and that epoch's key from MLS,
+  // sealed, so that a restart in the middle of the check loses neither. It counts for nothing, as joined or for the
+  // vault, and goes once the roster is taken on, which keeps them, or refused, which keeps nothing.
+  `CREATE TABLE welcomes_unchecked (group_id TEXT PRIMARY KEY, data BLOB NOT NULL);`,
 ];
 
 export function migrate(db: LocalDb): void {

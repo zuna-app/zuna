@@ -3,7 +3,7 @@
 import * as wasm from "@zuna/crypto";
 import { ApiError, decode, type ApiGroup, type CommitRequest } from "../api";
 import { CONTENT_LABEL, SEND_LABEL, parseCertificate } from "../crypto";
-import { equalBytes, fromBase64, u64Bytes, utf8 } from "../encoding";
+import { equalBytes, fromBase64, toBase64, u64Bytes, utf8 } from "../encoding";
 import { readRoster, sealCharter, sealRoster, type Roster } from "../roster";
 import { reasonText, ROSTER_BEHIND, ROSTER_UNSAID } from "./groups";
 import { MAX_COMMIT_ATTEMPTS, type GroupMeta, type TreeMember } from "./shared";
@@ -20,13 +20,15 @@ export abstract class SessionJoining extends SessionGroups {
   protected async processWelcomes(): Promise<void> {
     // Each group a Welcome was used for, and whether its roster was taken on.
     const used = new Map<string, boolean>();
-    // A Welcome whose roster couldn't be checked before, as when the server didn't answer, is checked again.
+    // A Welcome whose roster couldn't be checked before, as when the server didn't answer or the app was
+    // stopped in the middle, is checked again, whether or not the server still has it. One that can't be
+    // yet waits for the next time, and keeps none of the others waiting.
     for (const groupId of [...this.welcomesUnchecked.keys()]) {
       await this.withLock(groupId, async () => {
         if (!this.welcomesUnchecked.has(groupId)) return;
         if (!this.groups.has(groupId)) this.applyGroup(await this.api.group(groupId));
         used.set(groupId, await this.afterJoining(groupId));
-      });
+      }).catch((error) => console.warn("[zuna] checking a Welcome again", error));
     }
     const welcomes = await this.api.welcomes();
     for (const welcome of welcomes) {
@@ -61,22 +63,27 @@ export abstract class SessionJoining extends SessionGroups {
   }
 
   /**
-   * Whoever else is in a group just joined by Welcome is checked before trusting it, and only then is
-   * anything of the join kept: when it began, its epoch's key, and so what goes into the vault. Whether
+   * Whoever else is in a group just joined by Welcome is checked before trusting it, and only then does
+   * anything of the join count: when it began, its epoch's key, and so what goes into the vault. Whether
    * it was taken on. One that couldn't be checked, as when the server didn't answer, is checked again
    * the next time welcomes are, and meanwhile nothing is sealed to the group (`ensureTreeClean`).
    */
   protected async afterJoining(groupId: string): Promise<boolean> {
-    const welcomed = this.welcomesUnchecked.get(groupId);
-    if (welcomed && !this.hasMlsGroup(groupId)) {
-      this.welcomesUnchecked.delete(groupId);
+    const unchecked = this.welcomesUnchecked.has(groupId);
+    if (unchecked && !this.hasMlsGroup(groupId)) {
+      // Stopped between noting the Welcome and keeping what MLS made of it: there's nothing to check.
+      this.forgetWelcome(groupId);
       return false;
     }
     if (!(await this.adoptJoinedRoster(groupId))) return false;
-    if (welcomed) {
-      this.welcomesUnchecked.delete(groupId);
-      this.setJoinedEpoch(groupId, welcomed.epoch);
-      this.saveEpochKey(groupId, welcomed.epoch, welcomed.key, "mls");
+    if (unchecked) {
+      const welcomed = this.welcomesUnchecked.get(groupId) ?? null;
+      this.db.transaction(() => {
+        this.forgetWelcome(groupId);
+        // One whose record didn't open is taken as joined now, which is as careful as it gets.
+        this.setJoinedEpoch(groupId, welcomed?.epoch ?? this.mlsEpoch(groupId));
+        if (welcomed) this.saveEpochKey(groupId, welcomed.epoch, welcomed.key, "mls");
+      });
       // Who was in the tree then, and the current epoch's key, if the group has moved on since.
       this.rememberCurrentEpochKey(groupId);
     }
@@ -152,15 +159,31 @@ export abstract class SessionJoining extends SessionGroups {
     return true;
   }
 
+  /**
+   * A Welcome used and not yet checked: in memory, and on this device alone, sealed, for a restart in the
+   * middle of the check. Nothing reads it as the group's: it isn't a joined epoch or an epoch key, so it
+   * goes into no vault and stands for nobody's arrival.
+   */
+  protected rememberWelcome(groupId: string, epoch: number, key: Uint8Array): void {
+    this.welcomesUnchecked.set(groupId, { epoch, key });
+    this.db.run("INSERT OR REPLACE INTO welcomes_unchecked(group_id, data) VALUES(?, ?)", [groupId, this.sealJson("welcome", groupId, { epoch, key: toBase64(key) })]);
+  }
+
+  protected forgetWelcome(groupId: string): void {
+    this.welcomesUnchecked.delete(groupId);
+    this.db.run("DELETE FROM welcomes_unchecked WHERE group_id = ?", [groupId]);
+  }
+
   /** Joins from a welcome and removes it. Returns whether this device joined. */
   protected async consumeWelcome(welcome: { id: number; group_id: string; data: string }): Promise<boolean> {
     let joined = false;
     if (!this.hasMlsGroup(welcome.group_id)) {
       try {
         const result = this.mls.joinFromWelcome(decode(welcome.data), utf8(welcome.group_id)) as { epoch: number };
-        // Kept in memory alone until its roster is taken on (`afterJoining`).
+        // Held apart until its roster is taken on (`afterJoining`), and noted before MLS keeps the join,
+        // so that a device stopped in between still has both, or finds nothing to check.
         const key = this.mls.exportSecret(utf8(welcome.group_id), CONTENT_LABEL, u64Bytes(result.epoch), 32);
-        this.welcomesUnchecked.set(welcome.group_id, { epoch: result.epoch, key });
+        this.rememberWelcome(welcome.group_id, result.epoch, key);
         this.saveMls();
         joined = true;
       } catch (error) {
