@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"zuna/server/internal/api"
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -361,4 +362,14 @@ func TestAMessageCarriesAtMost32Files(t *testing.T) {
 	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": files[:32]}); status != http.StatusCreated {
 		t.Fatalf("32 files gave %d %v", status, resp)
 	}
+}
+
+// A profile's signature is a lasting hybrid one, as it is in a rotation, and no larger.
+func TestAProfilesSignatureIsNoLargerThanOne(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	if status, resp := h.do("PATCH", "/api/me", owner.token, map[string]any{"profile": []byte("p"), "profile_sig": bytesOf(hybrid.LastingSignatureSize+1, 1)}, nil); status != http.StatusRequestEntityTooLarge || resp["error"] != "too_large" {
+		t.Fatalf("a signature too large gave %d %v", status, resp)
+	}
+	h.mustDo("PATCH", "/api/me", owner.token, map[string]any{"profile": []byte("p"), "profile_sig": bytesOf(hybrid.LastingSignatureSize, 1)}, nil)
 }

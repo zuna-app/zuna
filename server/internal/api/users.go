@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"slices"
 
+	"zuna/server/internal/hybrid"
 	"zuna/server/internal/store"
 )
 
@@ -107,7 +108,8 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *st
 		writeError(w, http.StatusBadRequest, "bad_request", "That avatar file isn't valid.")
 		return
 	}
-	if len(body.Profile) > maxDetailBytes {
+	// Its signature is a lasting hybrid one, as in a rotation.
+	if len(body.Profile) > maxDetailBytes || len(body.ProfileSig) > hybrid.LastingSignatureSize {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That profile is too large.")
 		return
 	}
