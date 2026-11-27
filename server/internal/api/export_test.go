@@ -79,7 +79,7 @@ func TestAnExportHoldsWhatsKeptAboutTheAccountAndNoSecrets(t *testing.T) {
 	}
 	chat := export.Conversations[0]
 	if chat.ID != dm.ID || chat.Kind != "dm" || chat.DMKey != store.DMKey(bob.userID, owner.userID) || chat.Membership == nil ||
-		chat.MemberCount != 2 || len(chat.Members) != 2 || chat.Messages.Count != 1 || chat.Messages.Bytes == 0 || chat.ByYou.Count != 1 || chat.ByYou.Last == nil {
+		chat.MemberCount == nil || *chat.MemberCount != 2 || len(chat.Members) != 2 || chat.Messages == nil || chat.Messages.Count != 1 || chat.Messages.Bytes == 0 || chat.ByYou.Count != 1 || chat.ByYou.Last == nil {
 		t.Fatalf("the direct message: %+v", chat)
 	}
 
@@ -167,5 +167,72 @@ func TestAnExportHoldsKeyChangesBotsAndBans(t *testing.T) {
 	}
 	if _, err := h.db.Export(context.Background(), store.NewID()); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("exporting nobody gave %v", err)
+	}
+}
+
+// Z-13: someone no longer in a conversation is told what was theirs in it, the changes
+// they made and those about them, and what it was when it began, but nothing of what it is
+// now: not who's in it, nor how many, nor what's been said or changed since, nor a private
+// bot that came after them, which only its owner and the people in a chat with it may learn.
+func TestAFormerMemberIsntToldWhosInAConversationNow(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	dave := h.register("dave", invite)
+	bot := owner.runBot("secret", nil)
+	group := newGroup(h, owner)
+	for epoch, step := range []func() (int, map[string]any){
+		func() (int, map[string]any) { return owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}) },
+		func() (int, map[string]any) { return bob.commit(group, 1, nil) },
+		func() (int, map[string]any) { return owner.commit(group, 2, map[string]any{"remove_users": []string{bob.userID}}) },
+		func() (int, map[string]any) {
+			return owner.commit(group, 3, map[string]any{"add_users": []string{dave.userID, bot.userID}})
+		},
+	} {
+		if status, resp := step(); status != http.StatusOK {
+			t.Fatalf("commit %d: %d %v", epoch, status, resp)
+		}
+	}
+	owner.send(group, 4, store.NewID())
+
+	status, body, _ := h.raw("POST", "/api/account/export", bob.token, []byte("{}"), proofHeaders(h.keys[bob.token], "POST", "/api/account/export", []byte("{}"), time.Now()))
+	if status != http.StatusOK {
+		t.Fatalf("an export gave %d %s", status, body)
+	}
+	var raw struct {
+		Conversations []map[string]json.RawMessage `json:"conversations"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw.Conversations) != 1 {
+		t.Fatalf("%d conversations", len(raw.Conversations))
+	}
+	chat := raw.Conversations[0]
+	for _, live := range []string{"epoch", "changes", "history_visible", "meta_size", "member_count", "members", "messages"} {
+		if value, told := chat[live]; told {
+			t.Errorf("someone removed is told the conversation's %s: %s", live, value)
+		}
+	}
+	for name, id := range map[string]string{"someone who came after them": dave.userID, "a private bot": bot.userID} {
+		if bytes.Contains(body, []byte(id)) {
+			t.Errorf("someone removed is told of %s", name)
+		}
+	}
+	var export store.Export
+	if err := json.Unmarshal(body, &export); err != nil {
+		t.Fatal(err)
+	}
+	theirs := export.Conversations[0]
+	if theirs.ID != group || theirs.Kind != "group" || theirs.CreatedBy != owner.userID || theirs.Membership != nil || theirs.ByYou.Count != 1 || theirs.ByYou.Last == nil {
+		t.Fatalf("what was theirs: %+v", theirs)
+	}
+
+	// Dave, in it now, is told all of it.
+	h.mustDo("POST", "/api/account/export", dave.token, map[string]any{}, &export)
+	now := export.Conversations[0]
+	if now.Membership == nil || now.MemberCount == nil || *now.MemberCount != 3 || len(now.Members) != 3 || now.Messages == nil || now.Messages.Count != 1 || now.Epoch == nil || *now.Epoch != 4 {
+		t.Fatalf("someone in it now: %+v", now)
 	}
 }

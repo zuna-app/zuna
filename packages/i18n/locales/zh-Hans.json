@@ -876,6 +876,8 @@
   "export.files": "文件",
   "export.filesThatAreYours": "你的文件",
   "export.filesYouveUploadedThatArent": "包括已上传但未附在消息中的文件，例如头像。文件附在消息中后，服务器便无法识别上传者。文件在上传前会加密。",
+  "export.formerChannel": "你已不在的频道",
+  "export.formerGroup": "你已不在的群聊",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "other": "已获得 {count} 个频道的访问权限。"

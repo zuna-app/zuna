@@ -912,6 +912,8 @@
   "export.files": "Archivos",
   "export.filesThatAreYours": "Tus archivos",
   "export.filesYouveUploadedThatArent": "Incluye los archivos que subiste sin adjuntarlos a un mensaje, como tu foto de perfil. Al adjuntar un archivo a un mensaje, el servidor deja de saber quién lo subió. Los archivos se cifran antes de subirlos.",
+  "export.formerChannel": "Un canal en el que ya no estás",
+  "export.formerGroup": "Un grupo en el que ya no estás",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "one": "Se dio acceso a {count} canal.",

@@ -223,6 +223,16 @@ describe("the server's export, in plain words", () => {
 
   it("names each conversation by who's in it, never by what it's called, which only devices know", () => {
     const member = (id: string, username: string) => ({ id, username, role: "member", joined_at: at(3) });
+    const former = {
+      membership: null,
+      epoch: undefined,
+      changes: undefined,
+      history_visible: undefined,
+      meta_size: undefined,
+      member_count: undefined,
+      members: undefined,
+      messages: undefined,
+    };
     const conversations = [
       chat("c-saved", { kind: "dm", dm_key: `${SELF}:${SELF}`, messages: { count: 1, bytes: 10, deleted: 0, first: at(5), last: at(5) } }),
       chat("c-bob", {
@@ -244,6 +254,9 @@ describe("the server's export, in plain words", () => {
       }),
       chat("c-pair", { members: [member(SELF, "ada"), member("u-1", "cy"), member("u-2", "")], by_you: { count: 1, last: null } }),
       chat("c-alone"),
+      // No longer in it, they're told only what was theirs there.
+      chat("c-former-group", { ...former, by_you: { count: 2, last: at(4) } }),
+      chat("c-former-channel", { ...former, kind: "channel" }),
     ];
     const names: Record<string, string> = { "c-bob": "Bob" };
     const exported = describeExport(raw({ conversations }), context({ conversationName: (id) => names[id] }));
@@ -260,6 +273,8 @@ describe("the server's export, in plain words", () => {
     );
     expect(byLabel("Group with @cy and a deleted account").note).toBe("No messages kept. 1 change you made to the members or keys. Most recent: 2026-11-03 12:00.");
     expect(byLabel("Group with only you")).toBeDefined();
+    expect(byLabel("A group you're no longer in")).toMatchObject({ value: "Left", note: "2 changes you made to the members or keys. Most recent: 2026-11-04 12:00." });
+    expect(byLabel("A channel you're no longer in").value).toBe("Left");
     expect(rows.at(-1)!.label).toBe("Your saved messages");
 
     const none = describeExport(raw(), context());

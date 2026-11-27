@@ -876,6 +876,8 @@
   "export.files": "ファイル",
   "export.filesThatAreYours": "自分のファイル",
   "export.filesYouveUploadedThatArent": "プロフィール画像など、メッセージに添付せずにアップロードしたファイルが含まれます。添付すると、サーバーはアップロードした人を特定できなくなります。ファイルはアップロード前に暗号化されます。",
+  "export.formerChannel": "もう参加していないチャンネル",
+  "export.formerGroup": "もう参加していないグループ",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "other": "{count} 件のチャンネルへのアクセスが許可されています。"

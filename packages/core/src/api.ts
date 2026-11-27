@@ -246,14 +246,15 @@ export interface ApiExportConversation {
   dm_key?: string;
   created_by: string;
   created_at: number;
-  epoch: number;
-  changes: number;
-  history_visible: boolean;
-  meta_size: number;
   membership: { role: string; joined_at: number; visible_from_seq: number; read_state_size: number; proof_size: number; history_wanted: boolean } | null;
-  member_count: number;
-  members: { id: string; username: string; role: string; joined_at: number }[];
-  messages: { count: number; bytes: number; deleted: number; first: number | null; last: number | null };
+  /** What it is now, which someone no longer in a group or a channel isn't told. */
+  epoch?: number;
+  changes?: number;
+  history_visible?: boolean;
+  meta_size?: number;
+  member_count?: number;
+  members?: { id: string; username: string; role: string; joined_at: number }[];
+  messages?: { count: number; bytes: number; deleted: number; first: number | null; last: number | null };
   by_you: { count: number; last: number | null };
   to_you: { count: number; last: number | null };
 }

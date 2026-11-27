@@ -982,6 +982,8 @@
   "export.files": "Pliki",
   "export.filesThatAreYours": "Twoje pliki",
   "export.filesYouveUploadedThatArent": "Obejmuje pliki przesłane bez wiadomości, np. zdjęcie profilowe. Po załączeniu pliku do wiadomości serwer nie wie, kto go przesłał. Pliki są szyfrowane przed przesłaniem.",
+  "export.formerChannel": "Kanał, w którym już nie jesteś",
+  "export.formerGroup": "Grupa, w której już nie jesteś",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "one": "Dostęp do {count} kanału.",

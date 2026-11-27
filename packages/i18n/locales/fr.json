@@ -912,6 +912,8 @@
   "export.files": "Fichiers",
   "export.filesThatAreYours": "Tes fichiers",
   "export.filesYouveUploadedThatArent": "Inclut les fichiers envoyés sans message, par exemple ta photo de profil. Une fois le fichier joint à un message, le serveur ne sait plus qui l’a envoyé. Les fichiers sont chiffrés avant l’envoi.",
+  "export.formerChannel": "Un salon dont tu ne fais plus partie",
+  "export.formerGroup": "Un groupe dont tu ne fais plus partie",
   "export.gb": "{size} Go",
   "export.givenChannels": {
     "one": "Accès accordé à {count} salon.",

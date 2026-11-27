@@ -256,34 +256,40 @@ function devicesSection(raw: ApiExport, context: ExportContext): ServerDataSecti
 }
 
 function conversationLabel(chat: ApiExportConversation, selfId: string): string {
-  const others = chat.members.filter((member) => member.id !== selfId);
+  const members = chat.members ?? [];
+  const others = members.filter((member) => member.id !== selfId);
   if (chat.kind === "dm") {
     const pair = (chat.dm_key ?? "").split(":");
     const peer = pair[0] === selfId ? pair[1] : pair[0];
     if (peer === selfId || (!peer && others.length === 0)) return t("export.yourSavedMessages");
-    const username = chat.members.find((member) => member.id === peer)?.username;
+    const username = members.find((member) => member.id === peer)?.username;
     return username === undefined ? t("export.directMessageWithSomeoneWho") : t("export.directMessageWith", { names: names([username]) });
   }
-  if (chat.kind === "channel") return t("export.channelWithMembers", { count: thousands(chat.member_count) });
+  // Who's in it now is for those in it.
+  if (!chat.membership) return chat.kind === "channel" ? t("export.formerChannel") : t("export.formerGroup");
+  if (chat.kind === "channel") return t("export.channelWithMembers", { count: thousands(chat.member_count ?? 0) });
   return others.length ? t("export.groupWith", { names: names(others.map((member) => member.username)) }) : t("export.groupWithOnlyYou");
 }
 
 function conversationsSection(raw: ApiExport, context: ExportContext): ServerDataSection {
   const selfId = raw.account.id;
-  const chats = [...raw.conversations].sort((a, b) => (b.messages.last ?? b.created_at) - (a.messages.last ?? a.created_at));
+  const chats = [...raw.conversations].sort((a, b) => (b.messages?.last ?? b.created_at) - (a.messages?.last ?? a.created_at));
   const rows = chats.map((chat) => {
     const parts: string[] = [];
     const name = context.conversationName(chat.id);
     if (name) parts.push(t("export.onYourDevices", { name }));
-    parts.push(
-      chat.messages.count
-        ? t("export.messagesEncryptedTheLast", {
-            count: thousands(chat.messages.count),
-            size: bytes(chat.messages.bytes),
-            when: stamp(chat.messages.last ?? chat.created_at),
-          })
-        : t("export.noMessagesKept"),
-    );
+    const messages = chat.messages;
+    if (messages) {
+      parts.push(
+        messages.count
+          ? t("export.messagesEncryptedTheLast", {
+              count: thousands(messages.count),
+              size: bytes(messages.bytes),
+              when: stamp(messages.last ?? chat.created_at),
+            })
+          : t("export.noMessagesKept"),
+      );
+    }
     if (chat.meta_size) parts.push(t("export.itsNamePictureAndDescription", { size: bytes(chat.meta_size) }));
     if (chat.by_you.count) {
       parts.push(t("export.changesYouMadeToIts", { count: thousands(chat.by_you.count), when: stamp(chat.by_you.last ?? chat.created_at) }));

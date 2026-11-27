@@ -912,6 +912,8 @@
   "export.files": "Files",
   "export.filesThatAreYours": "Your files",
   "export.filesYouveUploadedThatArent": "Includes files you've uploaded without attaching them to a message, such as your profile picture. Once you attach a file to a message, the server loses track of who uploaded it. Files are encrypted before upload.",
+  "export.formerChannel": "A channel you're no longer in",
+  "export.formerGroup": "A group you're no longer in",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "one": "Access granted to {count} channel.",

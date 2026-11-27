@@ -912,6 +912,8 @@
   "export.files": "Dateien",
   "export.filesThatAreYours": "Deine Dateien",
   "export.filesYouveUploadedThatArent": "Enthält Dateien ohne Nachrichtenanhang, etwa dein Profilbild. Sobald du eine Datei anhängst, kann der Server sie dir nicht mehr zuordnen. Dateien werden vor dem Upload verschlüsselt.",
+  "export.formerChannel": "Ein Kanal, in dem du nicht mehr bist",
+  "export.formerGroup": "Eine Gruppe, in der du nicht mehr bist",
   "export.gb": "{size} GB",
   "export.givenChannels": {
     "one": "Zugriff auf {count} Kanal erteilt.",

@@ -136,21 +136,23 @@ type ExportConversation struct {
 	Kind string `json:"kind"`
 	// DMKey is the two accounts a direct message is between, which the server finds it by.
 	DMKey          string `json:"dm_key,omitempty"`
-	CreatedBy      string `json:"created_by"`
-	CreatedAt      int64  `json:"created_at"`
-	Epoch          int64  `json:"epoch"`
-	Changes        int64  `json:"changes"`
-	HistoryVisible bool   `json:"history_visible"`
-	// MetaSize is the size of its name, picture and description, sealed for its members.
-	MetaSize int64 `json:"meta_size"`
+	CreatedBy string `json:"created_by"`
+	CreatedAt int64  `json:"created_at"`
 	// Membership is nil for a conversation the account has left that the server still
-	// has a trace of it in.
-	Membership  *ExportMembership `json:"membership"`
-	MemberCount int64             `json:"member_count"`
+	// has a trace of it in. Of a group or a channel it's told only what was its own there,
+	// ByYou and ToYou, and what doesn't change, above: the rest, from Epoch to Messages,
+	// is what the conversation is now, which is only for those in it, and is left out.
+	Membership     *ExportMembership `json:"membership"`
+	Epoch          *int64            `json:"epoch,omitempty"`
+	Changes        *int64            `json:"changes,omitempty"`
+	HistoryVisible *bool             `json:"history_visible,omitempty"`
+	// MetaSize is the size of its name, picture and description, sealed for its members.
+	MetaSize    *int64 `json:"meta_size,omitempty"`
+	MemberCount *int64 `json:"member_count,omitempty"`
 	// Members is who's in a direct message or a group. A channel's are only counted, as
 	// they're whoever on the server joined it.
-	Members  []ExportMember `json:"members"`
-	Messages ExportMessages `json:"messages"`
+	Members  []ExportMember  `json:"members,omitzero"`
+	Messages *ExportMessages `json:"messages,omitempty"`
 	// ByYou and ToYou are the changes to who's in it, and to its keys, that the account
 	// made, and that were about it, still kept.
 	ByYou ExportEvents `json:"by_you"`
@@ -507,15 +509,23 @@ func (r exportReader) conversations(out *Export) error {
 	}
 	in := "(" + placeholders(len(list)) + ")"
 	index := map[string]*ExportConversation{}
+	// What each conversation is now, kept apart until it's known whether the account is in it.
+	type state struct {
+		epoch, changes, metaSize int64
+		history                  bool
+	}
+	states := map[string]state{}
 	if err := r.each(`SELECT id, kind, dm_key, created_by, created_at, epoch, seq, history_visible, COALESCE(LENGTH(meta), 0)
 		FROM groups WHERE id IN `+in, list, func(rows *sql.Rows) error {
 		var c ExportConversation
 		var dmKey sql.NullString
+		var now state
 		var history int64
-		if err := rows.Scan(&c.ID, &c.Kind, &dmKey, &c.CreatedBy, &c.CreatedAt, &c.Epoch, &c.Changes, &history, &c.MetaSize); err != nil {
+		if err := rows.Scan(&c.ID, &c.Kind, &dmKey, &c.CreatedBy, &c.CreatedAt, &now.epoch, &now.changes, &history, &now.metaSize); err != nil {
 			return err
 		}
-		c.DMKey, c.HistoryVisible, c.Members = dmKey.String, history != 0, []ExportMember{}
+		now.history = history != 0
+		c.DMKey, states[c.ID] = dmKey.String, now
 		out.Conversations = append(out.Conversations, c)
 		return nil
 	}); err != nil {
@@ -544,6 +554,22 @@ func (r exportReader) conversations(out *Export) error {
 	}); err != nil {
 		return err
 	}
+	// Who's in a conversation now, and what's happened in it since, is for those in it,
+	// and a direct message is always its two's, as its key says.
+	current := make([]any, 0, len(list))
+	for _, c := range index {
+		if c.Membership == nil && c.Kind != "dm" {
+			continue
+		}
+		now := states[c.ID]
+		c.Epoch, c.Changes, c.HistoryVisible, c.MetaSize = &now.epoch, &now.changes, &now.history, &now.metaSize
+		c.MemberCount, c.Members, c.Messages = new(int64), []ExportMember{}, &ExportMessages{}
+		current = append(current, c.ID)
+	}
+	if len(current) == 0 {
+		return withOwnEvents(index, byYou, toYou)
+	}
+	list, in = current, "("+placeholders(len(current))+")"
 	if err := r.each(`SELECT group_id, COUNT(*) FROM group_members WHERE group_id IN `+in+` GROUP BY group_id`, list, func(rows *sql.Rows) error {
 		var id string
 		var n int64
@@ -551,7 +577,7 @@ func (r exportReader) conversations(out *Export) error {
 			return err
 		}
 		if c, ok := index[id]; ok {
-			c.MemberCount = n
+			*c.MemberCount = n
 		}
 		return nil
 	}); err != nil {
@@ -581,12 +607,17 @@ func (r exportReader) conversations(out *Export) error {
 		}
 		m.First, m.Last = nullableInt(first), nullableInt(last)
 		if c, ok := index[id]; ok {
-			c.Messages = m
+			*c.Messages = m
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
+	return withOwnEvents(index, byYou, toYou)
+}
+
+// withOwnEvents puts in each conversation the changes the account made there, and those about it.
+func withOwnEvents(index map[string]*ExportConversation, byYou, toYou map[string]ExportEvents) error {
 	for id, c := range index {
 		c.ByYou, c.ToYou = byYou[id], toYou[id]
 	}
