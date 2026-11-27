@@ -3,7 +3,7 @@
 
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
-import { decode } from "../src/api";
+import { ApiError, decode } from "../src/api";
 import { createCertificate, frameSigned, readSigned, randomId, sealEnvelope, sealSignal, sealVaultItem, subkey } from "../src/crypto";
 import { toBase64, utf8 } from "../src/encoding";
 import { TestApp, waitFor, sendKeyOf } from "./helpers";
@@ -418,6 +418,75 @@ describe("a Welcome delivered as being for another group (Z-46)", () => {
     clearInterval(watch);
     expect(lost).toBe(false);
     expect(sessionOf(victim).mlsEpoch(shared)).toBe(held);
+  });
+});
+
+describe("a Welcome whose roster is refused (Z-29)", () => {
+  it("leaves nothing behind: no epoch, key or arrival, nothing in the vault, and no group in MLS", async () => {
+    const victim = await person("rhea");
+    const attacker = await person("saul");
+    const groupId = await attacker.session.createGroup("Saul's", [], false);
+    const session = sessionOf(attacker);
+    const deviceId = sessionOf(victim).account.deviceId as string;
+    const packages = (await apiOf(attacker).claimKeyPackages(victim.userId, groupId)).filter((item) => item.device_id === deviceId).map((item) => decode(item.data));
+    // A group of the attacker's own under the real one's ID, with no roster, whose Welcome a real commit adding the victim carries.
+    const forger = new wasm.MlsClient(session.account.devicePublic, session.account.deviceSecret, session.account.certificate, []);
+    forger.createGroup(utf8(groupId));
+    const forged = forger.commitChanges(utf8(groupId), packages as unknown as any[], new Uint32Array(0)) as { welcome: Uint8Array };
+    const epoch = session.mlsEpoch(groupId) as number;
+    const pending = session.mls.commitChanges(utf8(groupId), [], new Uint32Array(0)) as { commit: Uint8Array; groupInfo: Uint8Array };
+    await apiOf(attacker).commit(groupId, {
+      expected_epoch: epoch,
+      commit: pending.commit,
+      group_info: pending.groupInfo,
+      send_key: sendKeyOf(session.mls, groupId, true),
+      kind: "members",
+      add_users: [victim.userId],
+      welcome: forged.welcome,
+      welcome_to: [deviceId],
+    });
+    session.mls.mergePending(utf8(groupId));
+
+    const own = sessionOf(victim);
+    // The real group is the victim's to join by itself, but not here, so that what's held after is what the Welcome left.
+    apiOf(victim).groupInfo = async () => ({ epoch: 0, group_info: null }) as any;
+    await own.processWelcomes();
+    await own.uploadEpochKeys();
+    expect(warned(victim, "no roster")).toBe(true);
+    expect(own.hasMlsGroup(groupId)).toBe(false);
+    for (const table of ["joined_epochs", "epoch_keys", "device_arrivals"]) expect(own.db.get(`SELECT 1 FROM ${table} WHERE group_id = ?`, [groupId])).toBeUndefined();
+    const vaulted = withServerDatabase((db) => db.prepare("SELECT id FROM vault_items WHERE user_id = ? AND id LIKE ?").all(victim.userId, `ek:${groupId}:%`));
+    expect(vaulted).toEqual([]);
+    // Nor is the group in what MLS keeps on disk, which names each of a group's rows by its ID as JSON's list of its bytes.
+    const named = utf8(`[${[...utf8(groupId)].join(",")}]`);
+    expect(own.db.get("SELECT 1 FROM mls_kv WHERE instr(k, ?) > 0", [named])).toBeUndefined();
+  });
+
+  it("is checked again when it couldn't be, and nothing of it is kept or sealed to meanwhile", async () => {
+    const owner = await person("tara");
+    const member = await person("ugo");
+    const own = sessionOf(member);
+    const check = own.adoptJoinedRoster.bind(own);
+    let allowed = false;
+    let refusals = 0;
+    own.adoptJoinedRoster = async (groupId: string) => {
+      if (allowed) return check(groupId);
+      refusals++;
+      throw new ApiError(0, "network", "The server can't be reached.");
+    };
+    const groupId = await owner.session.createGroup("Again", [member.userId], false);
+    const epoch = sessionOf(owner).mlsEpoch(groupId) as number;
+    owner.session.sendMessage(`group:${groupId}`, { text: "in the first epoch" });
+    await waitFor(() => refusals > 0 && own.hasMlsGroup(groupId), "the first look");
+    expect(own.joinedEpoch(groupId)).toBeNull();
+    expect(own.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ?", [groupId])).toBeUndefined();
+    await expect(own.ensureTreeClean(groupId)).rejects.toThrow();
+
+    allowed = true;
+    await own.processWelcomes();
+    expect(own.joinedEpoch(groupId)).toBe(epoch);
+    await waitFor(() => member.texts(`group:${groupId}`).includes("in the first epoch"), "what was said in the Welcome's epoch");
+    await sentAndSeen(member, [owner], groupId, "and back");
   });
 });
 

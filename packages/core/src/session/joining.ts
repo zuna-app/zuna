@@ -18,23 +18,32 @@ export abstract class SessionJoining extends SessionGroups {
   // --- Groups: joining ---
 
   protected async processWelcomes(): Promise<void> {
-    const welcomes = await this.api.welcomes();
-    const joined: string[] = [];
-    for (const welcome of welcomes) {
-      await this.withLock(welcome.group_id, async () => {
-        if (await this.consumeWelcome(welcome)) joined.push(welcome.group_id);
+    // Each group a Welcome was used for, and whether its roster was taken on.
+    const used = new Map<string, boolean>();
+    // A Welcome whose roster couldn't be checked before, as when the server didn't answer, is checked again.
+    for (const groupId of [...this.welcomesUnchecked.keys()]) {
+      await this.withLock(groupId, async () => {
+        if (!this.welcomesUnchecked.has(groupId)) return;
+        if (!this.groups.has(groupId)) this.applyGroup(await this.api.group(groupId));
+        used.set(groupId, await this.afterJoining(groupId));
       });
     }
-    for (const groupId of joined) {
-      this.applyGroup(await this.api.group(groupId));
-      await this.withLock(groupId, async () => this.afterJoining(groupId));
+    const welcomes = await this.api.welcomes();
+    for (const welcome of welcomes) {
+      // Joined and checked under one hold of the group's lock, so that nothing else uses the group in between.
+      await this.withLock(welcome.group_id, async () => {
+        if (!(await this.consumeWelcome(welcome))) return;
+        this.applyGroup(await this.api.group(welcome.group_id));
+        used.set(welcome.group_id, await this.afterJoining(welcome.group_id));
+      });
+    }
+    // One refused is caught up on too: the join that follows it takes the group as it is now.
+    for (const groupId of used.keys()) {
       this.retryUndecryptable(groupId);
       this.backgroundSync(groupId);
     }
-    if (joined.length > 0) {
-      this.emitConversations();
-      await this.uploadEpochKeys();
-    }
+    if (used.size > 0) this.emitConversations();
+    if ([...used.values()].some(Boolean)) await this.uploadEpochKeys();
   }
 
   /** Uses welcomes for one group. The caller must already hold that group's lock. */
@@ -51,13 +60,31 @@ export abstract class SessionJoining extends SessionGroups {
     }
   }
 
-  /** Whoever else is in a group just joined by Welcome is checked before trusting it. */
-  protected async afterJoining(groupId: string): Promise<void> {
-    if (!(await this.adoptJoinedRoster(groupId))) return;
+  /**
+   * Whoever else is in a group just joined by Welcome is checked before trusting it, and only then is
+   * anything of the join kept: when it began, its epoch's key, and so what goes into the vault. Whether
+   * it was taken on. One that couldn't be checked, as when the server didn't answer, is checked again
+   * the next time welcomes are, and meanwhile nothing is sealed to the group (`ensureTreeClean`).
+   */
+  protected async afterJoining(groupId: string): Promise<boolean> {
+    const welcomed = this.welcomesUnchecked.get(groupId);
+    if (welcomed && !this.hasMlsGroup(groupId)) {
+      this.welcomesUnchecked.delete(groupId);
+      return false;
+    }
+    if (!(await this.adoptJoinedRoster(groupId))) return false;
+    if (welcomed) {
+      this.welcomesUnchecked.delete(groupId);
+      this.setJoinedEpoch(groupId, welcomed.epoch);
+      this.saveEpochKey(groupId, welcomed.epoch, welcomed.key, "mls");
+      // Who was in the tree then, and the current epoch's key, if the group has moved on since.
+      this.rememberCurrentEpochKey(groupId);
+    }
     await this.checkTree(groupId);
     this.setKnownMembers(groupId, this.treeUsers(groupId));
     this.noteIfUnwanted(groupId);
     this.scheduleReconcile(groupId);
+    return true;
   }
 
   /**
@@ -131,9 +158,10 @@ export abstract class SessionJoining extends SessionGroups {
     if (!this.hasMlsGroup(welcome.group_id)) {
       try {
         const result = this.mls.joinFromWelcome(decode(welcome.data), utf8(welcome.group_id)) as { epoch: number };
+        // Kept in memory alone until its roster is taken on (`afterJoining`).
+        const key = this.mls.exportSecret(utf8(welcome.group_id), CONTENT_LABEL, u64Bytes(result.epoch), 32);
+        this.welcomesUnchecked.set(welcome.group_id, { epoch: result.epoch, key });
         this.saveMls();
-        this.setJoinedEpoch(welcome.group_id, result.epoch);
-        this.rememberCurrentEpochKey(welcome.group_id);
         joined = true;
       } catch (error) {
         // Likely a stale welcome. The group is still reachable by an external join.
@@ -437,6 +465,7 @@ export abstract class SessionJoining extends SessionGroups {
 
   protected async ensureTreeClean(groupId: string): Promise<void> {
     if (!this.hasMlsGroup(groupId)) return;
+    if (this.welcomesUnchecked.has(groupId)) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
     const cached = this.groups.get(groupId);
     if (cached?.kind === "group" && !this.rosterOf(cached)) {
       throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembers"));

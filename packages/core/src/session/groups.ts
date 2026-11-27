@@ -172,7 +172,8 @@ export abstract class SessionGroups extends SessionRotation {
     const epoch = this.mls.epoch(groupBytes);
     // An epoch an external join may yet lose has no key to keep: one kept here would stand in the way of the
     // real one, for that epoch's messages and anything sealed under it, and nothing is sealed under it meanwhile.
-    if (this.confirmedEpochs.get(groupId) === epoch || this.externalJoins.has(groupId)) return epoch;
+    // Nor has a Welcome whose roster isn't taken on yet (`welcomesUnchecked`), which nothing is sealed under either.
+    if (this.confirmedEpochs.get(groupId) === epoch || this.externalJoins.has(groupId) || this.welcomesUnchecked.has(groupId)) return epoch;
     this.noteArrivals(groupId);
     const real = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
     const stored = this.epochKey(groupId, epoch);
@@ -737,6 +738,7 @@ export abstract class SessionGroups extends SessionRotation {
   }
 
   protected forgetMlsState(groupId: string): void {
+    this.welcomesUnchecked.delete(groupId);
     this.confirmedEpochs.delete(groupId);
     this.cleanEpochs.delete(groupId);
     this.treeUsersCache.delete(groupId);
