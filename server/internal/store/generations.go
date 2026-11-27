@@ -85,6 +85,10 @@ type Rotation struct {
 	Items        []VaultItem
 	Password     *PasswordChange
 	Recovery     *RecoveryChange
+	// What the vault may hold, as PutVaultItemsAt takes them, which a rotation is held
+	// to only as far as it grows the vault (putRotationItems).
+	Quota     int64
+	MostItems int
 }
 
 // AccountState is what a device needs to follow its account's generations.
@@ -295,7 +299,7 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 				return err
 			}
 		}
-		if err := putItems(ctx, tx, rotation.UserID, rotation.Items); err != nil {
+		if err := putRotationItems(ctx, tx, rotation); err != nil {
 			return err
 		}
 		if err := appendLog(ctx, tx, rotation.UserID, linkEntry(rotation.UserID, rotation.Link.Generation, rotation.Link.Payload)); err != nil {
@@ -310,6 +314,55 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 		_, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND device_id IS NULL AND token_hash != ?`, rotation.UserID, rotation.TokenHash)
 		return err
 	})
+}
+
+// What a rotation may take an account's vault past its limits by. A rotation seals again
+// what the vault held, under the same IDs, so an honest one grows it by a few bytes at
+// most, such as a new device's name, and one of a full account goes through. What grows
+// the vault by more than this past its limits, rotation after rotation, is refused.
+const (
+	rotationRoomBytes = 4 << 20
+	rotationRoomItems = 1024
+)
+
+// putRotationItems keeps a rotation's items, counted as any vault write's are, by what
+// they add to the vault: an account at its quota or its limit of items, as one a stolen
+// device filled would be, still replaces its keys and throws that device out, and only
+// a rotation that grows the vault past them by more than rotationRoom is refused.
+func putRotationItems(ctx context.Context, tx handle, r Rotation) error {
+	final := map[string]int{}
+	for _, item := range r.Items {
+		final[item.ID] = len(item.Data)
+	}
+	var growth int64
+	added := 0
+	for id, size := range final {
+		var held int64
+		err := tx.QueryRowContext(ctx, `SELECT LENGTH(data) FROM vault_items WHERE user_id = ? AND id = ?`, r.UserID, id).Scan(&held)
+		if errors.Is(err, sql.ErrNoRows) {
+			added++
+		} else if err != nil {
+			return err
+		}
+		growth += int64(size) - held
+	}
+	if added > 0 && r.MostItems > 0 {
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM vault_items WHERE user_id = ?`, r.UserID).Scan(&count); err != nil {
+			return err
+		}
+		if count+added > r.MostItems+rotationRoomItems {
+			return ErrLimit
+		}
+	}
+	var limit int64
+	if growth > 0 && r.Quota > 0 {
+		limit = r.Quota + rotationRoomBytes
+	}
+	if err := countBytes(ctx, tx, storedBytes, r.UserID, growth, limit); err != nil {
+		return err
+	}
+	return putItems(ctx, tx, r.UserID, r.Items)
 }
 
 // Account is what one device needs to know about its account's keys.
@@ -517,7 +570,9 @@ func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int6
 
 // ResealVaultItems moves older items to the current generation, leaving their
 // place in the feed alone: devices already hold what's in them. It can't lower an
-// item's generation, and what shouldn't carry over is deleted.
+// item's generation, and what shouldn't carry over is deleted. An item sealed again
+// under the new key is exactly as large as it was, so one that's larger is refused,
+// which is also why sealing again isn't counted.
 func (d *DB) ResealVaultItems(ctx context.Context, userID string, generation int64, items []VaultItem, remove []string) error {
 	return d.tx(ctx, func(tx handle) error {
 		var current int64
@@ -528,6 +583,18 @@ func (d *DB) ResealVaultItems(ctx context.Context, userID string, generation int
 			return &GenerationConflictError{Current: current}
 		}
 		for _, item := range items {
+			var held int64
+			err := tx.QueryRowContext(ctx, `SELECT LENGTH(data) FROM vault_items WHERE user_id = ? AND id = ? AND generation < ?`,
+				userID, item.ID, generation).Scan(&held)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if int64(len(item.Data)) > held {
+				return ErrLimit
+			}
 			if _, err := tx.ExecContext(ctx, `UPDATE vault_items SET data = ?, generation = ? WHERE user_id = ? AND id = ? AND generation < ?`,
 				item.Data, generation, userID, item.ID, generation); err != nil {
 				return err

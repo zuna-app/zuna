@@ -447,7 +447,7 @@ func TestFailingDatabaseElsewhere(t *testing.T) {
 		}},
 		{"reseal the vault", http.StatusOK, func() func() int {
 			k := keyed()
-			h.mustDo("PUT", "/api/vault", k.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": "ek:g:1", "data": []byte("one")}, {"id": "pin:x", "data": []byte("two")}}}, nil)
+			h.mustDo("PUT", "/api/vault", k.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": "ek:g:1", "data": []byte("ek one")}, {"id": "pin:x", "data": []byte("two")}}}, nil)
 			k.rotate()
 			return w.status("POST", "/api/vault/reseal", k.client, map[string]any{"generation": 1, "items": []map[string]any{{"id": "ek:g:1", "data": []byte("again")}}, "delete": []string{"pin:x"}})
 		}},

@@ -367,7 +367,7 @@ func TestSealingAgainKeepsItsPlaceAndCantGoBack(t *testing.T) {
 	h := newHarness(t)
 	owner := h.signUp("owner", h.invite)
 	h.mustDo("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{
-		{"id": "ek:g:1", "data": []byte("one")},
+		{"id": "ek:g:1", "data": []byte("one, sealed first")},
 		{"id": "pin:someone", "data": []byte("two")},
 	}}, nil)
 	owner.rotate()
@@ -622,5 +622,83 @@ func TestADevicePublishesItsKeysOnlySoOften(t *testing.T) {
 		if logSize(h) != before {
 			t.Fatalf("the same %s again was logged", what)
 		}
+	}
+}
+
+// Z-14: a rotation kept whatever items it carried, counted nowhere, and sealing the vault
+// again under the new key could store more than it held. A rotation now counts what it
+// adds and may grow a vault only so far past its limits, while one that seals again what
+// a full account holds, throwing out a stolen device, still goes through; and an item
+// sealed again is no larger than it was.
+func TestRotationsAndResealingKeepToTheVaultsLimits(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 1 }) // a vault of 2 MiB
+	owner := h.signUp("owner", h.invite)
+	stolen := owner.anotherDevice()
+	item := func(id string, size int) map[string]any {
+		return map[string]any{"id": id, "data": tagged(size, 1)}
+	}
+	held := func() (int64, int64) {
+		t.Helper()
+		var export store.Export
+		h.mustDo("POST", "/api/account/export", owner.token, map[string]any{}, &export)
+		return export.Vault.Items.Bytes, export.Account.StoredBytes
+	}
+	full := []map[string]any{item("manifest", 256<<10)}
+	for i := range 7 {
+		full = append(full, item(fmt.Sprintf("ek:%d", i), 255<<10))
+	}
+	h.mustDo("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": full}, nil)
+	if status, _ := h.do("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{item("more", 8<<10)}}, nil); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("more in a full vault got %d", status)
+	}
+
+	// Full as it is, the account throws out a device, with what it trusts sealed again.
+	body, next := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{stolen.device})
+	body["items"] = []map[string]any{item("manifest", 256<<10)}
+	if status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil); status != http.StatusOK {
+		t.Fatalf("a full account throwing out a device got %d %v", status, resp)
+	}
+	owner.accepted(body, next)
+
+	// Rotation after rotation, each with two megabytes of new items, only so far.
+	through := 0
+	for i := range 6 {
+		body, next := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{})
+		more := []map[string]any{}
+		for j := range 8 {
+			more = append(more, item(fmt.Sprintf("new:%d:%d", i, j), 256<<10))
+		}
+		body["items"] = more
+		status, resp := h.do("POST", "/api/account/rotate", owner.token, body, nil)
+		switch status {
+		case http.StatusOK:
+			owner.accepted(body, next)
+			through++
+		case http.StatusRequestEntityTooLarge:
+		default:
+			t.Fatalf("a rotation growing the vault got %d %v", status, resp)
+		}
+	}
+	stored, counted := held()
+	t.Logf("rotations that grew the vault by 2 MiB each: %d of 6 went through; the vault holds %d bytes, counted %d", through, stored, counted)
+	if through != 2 || stored > 6<<20-7<<10 || counted != stored {
+		t.Fatalf("%d rotations grew the vault to %d bytes, counted as %d", through, stored, counted)
+	}
+
+	// Sealed again under the newest key, the vault holds what it did.
+	generation := int64(len(owner.links))
+	grown := []map[string]any{}
+	same := []map[string]any{}
+	for i := range 7 {
+		grown = append(grown, item(fmt.Sprintf("ek:%d", i), 255<<10+1))
+		same = append(same, item(fmt.Sprintf("ek:%d", i), 255<<10))
+	}
+	status, _ := h.do("POST", "/api/vault/reseal", owner.token, map[string]any{"generation": generation, "items": grown}, nil)
+	if after, _ := held(); status != http.StatusRequestEntityTooLarge || after != stored {
+		t.Fatalf("sealing again with larger items got %d, and the vault went from %d to %d bytes", status, stored, after)
+	}
+	h.mustDo("POST", "/api/vault/reseal", owner.token, map[string]any{"generation": generation, "items": same}, nil)
+	if after, _ := held(); after != stored {
+		t.Fatalf("sealing again went from %d to %d bytes", stored, after)
 	}
 }

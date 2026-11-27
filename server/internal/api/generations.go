@@ -229,6 +229,8 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		Slots:        slots,
 		Bundles:      body.Bundles,
 		Items:        body.Items,
+		Quota:        s.vaultQuotaBytes(),
+		MostItems:    maxVaultItems,
 	}
 	for _, device := range payload.Devices {
 		rotation.Carried[device.ID] = device.Key
