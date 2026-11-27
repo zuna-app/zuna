@@ -153,7 +153,7 @@ For each batch of new records, in order:
 
 | Kind | Rule | Breaking it |
 |---|---|---|
-| `account` | The first for this ID. Its username isn't held by an earlier account with no `deleted` entry, nor is an earlier record that came without its body filed under it (5.3). If this device has a pin for the ID, the key is the pin's | A second for an ID, or a key that isn't the pin's, is today's `changed`. An account under a held name counts for nothing, and its devices with it |
+| `account` | The first for this ID. Its username isn't held by an earlier account with no `deleted` entry, nor is an earlier record that came without its body filed under it (5.3). If this device has a pin for the ID, the key is the pin's | A second for an ID, or a key that isn't the pin's, is today's `changed`. An account under a held name counts for nothing, and its devices with it. It holds no name either, so one written ahead of the account the name was held for doesn't take it from that one |
 | `device` | The account exists and isn't deleted, and the device's ID is new for it | Ignored, and said once |
 | `certificate`, `seal` | The device exists and isn't revoked | Ignored |
 | `revoked` | The device exists | Ignored |

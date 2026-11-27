@@ -1022,12 +1022,14 @@ export abstract class SessionDirectory extends SessionChains {
           if (holder && holder.user !== body.user && holder.deleted === undefined) {
             account.void = true;
             if (holder.user === self) this.warnOnce(`log/name/${body.user}`, t(WARNINGS.nameTaken), self);
-          } else {
-            this.setNameHolder(body.username, { user: body.user, idx });
+          } else if (body.user !== self && this.nameHeldBefore(body.user, body.username, idx, before)) {
+            // Nor is the name free while an account from before holds it that this device can't see
+            // the end of: one the era its link was of named, or one whose entry was kept back from it.
+            account.void = true;
           }
-          // Nor is the name free while an account from before holds it that this device can't see
-          // the end of: one the era its link was of named, or one whose entry was kept back from it.
-          if (body.user !== self && !account.void && this.nameHeldBefore(body.user, body.username, idx, before)) account.void = true;
+          // Only an account that counts holds its name, so one that doesn't can't keep it from the
+          // account it was held for, which the server may write after it.
+          if (!account.void) this.setNameHolder(body.username, { user: body.user, idx });
         }
         if (body.user === self) {
           if (!equalBytes(body.root, this.account.core.rootPublic) || body.username.toLowerCase() !== this.account.username.toLowerCase()) {
