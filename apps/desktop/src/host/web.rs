@@ -40,6 +40,7 @@ fn private_ipv4(ip: Ipv4Addr) -> bool {
 /// IPv4 inside IPv6, which can lead anywhere in IPv4 with none of the checks on it.
 const PRIVATE_IPV6: &[(u128, u32)] = &[
     (0, 96),                                        // ::/96
+    (0x0000_0000_0000_0000_ffff_0000_0000_0000, 96), // ::ffff:0:0:0/96, IPv4 translated into IPv6
     (0x0064_ff9b_0000_0000_0000_0000_0000_0000, 96), // 64:ff9b::/96
     (0x0064_ff9b_0001_0000_0000_0000_0000_0000, 48), // 64:ff9b:1::/48
     (0x0100_0000_0000_0000_0000_0000_0000_0000, 64), // 100::/64
@@ -70,6 +71,12 @@ pub fn private_address(ip: IpAddr) -> bool {
         IpAddr::V4(ip) => private_ipv4(ip),
         IpAddr::V6(ip) => private_ipv6(ip),
     }
+}
+
+/// Whether an address a resolver gave, with its port, leads anywhere private. A public page's
+/// address names no interface, and `private_address` doesn't see one that does.
+fn private_socket(address: &SocketAddr) -> bool {
+    matches!(address, SocketAddr::V6(v6) if v6.scope_id() != 0) || private_address(address.ip())
 }
 
 /// Names that only mean something on this machine or its network.
@@ -105,7 +112,7 @@ impl reqwest::dns::Resolve for CheckedResolver {
                 return Err("That address is on your local network.".into());
             }
             let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 443)).await?.collect();
-            if addresses.is_empty() || addresses.iter().any(|address| private_address(address.ip())) {
+            if addresses.is_empty() || addresses.iter().any(private_socket) {
                 return Err("That address is on your local network.".into());
             }
             Ok(Box::new(addresses.into_iter()) as reqwest::dns::Addrs)
@@ -188,6 +195,24 @@ mod tests {
         }
         for address in ["1.1.1.1", "93.184.216.34", "2606:4700:4700::1111", "::ffff:1.1.1.1"] {
             assert!(!private_address(address.parse().unwrap()), "{address} should be public");
+        }
+    }
+
+    #[test]
+    fn ipv4_translated_into_ipv6_and_addresses_with_a_zone_are_refused() {
+        for address in ["::ffff:0:127.0.0.1", "::ffff:0:7f00:1", "::ffff:0:808:808"] {
+            assert!(private_address(address.parse().unwrap()), "{address} should be private");
+        }
+        // As a resolver gives them: a public address with a zone is refused, without one it isn't.
+        for (address, zone, private) in [("2606:4700:4700::1111", 1, true), ("64:ff9b::a9fe:a9fe", 1, true), ("fec0::1", 2, true), ("2606:4700:4700::1111", 0, false)] {
+            let socket = SocketAddr::V6(std::net::SocketAddrV6::new(address.parse().unwrap(), 443, 0, zone));
+            assert_eq!(private_socket(&socket), private, "{socket}");
+        }
+        assert!(private_socket(&"127.0.0.1:443".parse().unwrap()));
+        assert!(!private_socket(&"1.1.1.1:443".parse().unwrap()));
+        let ok = |text: &str| Url::parse(text).map(|url| previewable(&url)).unwrap_or(false);
+        for link in ["https://[::ffff:0:127.0.0.1]/", "https://[64:ff9b::169.254.169.254%251]/", "https://[fec0::1%25eth0]/", "https://[2606:4700::1111%251]/"] {
+            assert!(!ok(link), "{link} should be refused");
         }
     }
 
