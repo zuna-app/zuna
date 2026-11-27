@@ -4,6 +4,7 @@
 //! desktop, the web and the iPhone open what this sends and the other way round.
 
 mod shared;
+mod slots;
 #[cfg(test)]
 mod tests;
 
@@ -243,6 +244,13 @@ struct Shared {
     /// The keys in use, newest first: (index, key, epoch).
     keys: Mutex<Vec<(i32, Vec<u8>, u64)>>,
     provider: KeyProvider,
+    /// Which epoch each slot holds, and when one that's been replaced is retired. Everyone else's
+    /// keys are set under its lock, so that one being set and a slot being retired never cross.
+    slots: Mutex<slots::KeySlots>,
+    /// Everyone keys have been set for here, whose slots LiveKit keeps until the room is left, whether they're here or not.
+    keyed: Mutex<HashSet<String>>,
+    /// The timers retiring slots, stopped when the room is left.
+    retiring: slots::Timers,
     /// The key index this device sends under.
     sending: Mutex<i32>,
     /// Bumped with each new key, so a delayed switch that's been overtaken does nothing.
@@ -277,7 +285,8 @@ impl VoiceRoom {
     /// Comes into a room, listening under the room's first key. Throws with something to tell the person.
     pub async fn join(url: String, token: String, identity: String, epoch: u64, room_key: Vec<u8>, mixer: Mixer, volumes: Volumes) -> Result<(VoiceRoom, UnboundedReceiver<Event>), String> {
         let provider = KeyProvider::new(key_options());
-        let index = key_index(epoch);
+        let mut slots = slots::KeySlots::default();
+        let (index, _) = slots.take(epoch, std::time::Instant::now());
         provider.set_key(&ParticipantIdentity(identity.clone()), index, sender_key(&room_key, &identity));
         let mut options = RoomOptions::default();
         options.auto_subscribe = true;
@@ -306,6 +315,9 @@ impl VoiceRoom {
             identity: identity.clone(),
             keys: Mutex::new(vec![(index, room_key, epoch)]),
             provider,
+            slots: Mutex::new(slots),
+            keyed: Mutex::new(HashSet::new()),
+            retiring: slots::Timers::default(),
             sending: Mutex::new(index),
             key_serial: AtomicU64::new(0),
             refused: Mutex::new(HashSet::new()),
@@ -349,20 +361,24 @@ impl VoiceRoom {
     pub fn update_keys(&self, epoch: u64, room_key: Vec<u8>, first: bool) {
         let _runtime = crate::host::tokio().enter();
         let shared = self.shared.clone();
-        {
+        let index = {
             let mut keys = shared.keys.lock();
             if keys.first().is_some_and(|(_, _, current)| *current == epoch) {
                 return;
             }
-            let index = key_index(epoch);
+            let mut slots = shared.slots.lock();
+            let (index, retire_at) = slots.take(epoch, std::time::Instant::now());
+            if let Some(at) = retire_at {
+                shared.retire_at(at);
+            }
             keys.insert(0, (index, room_key.clone(), epoch));
             keys.truncate(2);
-        }
-        let index = key_index(epoch);
-        for participant in self.room.remote_participants().values() {
-            let identity = participant.identity();
-            shared.provider.set_key(&identity, index, sender_key(&room_key, &identity.0));
-        }
+            log::debug!("voice: listening under epoch {epoch}'s key, in slot {index}");
+            for participant in self.room.remote_participants().values() {
+                shared.set_key_of(&participant.identity().0, index, sender_key(&room_key, &participant.identity().0));
+            }
+            index
+        };
         let serial = shared.key_serial.fetch_add(1, Ordering::Relaxed) + 1;
         let room = self.room.clone();
         let switch = move || {
@@ -604,6 +620,7 @@ impl VoiceRoom {
         if self.shared.closed.swap(true, Ordering::Relaxed) {
             return;
         }
+        self.shared.retiring.stop();
         self.camera.lock().take();
         for (_, audio) in self.shared.audio.lock().drain() {
             self.shared.mixer.remove(audio.mixer_id);

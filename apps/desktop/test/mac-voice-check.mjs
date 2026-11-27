@@ -192,6 +192,22 @@ try {
   await first.shot("voice");
   await second.shot("voice");
 
+  // --- Someone new on the server comes into the channel's group, which moves the room to a new key, and
+  //     30 s later each app gives the old one's slot a random key, still hearing the other under the new one ---
+  /** Where in an app's log it first retired a key's slot, or -1. */
+  const retiredIn = (app) => app.log().search(/voice: retired the key in slot \d+, of epoch \d+/);
+  /** The loudest a voice decoded at, from a place in the app's log on. */
+  const loudestFrom = (app, from) => Math.max(0, ...[...app.log().slice(from).matchAll(/voice: \S+ peaks at ([0-9.]+)/g)].map((match) => Number(match[1])));
+  const newcomer = start(...viteNodeArgs(join(here, "peer.ts"), invite, "zed", "Zed Newcomer"), process.env, "newcomer", join(root, "packages", "core"));
+  const retired = await until(() => retiredIn(first) >= 0 && retiredIn(second) >= 0, "each app to retire the old key's slot", 180_000).then(() => true, () => false);
+  /** When the app's log says it moved to a new key and retired the old one's slot. */
+  const keyLines = (app) => app.log().split("\n").filter((line) => /voice: (listening under|retired the key)/.test(line)).join(" | ");
+  check("the room moves to a new key as someone comes into the channel, and each app retires the old one's slot", retired, `owner: ${keyLines(first)}; guest: ${keyLines(second)}`);
+  console.log(`     owner: ${keyLines(first)}\n     guest: ${keyLines(second)}`);
+  const stillHeard = await until(() => loudestFrom(first, retiredIn(first)) > 0.1 && loudestFrom(second, retiredIn(second)) > 0.1, "each to hear the other after the old key's slot is retired", 15_000).then(() => true, () => false);
+  check("after the old key's slot is retired, each still hears the other", retired && stillHeard, `owner ${loudestFrom(first, Math.max(0, retiredIn(first)))}, guest ${loudestFrom(second, Math.max(0, retiredIn(second)))}`);
+  newcomer.kill();
+
   // --- Watching a video together, in a WKWebView over the stage, with the fake player in YouTube's place ---
   const channelId = channel.ok;
   const guestServer = ((await second.core("listServers")).ok ?? [])[0]?.id;

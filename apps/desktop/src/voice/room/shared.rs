@@ -9,9 +9,47 @@ impl Shared {
         if identity == self.identity {
             return;
         }
-        for (index, key, _) in self.keys.lock().iter().rev() {
-            self.provider.set_key(&ParticipantIdentity(identity.to_string()), *index, sender_key(key, identity));
+        let keys = self.keys.lock();
+        let slots = self.slots.lock();
+        for (index, key, epoch) in keys.iter().rev() {
+            if slots.holds(*index, *epoch) {
+                self.set_key_of(identity, *index, sender_key(key, identity));
+            }
         }
+    }
+
+    /// Sets someone else's key in a slot, with `slots` held.
+    pub(super) fn set_key_of(&self, identity: &str, index: i32, key: Vec<u8>) {
+        self.keyed.lock().insert(identity.to_string());
+        self.provider.set_key(&ParticipantIdentity(identity.to_string()), index, key);
+    }
+
+    /// Retires what's due at `at`, which `take` gave, when it comes, unless the room is left first.
+    /// With `slots` held.
+    pub(super) fn retire_at(self: &Arc<Self>, at: std::time::Instant) {
+        let shared = Arc::downgrade(self);
+        self.retiring.at(at, move || {
+            if let Some(shared) = shared.upgrade().filter(|shared| !shared.closed.load(Ordering::Relaxed)) {
+                shared.retire_due(at);
+            }
+        });
+    }
+
+    /// Gives each slot due a random key for everyone it held a key for, so that nothing sealed under
+    /// the key it held opens any more: there's no taking a key out of LiveKit's ring. Whoever comes
+    /// in later isn't given it either. This device's own slots are left, as it opens nothing with them.
+    fn retire_due(&self, at: std::time::Instant) {
+        let mut keys = self.keys.lock();
+        let mut held = self.slots.lock();
+        let keyed = self.keyed.lock().clone();
+        slots::retire(&mut held, at, &keyed, |identity, index, key| {
+            self.provider.set_key(&ParticipantIdentity(identity.to_string()), index, key);
+        })
+        .into_iter()
+        .for_each(|(index, epoch)| {
+            keys.retain(|(_, _, held)| *held != epoch);
+            log::debug!("voice: retired the key in slot {index}, of epoch {epoch}");
+        });
     }
 
     /// Points what this device sends at its current key.

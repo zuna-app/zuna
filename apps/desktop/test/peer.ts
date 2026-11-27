@@ -5,9 +5,11 @@
 // its standard input, {"send": "text"}, sends that to the app, and {"sendFile": {...}} a file,
 // a voice or video message too, with what sendWithAttachments takes and the file's path, and
 // {"avatar": "path"} makes a PNG its profile picture, {"quiet": true} stops the answers until
-// {"quiet": false}, and {"read": true} reads the chat to its newest message.
+// {"quiet": false}, and {"read": true} reads the chat to its newest message. It comes into the
+// server's channels, as every app does, which moves each to a new epoch; it says {"channels": n}
+// once it's in n of them. mac-voice-check.mjs gives it a name of its own.
 //
-//   cd packages/core && npx vite-node ../../apps/desktop/test/peer.ts <invite>
+//   cd packages/core && npx vite-node ../../apps/desktop/test/peer.ts <invite> [username] [name]
 
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -16,11 +18,11 @@ import { TestApp, loadCrypto, sleep, waitFor } from "../../../packages/core/test
 const say = (value: unknown) => console.log(JSON.stringify(value));
 
 loadCrypto();
-const invite = process.argv[2];
+const [invite, username = "casey", name = "Casey Park"] = process.argv.slice(2);
 if (!invite) throw new Error("Give the peer an invite link.");
-const app = await new TestApp("casey").open();
+const app = await new TestApp(username).open();
 const preview = await app.client.previewInvite(invite);
-const result = await app.client.register(preview, "casey", "linux-check-peer-password", { displayName: "Casey Park", bio: "The Linux check's other person." });
+const result = await app.client.register(preview, username, "linux-check-peer-password", { displayName: name, bio: "The Linux check's other person." });
 app.serverId = result.serverId;
 await app.online();
 const owner = () => app.session.getUsers().find((user) => user.role === "owner");
@@ -48,7 +50,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 say({ ready: true, userId: app.userId });
 
 let seen = 0;
+let inChannels = 0;
 for (;;) {
+  const joined = app.session.getChannels().filter((channel) => channel.conversation?.ready).length;
+  if (joined !== inChannels) say({ channels: (inChannels = joined) });
   const texts = app.texts(key);
   for (const text of texts.slice(seen)) {
     if (text.startsWith("Echo: ") || text.startsWith("<") || sent.has(text)) continue;
