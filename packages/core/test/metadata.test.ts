@@ -249,4 +249,13 @@ describe("taking metadata out of a file made to trip it", () => {
     expect(has(after, "trak")).toBe(false);
   });
 
+  it("cleans a drawing's pictures however their type is written", async () => {
+    const picture = Buffer.from(jpegAround([1, 2])).toString("base64");
+    const before = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="data:image/jpg;base64,${picture}"/><image href="DATA:Image/JPEG;base64,${picture}"/><image href="data:image/jpeg;base64,${picture}"/></svg>`;
+    const after = new TextDecoder().decode(await all(await withoutMetadata(memory(new TextEncoder().encode(before)), "image/svg+xml", "a.svg")));
+    expect(after).not.toContain(picture);
+    expect(after.match(/<image /g)).toHaveLength(3);
+    for (const [, base64] of after.matchAll(/base64,([^"]+)/g)) expect(Buffer.from(base64!, "base64").includes("ZunaTest")).toBe(false);
+  });
+
 });

@@ -39,7 +39,8 @@ export async function svg(reader: Reader): Promise<Output | null> {
   return out;
 }
 
-const DATA_PICTURE = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/=\s]*)$/;
+/** A picture inside a drawing, whose type is written in any case, and as image/jpg by some programs. */
+const DATA_PICTURE = /^data:(image\/(?:jpeg|jpg|png|gif|webp));base64,([A-Za-z0-9+/=\s]*)$/i;
 
 async function cleanSvg(text: string): Promise<string> {
   // Which prefixes stand for editors' namespaces. Illustrator spells them with entities.
