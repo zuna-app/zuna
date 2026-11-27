@@ -4,7 +4,7 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -393,6 +393,54 @@ describe("the HTTP API", () => {
     expect(await (await fetch(`${root}/bot${token}/getMe`)).json()).toEqual({ ok: false, error_code: 500, description: "Internal Server Error" });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  /** A request as anything on the machine can send one, with nothing to tidy its address first. */
+  const raw = (target: string) =>
+    new Promise<{ status: number; body: string }>((resolve) => {
+      const socket = connect(served.port, "127.0.0.1", () => socket.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`));
+      let reply = "";
+      socket.setTimeout(3000, () => socket.destroy());
+      socket.on("data", (chunk) => (reply += chunk));
+      socket.on("close", () => resolve({ status: Number(reply.split(" ")[1] ?? 0), body: reply.slice(reply.indexOf("\r\n\r\n") + 4) }));
+      socket.on("error", () => undefined);
+    });
+
+  it("refuses an address it can't read, without the token, and goes on", async () => {
+    for (const target of ["/bot%E0%A4%A/getMe", "/file/bot%ZZ/files/abcd", "//", "http://[", "http://x:99999/bot1/getMe"]) {
+      const { status, body } = await raw(target);
+      expect(status, target).toBe(400);
+      expect(JSON.parse(body)).toEqual({ ok: false, error_code: 400, description: "Bad Request: the address couldn't be read" });
+    }
+    const unknown = await raw("/nothing%E0%A4%A");
+    expect(unknown.status).toBe(404);
+    expect(JSON.parse(unknown.body)).toEqual({ ok: false, error_code: 404, description: "Not Found" });
+    // Still there, for the bot's own code.
+    expect(await (await fetch(`${root}/bot${token}/getMe`)).json()).toEqual({ ok: true, result: { method: "getMe" } });
+  });
+
+  it("cuts off a file that fails halfway, and lets go of one whose reader hung up", async () => {
+    const download = bot.download;
+    let cancelled = false;
+    try {
+      bot.download = async (id: string) => {
+        const stream =
+          id === "dead"
+            ? new ReadableStream({ start: (controller) => controller.enqueue(new TextEncoder().encode("half")), pull: (controller) => controller.error(new Error("the server went away")) })
+            : new ReadableStream({ start: (controller) => controller.enqueue(new Uint8Array(64 * 1024)), cancel: () => void (cancelled = true) });
+        return { blob: { size: 1024 * 1024, stream: () => stream } as never, file: { mime: "", name: "a" } };
+      };
+      // Its answer has begun, so it can only stop short.
+      await expect(fetch(`${root}/file/bot${token}/files/dead`).then((response) => response.arrayBuffer())).rejects.toThrow();
+      const socket = connect(served.port, "127.0.0.1", () => socket.write(`GET /file/bot${token}/files/beef HTTP/1.1\r\nHost: x\r\n\r\n`));
+      socket.on("error", () => undefined);
+      await new Promise((resolve) => socket.once("data", resolve));
+      socket.destroy();
+      await vi.waitFor(() => expect(cancelled).toBe(true));
+    } finally {
+      bot.download = download;
+    }
+    expect(await (await fetch(`${root}/bot${token}/getMe`)).json()).toEqual({ ok: true, result: { method: "getMe" } });
   });
 
   it("can't be served where something already listens", async () => {
