@@ -187,9 +187,10 @@ function h264Profile(codec: Codec): string {
 /**
  * What makes two codecs the same one, whatever their numbers: the name, rate and channels, and
  * the parameters that make H.264, VP9 and AV1 different codecs. A retransmission stream is the
- * one of whichever codec it repeats.
+ * one of whichever codec it repeats, followed once: one that leads back to itself, as only an
+ * offer made to would, repeats nothing this knows.
  */
-function identity(codec: Codec, all: Codec[]): string {
+function identity(codec: Codec, all: Codec[], followed: ReadonlySet<number> = new Set()): string {
   const name = codec.name.toLowerCase();
   const base = `${name}/${codec.clock}/${codec.channels || (name === "opus" ? 2 : 0)}`;
   switch (name) {
@@ -201,7 +202,8 @@ function identity(codec: Codec, all: Codec[]): string {
       return `${base}/${param(codec, "profile") ?? "0"}`;
     case "rtx": {
       const target = all.find((other) => String(other.pt) === param(codec, "apt"));
-      return target ? `rtx:${identity(target, all)}` : `rtx:?${param(codec, "apt")}`;
+      const seen = new Set(followed).add(codec.pt);
+      return target && !seen.has(target.pt) ? `rtx:${identity(target, all, seen)}` : `rtx:?${param(codec, "apt")}`;
     }
     default:
       return base;

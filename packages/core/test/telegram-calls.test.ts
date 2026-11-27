@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { TelegramSession } from "../src/telegram/session";
-import { acceptContent, parseDescription, prepareOffer, trackOf, type Description } from "../src/telegram/calls/sdp";
+import { acceptContent, Numbers, parseDescription, prepareOffer, registerContent, takenOf, trackOf, type Description } from "../src/telegram/calls/sdp";
 import { readSignal, writeSignal, type MediaContent } from "../src/telegram/calls/signal";
 import { relaysOf } from "../src/telegram/calls/call";
 import { messageView } from "../src/telegram/map";
@@ -528,6 +528,22 @@ describe("what the other side sends", () => {
     expect(video.codecs.filter((each) => each.name === "H264").map((each) => each.pt)).toEqual([102]);
     expect(video.codecs.some((each) => each.name === "VP8" && each.pt === 104)).toBe(true);
     expect(video.codecs.some((each) => each.pt === 100)).toBe(false);
+  });
+
+  it("follows a retransmission stream to what it repeats once, wherever its number points", () => {
+    const codec = (id: number, name: string, parameters: Record<string, string> = {}) => ({ id, name, clockrate: 90000, channels: 0, feedbackTypes: [], parameters });
+    const video = (payloadTypes: MediaContent["payloadTypes"]): MediaContent => ({ type: "video", ssrc: 5, ssrcGroups: [], rtpExtensions: [], payloadTypes });
+    const offered = video([codec(100, "VP8"), codec(101, "rtx", { apt: "100" })]);
+    // Each repeating itself, and two repeating each other: only the other side's own call could go wrong.
+    for (const looping of [[codec(100, "VP8"), codec(96, "rtx", { apt: "96" })], [codec(96, "rtx", { apt: "97" }), codec(97, "rtx", { apt: "96" }), codec(100, "VP8")]]) {
+      const theirs = video(looping);
+      expect(takenOf(offered, theirs).payloadTypes.map((payload) => payload.id)).toEqual([100]);
+      expect(() => registerContent(new Numbers(), theirs)).not.toThrow();
+      const taken = acceptContent(theirs);
+      const prepared = prepareOffer(fixture("offer-callee.sdp"), (section) => (section.direction === "sendonly" ? { sends: true } : { sends: false, takes: section.media === "video" ? taken : null }), new Map());
+      expect(prepared.description.sections.find((section) => section.media === "video")!.codecs.some((each) => each.name === "VP8" && each.pt === 100)).toBe(true);
+    }
+    expect(takenOf(offered, offered).payloadTypes.map((payload) => payload.id)).toEqual([100, 101]);
   });
 
   it("names only relays this side may use", () => {
