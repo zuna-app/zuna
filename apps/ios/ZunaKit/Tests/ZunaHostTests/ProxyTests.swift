@@ -306,6 +306,44 @@ final class ProxyTests: XCTestCase {
         XCTAssertFalse(unread.description.isEmpty)
     }
 
+    /// A trickled candidate as LiveKit's Swift SDK decodes one (its `IceCandidate`), with
+    /// `JSONDecoder`, which takes the first of a key said twice where the relay's `JSON.parse`
+    /// takes the last.
+    private struct TrickledCandidate: Decodable {
+        let sdp: String
+        let sdpMLineIndex: Int32
+        let sdpMid: String?
+
+        enum CodingKeys: String, CodingKey {
+            case sdpMLineIndex, sdpMid
+            case sdp = "candidate"
+        }
+    }
+
+    func testACandidatesJsonIsWrittenAgainSoTheSdkReadsWhatTheRelayDid() throws {
+        let relay = VoiceRelay.shared
+        let outside = "candidate:1 1 udp 2130706431 203.0.113.66 3478 typ host"
+        func rewritten(_ json: String) throws -> TrickledCandidate {
+            let text = Data(json.utf8)
+            let inner = Data([0x0a, UInt8(text.count)]) + text + Data([0x10, 0x01])
+            let message = try relay.fromLiveKit(Data([0x22, UInt8(inner.count)]) + inner) { _, _, _ in ("127.0.0.1", 41000) }.get()
+            XCTAssertFalse(String(decoding: message, as: UTF8.self).contains("203.0.113.66"), json)
+            // The TrickleRequest's own JSON: after the two tags and lengths, up to its target.
+            XCTAssertEqual(Array(message.suffix(2)), [0x10, 0x01])
+            return try JSONDecoder().decode(TrickledCandidate.self, from: message.dropFirst(4).dropLast(2))
+        }
+        // As LiveKit wrote it, `JSONDecoder` reads a candidate here that the relay never saw.
+        let twice = #"{"candidate":"\#(outside)","sdpMLineIndex":0,"sdpMid":"0","candidate":""}"#
+        XCTAssertEqual(try JSONDecoder().decode(TrickledCandidate.self, from: Data(twice.utf8)).sdp, outside)
+        let end = try rewritten(twice)
+        XCTAssertEqual(end.sdp, "")
+        XCTAssertEqual(end.sdpMLineIndex, 0)
+        XCTAssertEqual(end.sdpMid, "0")
+        // The other way round, the relay's candidate is the one that's read.
+        let relayed = try rewritten(#"{"candidate":"","sdpMLineIndex":0,"sdpMid":"0","candidate":"\#(outside)"}"#)
+        XCTAssertEqual(relayed.sdp, "candidate:1 1 udp 2130706431 127.0.0.1 41000 typ host")
+    }
+
     func testWhatTheProxySaysIsToldInWords() {
         XCTAssertEqual(Socks.Failure.unreachable("It closed.").description, "Can't reach the proxy: It closed.")
         XCTAssertEqual(Socks.Failure.refused.errorDescription, "The proxy refused the username or password.")

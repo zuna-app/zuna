@@ -177,6 +177,94 @@ describe("what LiveKit sent", () => {
   });
 });
 
+describe("a candidate LiveKit trickles", () => {
+  /** An address no relay stands for, which nothing the SDK is handed may name. */
+  const OUTSIDE = "203.0.113.66";
+  const real = `candidate:1 1 udp 2130706431 ${OUTSIDE} 3478 typ host`;
+  const relayFor = () => ({ address: "127.0.0.1", port: 40000 });
+  /** A `SignalResponse` whose trickle (4) holds this JSON (1), for the subscriber (2). */
+  const trickle = (json: string) => new SignalResponse({ message: { case: "trickle", value: { candidateInit: json, target: 1 } } }).toBinary();
+  const passedOn = (json: string) => {
+    const message = SignalResponse.fromBinary(kept(fromLiveKit(trickle(json), relayFor))).message;
+    if (message.case !== "trickle") throw new Error(`a ${message.case}`);
+    expect(message.value.target).toBe(1);
+    return message.value.candidateInit;
+  };
+
+  it("is never passed on as LiveKit wrote it, where a key said twice reads as an end to one parser and a candidate to another", () => {
+    // `JSON.parse` takes the last of a key said twice, and Swift's `JSONDecoder` the first.
+    expect(passedOn(`{"candidate":"${real}","sdpMLineIndex":0,"sdpMid":"0","candidate":""}`)).toBe('{"candidate":"","sdpMid":"0","sdpMLineIndex":0}');
+    expect(passedOn(`{"candidate":"","sdpMLineIndex":0,"sdpMid":"0","candidate":"${real}"}`)).toBe('{"candidate":"candidate:1 1 udp 2130706431 127.0.0.1 40000 typ host","sdpMid":"0","sdpMLineIndex":0}');
+    // A key written another way, which a parser might not take for the same one.
+    expect(passedOn(`{"candidate":"${real}","sdpMLineIndex":0,"sdpMid":"0","\\u0063andidate":""}`)).not.toContain(OUTSIDE);
+  });
+
+  it("is written again from a candidate's own fields, and nothing else of the JSON goes on", () => {
+    const relayed = "candidate:1 1 udp 2130706431 127.0.0.1 40000 typ host";
+    const more = `{ "also":"${OUTSIDE}", "candidate" : "a=${real}", "sdpMid":"audio", "nested":{"candidate":"${real}"}, "sdpMLineIndex":2, "usernameFragment":"abcd", "relayProtocol":"udp" }`;
+    expect(passedOn(more)).toBe(`{"candidate":"${relayed}","sdpMid":"audio","sdpMLineIndex":2,"usernameFragment":"abcd"}`);
+    // The end of candidates, the same way.
+    expect(passedOn(`{"also":"${real}","candidate":"","usernameFragment":null,"sdpMid":"0","sdpMLineIndex":0}`)).toBe('{"candidate":"","sdpMid":"0","sdpMLineIndex":0,"usernameFragment":null}');
+    // What a candidate doesn't say stays unsaid, and what it says is nothing stays so.
+    expect(passedOn(`{"candidate":"${real}"}`)).toBe(`{"candidate":"${relayed}"}`);
+    expect(passedOn(`{"candidate":"${real}","sdpMid":null,"sdpMLineIndex":null}`)).toBe(`{"candidate":"${relayed}","sdpMid":null,"sdpMLineIndex":null}`);
+  });
+
+  it("is dropped when a field isn't of its type, or it isn't a candidate's JSON at all", () => {
+    const fine = { candidate: real, sdpMid: "0", sdpMLineIndex: 0, usernameFragment: null };
+    expect(fromLiveKit(trickle(JSON.stringify(fine)), relayFor)).toHaveProperty("message");
+    const wrong: Record<string, unknown>[] = [
+      { candidate: 5 },
+      { candidate: null },
+      { candidate: [real] },
+      { candidate: { toString: real } },
+      { sdpMid: 0 },
+      { sdpMid: ["0"] },
+      { sdpMLineIndex: "0" },
+      { sdpMLineIndex: 0.5 },
+      { sdpMLineIndex: -1 },
+      { sdpMLineIndex: 65536 },
+      { sdpMLineIndex: true },
+      { usernameFragment: 7 },
+      { usernameFragment: {} },
+    ];
+    for (const field of wrong) {
+      for (const candidate of [real, ""]) {
+        const json = JSON.stringify({ ...fine, candidate, ...field });
+        expect(fromLiveKit(trickle(json), relayFor), json).toMatchObject({ dropped: expect.stringMatching(/couldn't read/) });
+      }
+    }
+    const { candidate: _, ...none } = fine;
+    for (const json of [JSON.stringify(none), "[]", `[{"candidate":""}]`, "null", `""`, "7", "{", `{"candidate":""}{"candidate":"${real}"}`]) {
+      expect(fromLiveKit(trickle(json), relayFor), json).toMatchObject({ dropped: expect.stringMatching(/couldn't read/) });
+    }
+    // JSON of no length, written out, as a trickle that leaves the field out isn't: that one has nothing to read.
+    expect(fromLiveKit(new Uint8Array([0x22, 0x04, 0x0a, 0x00, 0x10, 0x01]), relayFor)).toMatchObject({ dropped: expect.stringMatching(/couldn't read/) });
+    expect(fromLiveKit(trickle(""), relayFor)).toEqual({ message: trickle("") });
+    // Why it was dropped never quotes it, as a parser's own words might.
+    const why = fromLiveKit(trickle(`{"candidate":"${real}",`), relayFor);
+    expect("dropped" in why && !why.dropped.includes(OUTSIDE)).toBe(true);
+  });
+
+  it("of an honest LiveKit's keeps every field it had, in the order it had them", () => {
+    const { relayFor } = relays();
+    let seen = 0;
+    for (const original of messages("livekit")) {
+      const before = SignalResponse.fromBinary(original).message;
+      if (before.case !== "trickle") continue;
+      const after = SignalResponse.fromBinary(kept(fromLiveKit(original, relayFor))).message;
+      if (after.case !== "trickle") throw new Error(`a ${after.case}`);
+      const was = JSON.parse(before.value.candidateInit) as { candidate: string };
+      const now = JSON.parse(after.value.candidateInit) as { candidate: string };
+      expect(after.value.candidateInit).toBe(JSON.stringify({ ...was, candidate: now.candidate }));
+      expect(now.candidate).not.toBe(was.candidate);
+      expect(after.value.final).toBe(before.value.final);
+      seen++;
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
 describe("what the SDK sent", () => {
   it("reaches LiveKit with no candidate and no address of the device", () => {
     let trickles = 0;

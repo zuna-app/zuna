@@ -13,6 +13,10 @@
 //
 // It reads the protobuf's wire format directly and replaces only those fields, so everything
 // else a message holds passes untouched, whatever LiveKit adds to it.
+//
+// What it reads to do that, a description's SDP and a trickled candidate's JSON, never goes on
+// as the bytes LiveKit sent, whatever was found in it: it's written again from what was read
+// here, so that an SDK that would read those bytes another way is handed only what this read.
 
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "./encoding";
 
@@ -272,6 +276,36 @@ function rewriteDescription(bytes: Uint8Array, change: (sdp: string) => string):
   return rewriteFields(bytes, (number, body) => (number === 2 ? utf8(change(fromUtf8(body))) : undefined));
 }
 
+/**
+ * A candidate LiveKit trickles, the JSON of an `RTCIceCandidateInit`, written again from the
+ * fields one has, each held to its type, with its candidate as `change` gives it, or null where
+ * that gives none. An empty candidate, the end of them, stays empty.
+ *
+ * Nothing of the JSON goes on as LiveKit wrote it, whatever it holds: a key said twice is one
+ * candidate to `JSON.parse`, which takes the last, and another to Swift's `JSONDecoder`, which
+ * takes the first, so the SDK is only ever handed JSON written here, which reads one way.
+ */
+function rewriteCandidateInit(json: string, change: (candidate: string) => string | null): string | null {
+  let init: unknown;
+  try {
+    init = JSON.parse(json);
+  } catch {
+    // Not the parser's own words, which may quote what it was given.
+    throw new Malformed("a trickled candidate that isn't JSON");
+  }
+  if (typeof init !== "object" || init === null || Array.isArray(init)) throw new Malformed("a trickled candidate that isn't an object");
+  const { candidate, sdpMid, sdpMLineIndex, usernameFragment } = init as Record<string, unknown>;
+  const unsaid = (value: unknown): value is null | undefined => value === undefined || value === null;
+  if (typeof candidate !== "string") throw new Malformed("a trickled candidate that isn't text");
+  if (!unsaid(sdpMid) && typeof sdpMid !== "string") throw new Malformed("a trickled candidate whose section isn't text");
+  if (!unsaid(sdpMLineIndex) && !(Number.isInteger(sdpMLineIndex) && (sdpMLineIndex as number) >= 0 && (sdpMLineIndex as number) <= 0xffff)) throw new Malformed("a trickled candidate whose section isn't a number one has");
+  if (!unsaid(usernameFragment) && typeof usernameFragment !== "string") throw new Malformed("a trickled candidate whose fragment isn't text");
+  const changed = candidate === "" ? "" : change(candidate);
+  if (changed === null) return null;
+  // A key that wasn't there is left out, as `JSON.stringify` does, and one that was null stays so.
+  return JSON.stringify({ candidate: changed, sdpMid, sdpMLineIndex, usernameFragment });
+}
+
 /** A `SyncState`'s answer (1) and offer (5), with no candidate in either. */
 function bareSyncState(bytes: Uint8Array): Uint8Array {
   return rewriteFields(bytes, (number, body) => (number === 1 || number === 5 ? rewriteDescription(body, bareSdp) : undefined));
@@ -305,15 +339,12 @@ export function fromLiveKit(message: Uint8Array, relayFor: RelayFor): Rewritten 
         case 4:
           return rewriteFields(body, (inner, value) => {
             if (inner !== 1) return undefined;
-            const init = JSON.parse(fromUtf8(value)) as { candidate?: unknown };
-            if (typeof init.candidate !== "string") throw new Malformed("a trickled candidate that isn't text");
-            if (init.candidate === "") return undefined;
-            const relayed = relayedCandidate(init.candidate.replace(/^a=/, ""), relayFor);
-            if (!relayed) {
+            const init = rewriteCandidateInit(fromUtf8(value), (candidate) => relayedCandidate(candidate.replace(/^a=/, ""), relayFor));
+            if (init === null) {
               outcome.dropped = "a candidate of LiveKit's with no relay";
               return null;
             }
-            return utf8(JSON.stringify({ ...init, candidate: relayed }));
+            return utf8(init);
           });
         default:
           return undefined;
