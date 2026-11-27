@@ -1,4 +1,5 @@
-// Matroska and WebM films: their tags, title and date written over with Void elements.
+// Matroska and WebM films: their tags, title and date written over with Void elements, and the
+// names of files they give emptied.
 
 import { check, Reader, Output, Patches } from "./bytes";
 
@@ -9,6 +10,8 @@ const EBML_INFO = 0x1549a966;
 const EBML_TAGS = 0x1254c367;
 const EBML_DATE = 0x4461;
 const EBML_TITLE = 0x7ba9;
+/** The names of the file and of the ones before and after it, which can be where it was on disk. */
+const EBML_FILE_NAMES = new Set([0x7384, 0x3c83ab, 0x3e83bb]);
 
 interface Element {
   id: number;
@@ -60,7 +63,11 @@ function voidOver(patches: Patches, from: number, to: number): void {
   patches.zero(from + header.length, payload);
 }
 
-/** Tags, which hold dates, places and programs, and the file's title and when it was made, become Void. */
+/**
+ * Tags, which hold dates, places and programs, and the file's title and when it was made, become
+ * Void; the names it gives of itself and the files beside it, which can say whose disk it was on,
+ * are emptied.
+ */
 export async function matroska(reader: Reader): Promise<Output> {
   const patches = new Patches();
   let at = 0;
@@ -80,6 +87,8 @@ export async function matroska(reader: Reader): Promise<Output> {
             const item = await elementAt(reader, field);
             check(item.end !== null && item.end <= inner.end);
             if (item.id === EBML_DATE || item.id === EBML_TITLE) voidOver(patches, item.at, item.end);
+            // Emptied where they are, as a string may end in zeros: every size and offset stays.
+            else if (EBML_FILE_NAMES.has(item.id)) patches.zero(item.data, item.end - item.data);
             field = item.end;
           }
         }

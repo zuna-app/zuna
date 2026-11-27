@@ -258,4 +258,15 @@ describe("taking metadata out of a file made to trip it", () => {
     for (const [, base64] of after.matchAll(/base64,([^"]+)/g)) expect(Buffer.from(base64!, "base64").includes("ZunaTest")).toBe(false);
   });
 
+  it("empties a Matroska file's names of files in place", async () => {
+    const element = (id: number[], body: number[]) => [...id, 0x80 | body.length, ...body];
+    const info = element([0x15, 0x49, 0xa9, 0x66], [...element([0x73, 0x84], latin("C:/Users/zunatest/secret.mkv")), ...element([0x3c, 0x83, 0xab], latin("ZunaTestBefore.mkv")), ...element([0x3e, 0x83, 0xbb], latin("ZunaTestAfter.mkv")), ...element([0x4d, 0x80], latin("Lavf63"))]);
+    const before = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 0x80, 0x18, 0x53, 0x80, 0x67, 0x80 | info.length, ...info]);
+    const after = await all(await withoutMetadata(memory(before), "video/x-matroska", "a.mkv"));
+    expect(after.length).toBe(before.length);
+    for (const gone of ["zunatest", "ZunaTest"]) expect(has(after, gone)).toBe(false);
+    // Each is still there, empty, and nothing else moved.
+    expect(has(after, [0x73, 0x84, 0x80 | 28, ...new Array(28).fill(0)])).toBe(true);
+    expect(has(after, "Lavf63")).toBe(true);
+  });
 });
