@@ -307,6 +307,12 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			if anyAdmin {
 				return ErrForbidden
 			}
+			// The first commit's group info is none, like that of any commit too old to undo, so
+			// only the first can be told apart, by where the group is: going all the way back
+			// would otherwise get round how far a plain member can undo.
+			if to == 0 && from != 1 {
+				return ErrForbidden
+			}
 			var held, heldKey []byte
 			err := tx.QueryRowContext(ctx, `SELECT replaced_info, replaced_send_key FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ?`,
 				groupID, to+1).Scan(&held, &heldKey)
@@ -329,6 +335,17 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			return err
 		}
 		if len(live) == 0 && len(given) > 0 {
+			sendKey = nil
+		}
+		// The same for one forgotten between two of the commits undone: the commit after it says
+		// nothing of the key before it, so the server can't tell whether the key of the epoch it
+		// goes back to is one that someone who went still makes, whoever gives it.
+		var unknown bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ? AND replaced_send_key IS NULL)`,
+			groupID, to).Scan(&unknown); err != nil {
+			return err
+		}
+		if unknown {
 			sendKey = nil
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {

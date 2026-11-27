@@ -73,6 +73,56 @@ func TestADeviceThatWentWithoutACommitCantWriteWithTheKeyItHeld(t *testing.T) {
 	renewed()
 }
 
+// Z-12: someone goes between two commits that are then undone together. The commit after
+// they went says nothing of the key before it, which the server had forgotten, so the key
+// of the epoch the group goes back to may be one they still make: it goes back with none,
+// whoever undoes it, and the next commit gives one.
+func TestUndoingCommitsPastSomeoneWhoWentPutsBackNoKeyTheyMake(t *testing.T) {
+	for _, byAdmin := range []bool{false, true} {
+		h := newHarness(t)
+		owner := h.owner()
+		invite := owner.newInvite()
+		bob := h.register("bob", invite)
+		carol := h.register("carol", invite)
+		dave := h.register("dave", invite)
+		group := newGroup(h, owner)
+		if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID, carol.userID, dave.userID}}); status != http.StatusOK {
+			t.Fatalf("adding everyone gave %d %v", status, resp)
+		}
+		token := dave.tokenFor(store.SmallToken)
+		if status, resp := bob.commit(group, 1, nil); status != http.StatusOK {
+			t.Fatalf("a commit gave %d %v", status, resp)
+		}
+		h.mustDo("POST", "/api/groups/"+group+"/leave", dave.token, nil, nil)
+		if status, resp := bob.commit(group, 2, nil); status != http.StatusOK {
+			t.Fatalf("the commit after dave left gave %d %v", status, resp)
+		}
+		undoer, body := carol, map[string]any{"from_epoch": 3, "to_epoch": 1}
+		if byAdmin {
+			undoer, body = owner, map[string]any{"from_epoch": 3, "to_epoch": 1, "group_info": groupInfoFrame(group, 1), "send_key": sendKeyFor(group, 1)}
+		}
+		if status, resp := h.do("POST", "/api/groups/"+group+"/void-commits", undoer.token, body, nil); status != http.StatusOK {
+			t.Fatalf("undoing both (by an admin: %v) gave %d %v", byAdmin, status, resp)
+		}
+		var held store.Group
+		h.mustDo("GET", "/api/groups/"+group, owner.token, nil, &held)
+		if held.Epoch != 1 || len(held.SendKey) != 0 {
+			t.Fatalf("by an admin: %v, the group is at epoch %d with a send key of %d bytes", byAdmin, held.Epoch, len(held.SendKey))
+		}
+		id := store.NewID()
+		status, resp := h.sealedDo("POST", "/api/sealed/groups/"+group+"/messages", sealed{secret: sendSecretFor(group, 1), epoch: 1, token: token},
+			map[string]any{"id": id, "envelope": []byte("x"), "item_key": itemKeyFor(id)}, nil)
+		if status != http.StatusForbidden || resp["error"] != "not_sealed" {
+			t.Fatalf("by an admin: %v, dave writing with the key of the epoch it went back to got %d %v", byAdmin, status, resp)
+		}
+		// Someone who stays commits, which gives the next key, and everyone writes again.
+		if status, resp := owner.commit(group, 1, nil); status != http.StatusOK {
+			t.Fatalf("the next commit gave %d %v", status, resp)
+		}
+		owner.send(group, 2, store.NewID())
+	}
+}
+
 // What a reaction carries is signed by whoever added it, and every member saw it. Once
 // it's taken back, another member could send the same bytes again under the same ID,
 // with an item key of their own: it would show as its author's again, and they

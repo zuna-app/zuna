@@ -281,6 +281,58 @@ func TestAMemberCanVoidOnlyWhatsSafeToVoid(t *testing.T) {
 	}
 }
 
+// Z-12: the first commit has no group info before it, as one too old to undo has none
+// kept, so going all the way back is a plain member's only from the first epoch.
+func TestAMemberTakesAGroupBackToItsStartOnlyFromItsFirstEpoch(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	carol := h.register("carol", invite)
+	dave := h.register("dave", invite)
+	void := func(c *client, group string, from, to int64) int {
+		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to}, nil)
+		return status
+	}
+
+	// Its creator hands it to dave, who never commits, and the others commit past what's kept.
+	group := newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID, carol.userID, dave.userID}}); status != http.StatusOK {
+		t.Fatalf("adding everyone gave %d %v", status, resp)
+	}
+	if status, resp := owner.commit(group, 1, map[string]any{"admins": []string{dave.userID}}); status != http.StatusOK {
+		t.Fatalf("handing it over gave %d %v", status, resp)
+	}
+	epoch := int64(2)
+	for ; epoch < store.UndoableCommits+8; epoch++ {
+		sender := bob
+		if epoch%2 == 1 {
+			sender = carol
+		}
+		if status, resp := sender.commit(group, epoch, nil); status != http.StatusOK {
+			t.Fatalf("commit at %d: %d %v", epoch, status, resp)
+		}
+	}
+	if status := void(carol, group, epoch, epoch-store.UndoableCommits-1); status != http.StatusForbidden {
+		t.Fatalf("undoing past what's kept gave %d", status)
+	}
+	if status := void(carol, group, epoch, 0); status != http.StatusForbidden {
+		t.Fatalf("undoing everything gave %d", status)
+	}
+	if info, at, _ := h.db.GroupInfo(t.Context(), group); at != epoch || len(info) == 0 {
+		t.Fatalf("the group is at epoch %d, with %d bytes of group info", at, len(info))
+	}
+
+	// From the first epoch it's a plain member's to undo, when its sender is no admin now.
+	group = newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID, carol.userID}, "admins": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("starting another gave %d %v", status, resp)
+	}
+	if status := void(carol, group, 1, 0); status != http.StatusOK {
+		t.Fatalf("undoing the first commit gave %d", status)
+	}
+}
+
 // Z-47: nobody gets to keep a group busy with commits.
 func TestCommitsAreLimited(t *testing.T) {
 	h := newHarness(t)

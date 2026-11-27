@@ -11,6 +11,15 @@ import { alice, apiOf, groupWith, open, person, sentAndSeen, server, sessionOf, 
 
 startServer({ perTest: true });
 
+/** A commit that reads as one from outside, for this group and epoch, but that nobody can apply. */
+function brokenFrames(groupId: string, epoch: number): { commit: Uint8Array; info: Uint8Array } {
+  const id = utf8(groupId);
+  const vector = (data: Uint8Array) => new Uint8Array([data.length, ...data]);
+  const commit = new Uint8Array([0, 1, 0, 2, ...vector(id), ...u64Bytes(epoch), 3, ...vector(new Uint8Array(0)), ...vector(new Uint8Array(8).fill(9)), ...vector(new Uint8Array(32).fill(9))]);
+  const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 0x52, ...vector(id), ...u64Bytes(epoch + 1), ...new Uint8Array(40).fill(7)]);
+  return { commit, info };
+}
+
 /** The send key the server holds for a group's current epoch. */
 async function heldSendKey(app: Parameters<typeof apiOf>[0], groupId: string): Promise<{ epoch: number; key: Uint8Array }> {
   const group = await apiOf(app).group(groupId);
@@ -363,14 +372,6 @@ describe("who may write", () => {
   });
 
   it("isn't someone who left after a commit of theirs that's then undone: the key the server forgot stays forgotten (Z-76)", async () => {
-    /** A commit that reads as one from outside, for this group and epoch, but that nobody can apply. */
-    const brokenFrames = (groupId: string, epoch: number) => {
-      const id = utf8(groupId);
-      const vector = (data: Uint8Array) => new Uint8Array([data.length, ...data]);
-      const commit = new Uint8Array([0, 1, 0, 2, ...vector(id), ...u64Bytes(epoch), 3, ...vector(new Uint8Array(0)), ...vector(new Uint8Array(8).fill(9)), ...vector(new Uint8Array(32).fill(9))]);
-      const info = new Uint8Array([0, 1, 0, 4, 0, 1, 0, 0x52, ...vector(id), ...u64Bytes(epoch + 1), ...new Uint8Array(40).fill(7)]);
-      return { commit, info };
-    };
     const bob = await person("bob");
     const mal = await person("mal");
     const groupId = await groupWith(alice, [bob, mal]);
@@ -407,6 +408,44 @@ describe("who may write", () => {
     await sentAndSeen(alice, [bob], groupId, "after");
     await sentAndSeen(bob, [alice], groupId, "and from bob");
     expect((await apiOf(alice).changes(groupId, 0, 100)).events.some((event) => event.kind === "commit_voided")).toBe(true);
+  });
+
+  it("isn't someone who went between two commits undone together: the group goes back with no key, and those who stay give it one (Z-12)", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const dan = await person("dan");
+    const groupId = await groupWith(ann, [bob, mal, dan]);
+    await sentAndSeen(ann, [bob, mal, dan], groupId, "before");
+    // What dan's device holds as they go: the epoch's key, a message under it, and a token to pay with.
+    const session = sessionOf(dan);
+    const send = session.sendKey(groupId) as { epoch: number; secret: Uint8Array };
+    const epochKey = session.mls.exportSecret(utf8(groupId), CONTENT_LABEL, u64Bytes(send.epoch), 32) as Uint8Array;
+    const token = (await session.takeToken(100)) as Uint8Array;
+    const id = randomId();
+    const envelope = sealEnvelope(epochKey, session.account.deviceSecret, "message", groupId, id, send.epoch, session.signedBody({ text: "written after leaving" }, groupId), session.signer);
+    const [malApi, danApi] = [apiOf(mal), apiOf(dan)];
+    const write = () => danApi.sealedSend(groupId, { epoch: send.epoch, secret: send.secret, token }, { id, envelope, item_key: wasm.signingPublic(wasm.randomBytes(32)) });
+    // Nobody else's app runs while mal commits, dan goes, mal commits again and undoes both.
+    for (const app of [ann, bob, mal, dan]) app.client.stop();
+    for (const epoch of [send.epoch, send.epoch + 1]) {
+      const { commit, info } = brokenFrames(groupId, epoch);
+      await malApi.commit(groupId, { expected_epoch: epoch, commit, group_info: info, send_key: wasm.randomBytes(32), kind: "update" });
+      if (epoch === send.epoch) await danApi.leaveGroup(groupId);
+    }
+    await malApi.voidCommits(groupId, send.epoch + 2, send.epoch, new Uint8Array(0), new Uint8Array(0));
+    const held = await malApi.group(groupId);
+    expect(held.epoch).toBe(send.epoch);
+    expect(held.send_key ? decode(held.send_key).length : 0).toBe(0);
+    await expect(write()).rejects.toMatchObject({ code: "not_sealed" });
+
+    // Those who stay never got past that epoch, and carry on from it with the key of the commit that takes dan out.
+    await ann.restart();
+    await bob.restart();
+    await sentAndSeen(ann, [bob], groupId, "after");
+    await sentAndSeen(bob, [ann], groupId, "and from bob");
+    await expect(write()).rejects.toMatchObject({ code: expect.stringMatching(/^(not_sealed|stale_epoch)$/) });
+    for (const app of [ann, bob]) expect(app.texts(`group:${groupId}`)).not.toContain("written after leaving");
   });
 
   it("can't put back a reaction someone took back, as theirs", async () => {
