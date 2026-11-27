@@ -169,7 +169,7 @@ A bot is an account, with an identity key, an account key and one device, as a p
 
 ## Profiles and the community key
 
-Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`), with a key derived from it for profiles alone, as channels and sounds have theirs. Browsers don't send fragments to servers. Profiles are also signed by their owners.
+Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`), with a key derived from it for profiles alone, as channels and sounds have theirs. Browsers don't send fragments to servers. Profiles are also signed by their owners: by the identity key of the generation the account is at, which an app holds to the chain it follows, so the server can't put a profile of its own in anyone's place. Replacing an account's keys signs its profile again under the new key, and the device doing it first checks the profile the server lists under the old key, as a contact would: one that doesn't hold it never signs, and puts up its own copy in its place, one it took from a profile that opened under the account's key. A device that never held one leaves the profile unsigned, so contacts keep the copy they hold and someone new sees the username, until the person next saves their profile ([ACCOUNT_KEY_ROTATION.md](ACCOUNT_KEY_ROTATION.md), section 9.2). A server can still show someone an older profile the account itself signed under the same key.
 
 If an admin turns on open sign-ups, there's no invite link to carry that key, so the app gives it to the server, and the settings screen says so. This exposes profiles, not messages.
 

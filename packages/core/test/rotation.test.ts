@@ -5,7 +5,7 @@
 import * as wasm from "@zuna/crypto";
 import { describe, expect, it } from "vitest";
 import { ApiError, decode } from "../src/api";
-import { HPKE_PUBLIC_BYTES, openVaultItem, sealVaultItem } from "../src/crypto";
+import { HPKE_PUBLIC_BYTES, newLastingKey, openVaultItem, sealProfile, sealVaultItem } from "../src/crypto";
 import { concat, toBase64, utf8 } from "../src/encoding";
 import { createSlot, hash, openFromSlot } from "../src/generations";
 import { TestApp, sleep, waitFor } from "./helpers";
@@ -622,5 +622,106 @@ describe("a crash partway through a rotation", () => {
     await waitFor(() => serverVault(dave.userId).every((item) => item.generation === 1), "another device to finish");
     await waitFor(() => sessionOf(phone).account.core.closedBelow === 1, "the generation to close");
     expect(Object.keys(sessionOf(phone).account.core.olderKeys)).toEqual([]);
+  });
+});
+
+describe("the profile a rotation signs again (Z-07)", () => {
+  const profileRow = (userId: string) => {
+    const db = serverDatabase();
+    try {
+      return db.prepare("SELECT profile, profile_sig FROM users WHERE id = ?").get(userId) as { profile: Uint8Array | null; profile_sig: Uint8Array | null };
+    } finally {
+      db.close();
+    }
+  };
+  /** What the server puts in someone's place: anyone on the server holds the community key, and can seal a profile under a key of their own. */
+  const swapProfile = (app: TestApp) => {
+    const forged = sealProfile(sessionOf(alice).account.core.communityKey, newLastingKey().secretKey, app.session.getSelf().username, { displayName: "Not them", bio: "forged" });
+    const db = serverDatabase();
+    try {
+      db.prepare("UPDATE users SET profile = ?, profile_sig = NULL WHERE id = ?").run(forged, app.userId);
+    } finally {
+      db.close();
+    }
+  };
+  const seenBy = (app: TestApp, userId: string) => app.session.getUsers().find((user) => user.id === userId);
+  const followed = (app: TestApp, of: TestApp, generation: number) =>
+    waitFor(() => sessionOf(app).headGeneration(of.userId) === generation, `${app.name} to follow ${of.name}'s rotation`);
+
+  it("signs an honest profile again as it is, and sends nothing more", async () => {
+    const dave = await person("dave");
+    await dave.session.updateProfile({ displayName: "Dave", bio: "the real one" });
+    await waitFor(() => seenBy(alice, dave.userId)?.bio === "the real one", "alice to see dave's profile");
+    const before = profileRow(dave.userId);
+    const updates: unknown[] = [];
+    const realUpdate = apiOf(dave).updateMe;
+    apiOf(dave).updateMe = (body) => (updates.push(body), realUpdate(body));
+    await dave.session.rotate();
+    await followed(alice, dave, 1);
+    await sessionOf(alice).fetchUser(dave.userId);
+    expect(toBase64(profileRow(dave.userId).profile!)).toBe(toBase64(before.profile!));
+    expect(profileRow(dave.userId).profile_sig).not.toBeNull();
+    expect(seenBy(alice, dave.userId)).toMatchObject({ displayName: "Dave", bio: "the real one" });
+    expect(updates).toEqual([]);
+  });
+
+  it("doesn't sign a profile the server swapped, and puts up its own under the new key", async () => {
+    const dave = await person("dave");
+    await dave.session.updateProfile({ displayName: "Dave", bio: "the real one" });
+    await waitFor(() => seenBy(alice, dave.userId)?.bio === "the real one", "alice to see dave's profile");
+    swapProfile(dave);
+    await sessionOf(alice).fetchUser(dave.userId);
+    expect(seenBy(alice, dave.userId)?.displayName).toBe("Dave");
+    await dave.session.rotate();
+    await followed(alice, dave, 1);
+    // Someone who never saw the real profile can't fall back on a copy of their own.
+    const erin = await person("erin");
+    await followed(erin, dave, 1);
+    for (const app of [alice, erin]) {
+      await waitFor(async () => (await sessionOf(app).fetchUser(dave.userId), seenBy(app, dave.userId)?.bio === "the real one"), `${app.name} to see dave's own profile`);
+      expect(seenBy(app, dave.userId)?.displayName).toBe("Dave");
+    }
+    expect(seenBy(dave, dave.userId)).toMatchObject({ displayName: "Dave", bio: "the real one" });
+    expect(securityEvents(dave)).toEqual([]);
+    expect(sessionOf(dave).getKv("profile_again")).toBeNull();
+  });
+
+  it("finishes the rotation when its own profile can't go up yet, and puts it up after a restart", async () => {
+    const dave = await person("dave");
+    await dave.session.updateProfile({ displayName: "Dave", bio: "the real one" });
+    await waitFor(() => seenBy(alice, dave.userId)?.bio === "the real one", "alice to see dave's profile");
+    swapProfile(dave);
+    apiOf(dave).updateMe = async () => {
+      throw new ApiError(0, "network", "gone");
+    };
+    await dave.session.rotate();
+    expect(generationOf(dave)).toBe(1);
+    expect(sessionOf(dave).getKv("profile_again")).toBe(1);
+    await dave.restart();
+    await waitFor(() => sessionOf(dave).getKv("profile_again") === null, "dave to put the profile up");
+    await followed(alice, dave, 1);
+    await waitFor(async () => (await sessionOf(alice).fetchUser(dave.userId), seenBy(alice, dave.userId)?.bio === "the real one"), "alice to see dave's own profile");
+    expect(seenBy(alice, dave.userId)?.displayName).toBe("Dave");
+  });
+
+  it("signs nothing for a device that never held a profile it could trust, and the rotation still goes through", async () => {
+    const dave = await person("dave");
+    await dave.session.updateProfile({ displayName: "Dave", bio: "the real one" });
+    await waitFor(() => seenBy(alice, dave.userId)?.bio === "the real one", "alice to see dave's profile");
+    swapProfile(dave);
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(seenBy(phone, dave.userId)?.bio).toBe("");
+    dave.client.stop();
+    await phone.session.rotate();
+    await atGeneration(phone, 1);
+    await followed(alice, dave, 1);
+    expect(profileRow(dave.userId).profile_sig).toBeNull();
+    await sessionOf(alice).fetchUser(dave.userId);
+    expect(seenBy(alice, dave.userId)).toMatchObject({ displayName: "Dave", bio: "the real one" });
+    const erin = await person("erin");
+    await followed(erin, dave, 1);
+    await sessionOf(erin).fetchUser(dave.userId);
+    expect(seenBy(erin, dave.userId)?.displayName).toBe(dave.session.getSelf().username);
+    expect(seenBy(erin, dave.userId)?.bio).toBe("");
   });
 });

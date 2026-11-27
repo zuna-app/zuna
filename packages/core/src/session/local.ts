@@ -7,7 +7,8 @@ import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "../encoding";
 import type { TrustManifest } from "../manifest";
 import { parseProfile } from "../validate";
 import { presenceTiming } from "../presence";
-import type { EmoteSet, Preferences, PushSettings, Role, ServerInfo, TrustState, UserView } from "../types";
+import type { Link } from "../generations";
+import type { EmoteSet, Preferences, Profile, PushSettings, Role, ServerInfo, TrustState, UserView } from "../types";
 import { DB_LABEL, ROTATION_INTENT, type CachedDevice, type RotationIntent, type CachedUser, type CachedGroup, emptyProfile, deletedProfile } from "./shared";
 import { SessionBase } from "./base";
 import { t } from "../i18n";
@@ -392,9 +393,7 @@ export abstract class SessionLocal extends SessionBase {
       ) {
         opened = cachedProfile.profile;
       } else {
-        opened = head
-          ? parseProfile(openProfileAtGeneration<unknown>(this.account.core.communityKey, head.identity, api.id, api.username, head.gen, decode(api.profile), decode(api.profile_sig)))
-          : parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)));
+        opened = this.signedProfile(api, head, trustedKey);
         this.profileCache.set(api.id, { raw: api.profile, sig, username: api.username, gen, key: verifyKey, profile: opened });
       }
     }
@@ -443,6 +442,18 @@ export abstract class SessionLocal extends SessionBase {
       void this.followChain(api.id).catch((error) => console.warn("[zuna] following a chain of keys", error));
     }
     return user;
+  }
+
+  /**
+   * The profile the server lists for someone, if it's theirs: signed by the head this device holds
+   * for them, or before their first rotation by the key they're pinned to. Anything else is null.
+   */
+  protected signedProfile(api: ApiUser, head: Link | null, root: Uint8Array): Profile | null {
+    if (!api.profile) return null;
+    const { communityKey } = this.account.core;
+    return head
+      ? parseProfile(openProfileAtGeneration<unknown>(communityKey, head.identity, api.id, api.username, head.gen, decode(api.profile), decode(api.profile_sig)))
+      : parseProfile(openProfile<unknown>(communityKey, root, api.username, decode(api.profile)));
   }
 
   protected async ensureUser(userId: string, refresh = false): Promise<CachedUser | null> {

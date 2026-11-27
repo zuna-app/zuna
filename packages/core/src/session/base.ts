@@ -310,6 +310,7 @@ export abstract class SessionBase {
   protected abstract sealKeyOf(device: ApiDevice, key: Uint8Array): Uint8Array | null;
   protected abstract checkRemovals(api: ApiUser): void;
   protected abstract rotateSoon(delay: number): void;
+  protected abstract putProfileAgain(): Promise<void>;
   protected abstract syncAccountSoon(): void;
   protected abstract saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant", signer?: string): void;
   protected abstract joinedEpoch(groupId: string): number | null;

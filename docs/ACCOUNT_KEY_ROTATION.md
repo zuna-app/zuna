@@ -254,7 +254,7 @@ sequenceDiagram
 ```
 
 1. **Generate and store the intent.** New account, identity and HPKE keys, stored with what prompted the rotation, sealed at rest in one local transaction. From here until it's settled, a restart uses these keys and no others.
-2. **Build the request.** Re-read the device list from the server. Decide who's carried (section 7.4). Build the link, core, slots' sealed keys, a bundle for each carried device with a seal key, the re-sealed trust items, and a signature by the new head over the profile. Store the request's hash in the intent.
+2. **Build the request.** Re-read the device list from the server. Decide who's carried (section 7.4). Build the link, core, slots' sealed keys, a bundle for each carried device with a seal key, the re-sealed trust items, and a signature by the new head over the profile, if the current head's key signed it, as a contact would check it. Store the request's hash in the intent.
 3. **Send it.** The server does all of this in one transaction, or none of it: checks the expected generation, checks the link and that the slots it would keep are the ones the link names (section 7.2), stores everything, replaces the slots' sealed keys, ends sessions with no device, and revokes anyone the link lists as removed.
 4. **Install.** Replace the account state in the index database, then record the head in the server's database and clear the intent. These are two databases, so this order matters (section 8.3). Uploads resume, under the new key.
 5. **Others follow** (section 9).
@@ -345,6 +345,7 @@ Details that follow from this:
 - **Devices that have left stay usable for checking old messages.** A device a contact already knew stays as `revoked`, whatever the server says. A device first seen after the link, with a certificate from an older generation, isn't accepted at all, unless this contact has no history with the person, in which case it's accepted as revoked only. Messages use the device's signing key as they do today (`checkEnvelope` in `crypto.ts`), with `couldBeSent` still applied.
 - **The HPKE key for grants comes from the head link,** which is signed, rather than from the server's field.
 - **Profiles are checked against the head,** with a signature the rotating device makes over the existing ciphertext, so nothing has to be encrypted again.
+- **The rotating device signs only a profile its account signed.** What the server lists as the account's profile is the server's word, so the device checks it under the current head first, as a contact would. One that doesn't hold, swapped or with its signature missing, it signs nothing for: once it has installed the generation, it puts up its own copy, sealed and signed under the new key (`putProfileAgain` in `session/management.ts`, and again at its next catch-up if that fails). That copy only ever came from a profile that opened under the account's own key. A device that never held one, such as one that signed in after the swap, puts nothing up: contacts keep the copy they hold, and anyone new sees the username, until the person next saves their profile. Either way the rotation goes through, and nobody is asked or told anything.
 
 ### 9.3 What a contact sees
 

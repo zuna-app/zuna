@@ -98,6 +98,8 @@ export const DB_LABEL = (name: string, row: string) => utf8(`zuna/local/${name}|
 /** Keeps changes to this account's keys one at a time. Group IDs are hex, so it can't be one of those. */
 export const ACCOUNT_LOCK = "account";
 export const ROTATION_INTENT = "rotation_intent";
+/** The generation of this device's own rotation that signed no profile, as the server's wasn't the account's: its own goes up again. */
+export const PROFILE_AGAIN = "profile_again";
 export const ROTATION_ATTEMPTS = 6;
 /** After this long failing to rotate, the person is told. */
 export const ROTATION_STUCK_MS = 24 * 3600 * 1000;

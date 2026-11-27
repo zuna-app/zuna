@@ -1,14 +1,14 @@
 import { t } from "../i18n";
 // ServerSession, in part (see base.ts): the person's profile and account, verifying others, and managing groups.
 
-import { decode } from "../api";
+import { ApiError, decode } from "../api";
 import { currentAuthKey, planPasswordChange, planRecoveryChange } from "../account";
 import { safetyEmoji, sealHistoryGrant, sealProfile, signProfileAtGeneration, verifyHpkeKey } from "../crypto";
 import type { Link } from "../generations";
 import { equalBytes, fromBase64, toBase64 } from "../encoding";
 import { describeExport } from "../export";
 import type { AvatarRef, DeviceView, GroupRole, Profile, SafetyCheck, ServerDataExport } from "../types";
-import { rotationTiming, type GroupMeta, emptyProfile } from "./shared";
+import { PROFILE_AGAIN, rotationTiming, type GroupMeta, emptyProfile } from "./shared";
 import { SessionSending } from "./sending";
 
 export abstract class SessionManagement extends SessionSending {
@@ -26,6 +26,10 @@ export abstract class SessionManagement extends SessionSending {
       profile.avatar = null;
       avatarFile = null;
     }
+    await this.putProfile(profile, avatarFile);
+  }
+
+  protected async putProfile(profile: Profile, avatarFile: string | null | undefined): Promise<void> {
     const { core, userId, username } = this.account;
     const sealed = sealProfile(core.communityKey, core.identitySecret, username, profile);
     const head = this.headOf(userId);
@@ -34,6 +38,33 @@ export abstract class SessionManagement extends SessionSending {
       profile_sig: head ? signProfileAtGeneration(core.identitySecret, userId, head.gen, sealed) : undefined,
       avatar_file: avatarFile,
     });
+  }
+
+  /**
+   * After a rotation of this device's that signed no profile, since the one the server listed
+   * wasn't signed by this account's key, the copy this device holds goes up under the new key.
+   * That copy only ever came from a profile that opened under the account's own key (applyUser).
+   * A device that never held one puts nothing up: contacts keep the copy they hold, and anyone
+   * new sees the username, until the person next saves their profile. Nothing here may stop a
+   * rotation, so it fails quietly, and is tried again at the next catch-up.
+   */
+  protected async putProfileAgain(): Promise<void> {
+    const owed = this.getKv<number>(PROFILE_AGAIN);
+    if (owed === null) return;
+    const done = () => this.db.run("DELETE FROM kv WHERE k = ?", [PROFILE_AGAIN]);
+    const { core, userId, username } = this.account;
+    if (owed !== core.generation) return done();
+    try {
+      // Another device of the account may have saved one under this key since.
+      if (this.signedProfile(await this.api.user(userId), this.headOf(userId), core.rootPublic)) return done();
+      const self = this.users.get(userId);
+      const held = self && !self.deleted ? self.profile : null;
+      if (held && JSON.stringify(held) !== JSON.stringify(emptyProfile(username))) await this.putProfile(held, held.avatar?.fileId ?? null);
+      done();
+    } catch (error) {
+      console.warn("[zuna] putting this account's profile up again", error);
+      if (error instanceof ApiError && !error.retryable) done();
+    }
   }
 
   async setHideLastSeen(hide: boolean): Promise<void> {

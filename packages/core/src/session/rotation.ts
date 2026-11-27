@@ -50,6 +50,7 @@ import {
   REMOVAL_ROTATION_WINDOW_MS,
   OLDER_HPKE_KEPT,
   OLDER_AUTHORS_KEPT,
+  PROFILE_AGAIN,
   rotationTiming,
   type RotationIntent,
   signedFromApi,
@@ -219,6 +220,9 @@ export abstract class SessionRotation extends SessionDirectory {
       deviceSecret,
     );
     const link = readHeldLink(signed)!;
+    // The profile is signed again only if this account's key signed it, checked as a contact would: what the
+    // server lists may be a profile of its own. Any other is left unsigned, and this device's own goes up after.
+    const profile = me.profile && this.signedProfile(me, head, core.rootPublic) ? decode(me.profile) : null;
 
     const bundles: { device_id: string; data: Uint8Array }[] = [];
     for (const { id, key } of devices) {
@@ -229,7 +233,7 @@ export abstract class SessionRotation extends SessionDirectory {
       expected_generation: core.generation,
       link: { generation, payload: signed.payload, by_prev: signed.byPrev, by_new: signed.byNew, by_device: signed.byDevice },
       vault_core: sealVaultCore(accountKey, next, userId),
-      profile_sig: me.profile ? signProfileAtGeneration(identity.secretKey, userId, generation, decode(me.profile)) : undefined,
+      profile_sig: profile ? signProfileAtGeneration(identity.secretKey, userId, generation, profile) : undefined,
       slots: kinds.map((kind) => {
         const sealedKey = sealToSlot(slots[kind]!.seal, kind, username, generation, link.hash, accountKey);
         const made = newSlots.get(kind);
@@ -307,7 +311,10 @@ export abstract class SessionRotation extends SessionDirectory {
     const wire = intent.request.link;
     const link = readHeldLink({ payload: fromBase64(wire.payload), byPrev: fromBase64(wire.by_prev), byNew: fromBase64(wire.by_new), byDevice: fromBase64(wire.by_device) });
     if (!link) throw new Error("a rotation in progress couldn't be read");
+    // Written before the keys are installed, so a crash after them still puts the profile up (catchUp).
+    if (!intent.request.profile_sig) this.setKv(PROFILE_AGAIN, intent.generation);
     await this.install(fromBase64(intent.accountKey), coreFromJson(intent.core), [link]);
+    await this.putProfileAgain();
   }
 
   /**
@@ -456,6 +463,7 @@ export abstract class SessionRotation extends SessionDirectory {
     if (this.account.core.generation > 0 && (state.older_items > 0 || this.account.core.closedBelow < this.account.core.generation)) {
       this.sealOlderSoon(Math.random() * rotationTiming.takeoverMs);
     }
+    await this.putProfileAgain();
     this.checkRemovals(await this.api.user(userId));
   }
 
