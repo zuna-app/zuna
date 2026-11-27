@@ -76,6 +76,16 @@ const absent = (value: unknown): value is null | undefined => value === undefine
  */
 const isDrawing = (mime: string): boolean => mime.split(";")[0]!.trim().toLowerCase() === "image/svg+xml";
 
+/**
+ * Whether a file's type says it's a picture a person or a group may show as theirs: an image of
+ * any kind but an SVG, which a page could otherwise be handed as, or a document typed as any
+ * other kind of file.
+ */
+const isPicture = (mime: string): boolean => {
+  const type = mime.split(";")[0]!.trim().toLowerCase();
+  return /^image\/[a-z0-9.+-]+$/.test(type) && !type.startsWith("image/svg");
+};
+
 /** A picture's side, kept only if it makes sense: nothing depends on it but the layout. */
 const side = (value: unknown): number | undefined => (typeof value === "number" && value > 0 && value <= MAX_PICTURE_SIDE ? value : undefined);
 
@@ -130,7 +140,7 @@ export function parseAvatarRef(value: unknown): AvatarRef | null {
   const { fileId, key, prefix, chunks, mime } = value;
   if (!isString(fileId, MAX_ID_LENGTH) || !FILE_ID.test(fileId) || fileId === "") return null;
   if (!isString(key, 256) || !BASE64.test(key) || !isString(prefix, 256) || !BASE64.test(prefix)) return null;
-  if (!isCount(chunks, MAX_AVATAR_CHUNKS) || !isString(mime, MAX_MIME_LENGTH) || isDrawing(mime)) return null;
+  if (!isCount(chunks, MAX_AVATAR_CHUNKS) || !isString(mime, MAX_MIME_LENGTH) || !isPicture(mime)) return null;
   return { fileId, key, prefix, chunks, mime };
 }
 

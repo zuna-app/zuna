@@ -72,8 +72,17 @@ describe("pieces of a message", () => {
       // Z-79: an SVG can name other files, which what draws it may open, so it's never someone's picture.
       ["mime", "image/svg+xml"],
       ["mime", "IMAGE/SVG+XML; charset=utf-8"],
+      ["mime", "image/svg"],
+      // A page, which a browser would run if the picture were opened by itself, or anything else that isn't a picture.
+      ["mime", "text/html"],
+      ["mime", "application/xhtml+xml"],
+      ["mime", "application/svg+xml"],
+      ["mime", ""],
+      ["mime", "image/"],
     ]);
     expect(parseAvatarRef({ ...avatar, chunks: 8, mime: "image/gif" })).toEqual({ ...avatar, chunks: 8, mime: "image/gif" });
+    // Any kind of picture, not a list of them, which would turn away some app's real ones.
+    for (const mime of ["image/webp", "image/heic", "image/avif", "image/jxl", "IMAGE/PNG", "image/jpeg; q=1"]) expect(parseAvatarRef({ ...avatar, mime })).toEqual({ ...avatar, mime });
   });
 
   it("takes buttons that all open a link or send data back, and nothing if any doesn't", () => {
