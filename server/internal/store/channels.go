@@ -201,11 +201,22 @@ const HistoryAnswers = 3
 // AnswerHistoryRequest takes someone's request for a channel's older keys and keeps the
 // keys a member sealed to them, together: false, with nothing kept, when the request is
 // closed or this member answered them already, this time or a time before. Either both
-// happen or neither, so an answer is never counted without its keys being there.
+// happen or neither, so an answer is never counted without its keys being there. Nobody
+// answers themselves, a grant is held to what the channel's epochs come to, and only the
+// newest few wait for one person (keepNewestGrants).
 func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID, grantedBy string, data []byte) (bool, error) {
 	var answered bool
+	if userID == grantedBy {
+		return false, ErrForbidden
+	}
 	err := d.tx(ctx, func(tx handle) error {
 		answered = false
+		if fits, err := grantFits(ctx, tx, groupID, 0, data); err != nil || !fits {
+			if err == nil {
+				err = ErrLimit
+			}
+			return err
+		}
 		res, err := tx.ExecContext(ctx, `UPDATE group_members SET history_answers = history_answers + 1,
 			history_wanted = CASE WHEN history_answers + 1 >= ? THEN 0 ELSE 1 END
 			WHERE group_id = ? AND user_id = ? AND history_wanted = 1
@@ -221,6 +232,9 @@ func (d *DB) AnswerHistoryRequest(ctx context.Context, groupID, userID, grantedB
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO history_grants(user_id, group_id, data, created_at) VALUES(?,?,?,?)`, userID, groupID, data, Now()); err != nil {
+			return err
+		}
+		if err := keepNewestGrants(ctx, tx, userID, groupID); err != nil {
 			return err
 		}
 		answered = true

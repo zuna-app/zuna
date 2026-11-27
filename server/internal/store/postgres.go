@@ -691,4 +691,6 @@ CREATE INDEX IF NOT EXISTS invites_created_by ON invites(created_by);
 CREATE INDEX IF NOT EXISTS history_answered_user ON history_answered(user_id);
 CREATE INDEX IF NOT EXISTS bot_channels_channel ON bot_channels(channel_id);
 CREATE INDEX IF NOT EXISTS key_packages_claim ON key_packages(device_id, last_resort, id, created_at);
+`, `
+ALTER TABLE groups ADD COLUMN top_epoch BIGINT NOT NULL DEFAULT 0;
 `}

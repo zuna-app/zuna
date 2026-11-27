@@ -620,4 +620,8 @@ CREATE INDEX IF NOT EXISTS invites_created_by ON invites(created_by);
 CREATE INDEX IF NOT EXISTS history_answered_user ON history_answered(user_id);
 CREATE INDEX IF NOT EXISTS bot_channels_channel ON bot_channels(channel_id);
 CREATE INDEX IF NOT EXISTS key_packages_claim ON key_packages(device_id, last_resort, id, created_at);
+`, `
+-- The furthest a group's epochs went, for when commits were undone back past it: its
+-- members still hold the keys of those epochs, and a grant of its history may carry them.
+ALTER TABLE groups ADD COLUMN top_epoch INTEGER NOT NULL DEFAULT 0;
 `}

@@ -265,7 +265,8 @@ func (s *Server) handleChannelHistoryGrant(w http.ResponseWriter, r *http.Reques
 	if !readJSONUpTo(w, r, maxVaultBody+maxVaultBody/2, &body) {
 		return
 	}
-	if len(body.Data) == 0 || len(body.Data) > maxChannelGrant {
+	// Nobody's app hands its own history to itself.
+	if len(body.Data) == 0 || len(body.Data) > maxChannelGrant || body.UserID == sess.UserID {
 		writeError(w, http.StatusBadRequest, "bad_request", "Those keys aren't valid.")
 		return
 	}

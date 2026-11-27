@@ -206,3 +206,25 @@ func TestReactionsAreHeldToATotalAndCostMoreWhenMany(t *testing.T) {
 		t.Fatalf("a reaction once there was room again: %v", err)
 	}
 }
+
+// A group taken back past epochs it went to still lets a grant carry their keys, which its
+// members hold, and no more.
+func TestAGrantMayCarryEveryEpochAGroupWentTo(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(ctx, `UPDATE groups SET epoch = 30 WHERE id = ?`, group); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.VoidCommits(ctx, group, "u", "d", true, 30, 2, []byte("info"), make([]byte, SendKeyLen)); err != nil {
+		t.Fatal(err)
+	}
+	for size, want := range map[int]bool{MaxHistoryGrantBytes(30): true, MaxHistoryGrantBytes(30) + 1: false} {
+		if fits, err := grantFits(ctx, db.sql, group, 3, make([]byte, size)); err != nil || fits != want {
+			t.Fatalf("a grant of %d bytes fits: %v, %v", size, fits, err)
+		}
+	}
+}

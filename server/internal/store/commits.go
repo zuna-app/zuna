@@ -165,6 +165,9 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 				grant.UserID, c.GroupID, grant.Data, now); err != nil {
 				return err
 			}
+			if err := keepNewestGrants(ctx, tx, grant.UserID, c.GroupID); err != nil {
+				return err
+			}
 		}
 		event = GroupEvent{
 			GroupID:      c.GroupID,
@@ -218,15 +221,23 @@ func countCommit(ctx context.Context, tx handle, c Commit) error {
 
 // checkCommitExtras holds a commit's welcomes and history grants to what the
 // commit is doing: welcomes go to the devices of people joining (and, when a
-// group starts, of its members), and only admins hand history to people joining.
+// group starts, of its members), and only admins hand history to people joining,
+// never to themselves, and no more of it than the group's epochs come to.
 func checkCommitExtras(ctx context.Context, tx handle, c Commit, role string) error {
 	joining := map[string]bool{}
 	for _, user := range c.AddUsers {
 		joining[user] = true
 	}
 	for _, grant := range c.HistoryGrants {
-		if role != "admin" || !joining[grant.UserID] {
+		if role != "admin" || !joining[grant.UserID] || grant.UserID == c.SenderUser {
 			return ErrForbidden
+		}
+		fits, err := grantFits(ctx, tx, c.GroupID, c.ExpectedEpoch+1, grant.Data)
+		if err != nil {
+			return err
+		}
+		if !fits {
+			return ErrLimit
 		}
 	}
 	if c.ExpectedEpoch == 0 {
@@ -323,8 +334,9 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {
 			return err
 		}
-		// With nothing to go back to, the group starts again from nothing.
-		if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ? WHERE id = ?`, to, groupID); err != nil {
+		// With nothing to go back to, the group starts again from nothing. How far it
+		// went is kept, as its members still hold the keys of those epochs (grantFits).
+		if _, err := tx.ExecContext(ctx, `UPDATE groups SET top_epoch = CASE WHEN epoch > top_epoch THEN epoch ELSE top_epoch END, epoch = ? WHERE id = ?`, to, groupID); err != nil {
 			return err
 		}
 		if err := setGroupInfo(ctx, tx, groupID, groupInfo, sendKey); err != nil {

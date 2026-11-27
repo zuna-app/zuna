@@ -29,9 +29,52 @@ const (
 	keepCommitsFor   = 30 * 24 * time.Hour
 	keepCommitEpochs = 256
 
+	// A history grant is a conversation's epoch keys sealed to someone (sealHistoryGrant in
+	// the core): X-Wing's 1,120 bytes and the AEAD's tag, the signer's names, and its
+	// device's hybrid signature, 2,485 bytes and 3,316 in base64, come to under 5 KiB, and
+	// each epoch adds its key, 44 characters of base64 quoted in JSON quoted again in JSON,
+	// 54 bytes and its number. Each is allowed over twice that, for as many epochs as the
+	// conversation ever had, which is how many keys anyone in it can hold.
+	grantBaseBytes     = 16 << 10
+	grantBytesPerEpoch = 128
+	// GrantsWaiting is how many grants of one conversation's history wait for one person,
+	// the newest. A channel's request takes HistoryAnswers, and an app takes what's
+	// waiting as soon as it's in the conversation, so only someone who asks again and
+	// again without taking any, or is added over and over, ever has more.
+	GrantsWaiting = 8
+
 	storedBytes = "stored_bytes"
 	commitBytes = "commit_bytes"
 )
+
+// MaxHistoryGrantBytes is the largest grant of a conversation's history whose epochs
+// went as far as epoch.
+func MaxHistoryGrantBytes(epoch int64) int {
+	return grantBaseBytes + grantBytesPerEpoch*int(epoch+1)
+}
+
+// grantFits reports whether a grant could be one of a conversation's real ones: no
+// larger than its epochs' keys, as far as it ever went, come to.
+func grantFits(ctx context.Context, tx handle, groupID string, epoch int64, data []byte) (bool, error) {
+	var top int64
+	if err := tx.QueryRowContext(ctx, `SELECT CASE WHEN epoch > top_epoch THEN epoch ELSE top_epoch END FROM groups WHERE id = ?`, groupID).Scan(&top); err != nil {
+		return false, err
+	}
+	if epoch > top {
+		top = epoch
+	}
+	return len(data) <= MaxHistoryGrantBytes(top), nil
+}
+
+// keepNewestGrants leaves no more than GrantsWaiting of a conversation's grants waiting
+// for someone, the newest, so that nobody can fill the disk with grants their recipient
+// never takes, and the one handed on last still comes.
+func keepNewestGrants(ctx context.Context, tx handle, userID, groupID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM history_grants WHERE user_id = ? AND group_id = ? AND id NOT IN
+		(SELECT id FROM history_grants WHERE user_id = ? AND group_id = ? ORDER BY id DESC LIMIT ?)`,
+		userID, groupID, userID, groupID, GrantsWaiting)
+	return err
+}
 
 // countBytes adds to one of someone's running totals, unless that would take them
 // past limit, where zero is no limit.
