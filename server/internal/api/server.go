@@ -120,6 +120,9 @@ type Config struct {
 	// Unlimited takes away the limits on how often anyone may ask for anything, for tests that
 	// make one request a great many times. A server never sets it.
 	Unlimited bool
+	// Admitting, which only tests set, runs as a socket's session has been read and before its
+	// connection is added to the hub, where nothing a ban or sign-out closes can find it yet.
+	Admitting func()
 }
 
 type Server struct {

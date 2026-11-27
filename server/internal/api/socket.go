@@ -47,9 +47,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	defer ws.CloseNow()
 
-	sess, ok := s.authenticateSocket(ctx, ws)
+	sess, tokenHash, ok := s.authenticateSocket(ctx, ws)
 	if !ok {
 		return
+	}
+	if s.cfg.Admitting != nil {
+		s.cfg.Admitting()
 	}
 	user, err := s.db.User(ctx, sess.UserID)
 	if err != nil {
@@ -73,6 +76,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.voiceSocketClosed(c)
 	defer s.hub.remove(c)
+	// A ban, sign-out or removal between the session being read and the connection being added
+	// closed every connection but this one, which wasn't there yet. Read again, now that whatever
+	// comes after closes this one too.
+	if again, err := s.db.SessionByToken(ctx, tokenHash); err != nil || again.DeviceID != sess.DeviceID {
+		ws.Close(4401, "invalid session")
+		return
+	}
 
 	go s.writeLoop(ctx, ws, c)
 	// A page closed says it's going away, as a browser does for a tab: its person left,
@@ -82,24 +92,25 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) authenticateSocket(ctx context.Context, ws *websocket.Conn) (*store.Session, bool) {
+func (s *Server) authenticateSocket(ctx context.Context, ws *websocket.Conn) (*store.Session, []byte, bool) {
 	authCtx, cancel := context.WithTimeout(ctx, authTimeout)
 	defer cancel()
 	_, data, err := ws.Read(authCtx)
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	var frame clientFrame
 	if err := json.Unmarshal(data, &frame); err != nil || frame.Type != "auth" {
 		ws.Close(websocket.StatusPolicyViolation, "expected auth frame")
-		return nil, false
+		return nil, nil, false
 	}
-	sess, err := s.db.SessionByToken(ctx, hashToken(frame.Token))
+	tokenHash := hashToken(frame.Token)
+	sess, err := s.db.SessionByToken(ctx, tokenHash)
 	if err != nil || sess.DeviceID == "" {
 		ws.Close(4401, "invalid session")
-		return nil, false
+		return nil, nil, false
 	}
-	return sess, true
+	return sess, tokenHash, true
 }
 
 func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {

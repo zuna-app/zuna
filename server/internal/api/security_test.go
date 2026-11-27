@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"zuna/server/internal/api"
 	"zuna/server/internal/store"
 )
 
@@ -115,6 +116,42 @@ func (h *harness) socketCloseCode(token string) websocket.StatusCode {
 	}
 	_, _, err = ws.Read(ctx)
 	return websocket.CloseStatus(err)
+}
+
+// Z-34: signed out between its session being read and its being added to the hub, a
+// socket was the one connection the sign-out couldn't close, and stayed open.
+func TestASocketSignedOutAsItComesInIsClosed(t *testing.T) {
+	reading, proceed := make(chan struct{}), make(chan struct{})
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.Admitting = func() {
+			reading <- struct{}{}
+			<-proceed
+		}
+	})
+	bob := h.register("bob", h.owner().newInvite())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, strings.Replace(h.url, "http", "ws", 1)+"/api/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.CloseNow()
+	if err := ws.Write(ctx, websocket.MessageText, []byte(`{"t":"auth","token":"`+bob.token+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-reading
+	h.mustDo("POST", "/api/auth/logout", bob.token, map[string]any{}, nil)
+	close(proceed)
+	for {
+		_, data, err := ws.Read(ctx)
+		if err != nil {
+			if status := websocket.CloseStatus(err); status != 4401 {
+				t.Fatalf("the socket ended with %v (%d), not as a session that's over", err, status)
+			}
+			return
+		}
+		t.Logf("read %s", data)
+	}
 }
 
 // Z-07: bytes that aren't a commit or group info for this group and epoch.
