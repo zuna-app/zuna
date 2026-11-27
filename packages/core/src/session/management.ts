@@ -248,6 +248,26 @@ export abstract class SessionManagement extends SessionSending {
 
   // --- Group management ---
 
+  /**
+   * The key a history grant to someone is sealed to: their newest generation's, as far as the log of keys goes,
+   * along their chain from the key they're pinned to, which is the one their devices are checked by. Never one the
+   * server lists on its own word. Null while there's none to trust: no pin yet, a generation the log names whose
+   * link hasn't come, or a key their pin didn't sign.
+   */
+  protected async historyKeyOf(userId: string): Promise<Uint8Array | null> {
+    const root = this.pinnedIdentity(userId);
+    if (!root) return null;
+    if (this.loggedGeneration(userId) > this.headGeneration(userId)) await this.followChain(userId).catch((error) => console.warn("[zuna] following a chain of keys", error));
+    // Short of the newest generation, it would be a key they may have left behind for having lost it.
+    if (this.loggedGeneration(userId) > this.headGeneration(userId)) return null;
+    // A link names its key itself, and was checked when it came.
+    const head = this.headOf(userId);
+    if (head) return head.hpke;
+    const listed = await this.api.user(userId);
+    const key = decode(listed.hpke_key);
+    return verifyHpkeKey(root, key, decode(listed.hpke_key_sig)) ? key : null;
+  }
+
   async createGroup(name: string, memberIds: string[], historyVisible: boolean, avatarBlob?: Blob): Promise<string> {
     let avatar: AvatarRef | null = null;
     if (avatarBlob) {
@@ -285,15 +305,15 @@ export abstract class SessionManagement extends SessionSending {
           // Hand older epoch keys to each new member, sealed so that only they can read them.
           grants = [];
           const keys = this.allEpochKeys(groupId);
+          const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
           for (const userId of missing) {
-            const user = await this.ensureUser(userId, true);
             // A bot reads what's said from when it was added, and gets nothing from before.
-            if (!user || user.bot) continue;
-            const apiUser = await this.api.user(userId);
-            // A chain's newest link names this key itself, and was checked when it came.
-            if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
-            const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
-            grants.push({ user_id: userId, data: sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, keys) });
+            if (this.users.get(userId)?.bot) continue;
+            // Someone whose key this device can't vouch for yet isn't let in without what came before, nor given it under
+            // the server's word: the add waits, as it does for someone whose entries in the log came without their bodies.
+            const key = await this.historyKeyOf(userId);
+            if (!key) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
+            grants.push({ user_id: userId, data: sealHistoryGrant(key, groupId, userId, signer, this.account.deviceSecret, keys) });
           }
         }
         const roster = { admins: held.roster.admins, members: [...held.roster.members, ...missing.filter((id) => !held.roster.members.includes(id))] };

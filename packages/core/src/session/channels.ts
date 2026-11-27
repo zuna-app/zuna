@@ -4,7 +4,7 @@ import { t } from "../i18n";
 import { decode, type ApiCall, type ApiChannel, type ApiVoiceState } from "../api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../channels";
 import { readFounding } from "../roster";
-import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope, sealHistoryGrant, verifyHpkeKey } from "../crypto";
+import { checkEnvelope, frameSigned, randomId, readSigned, sealEnvelope, sealHistoryGrant } from "../crypto";
 import { equalBytes, toBase64, u64Bytes, utf8 } from "../encoding";
 import { VOICE_LABEL, voiceIdentity } from "../voice";
 import { parseChannelDetails, parseWatch } from "../validate";
@@ -158,11 +158,12 @@ export abstract class SessionChannels extends SessionManagement {
       const asked = `${groupId}/${userId}`;
       if (userId === this.account.userId || !inTree.has(userId) || this.historyHandedOn.has(asked)) continue;
       const user = await this.ensureUser(userId, true);
-      if (!user) continue;
-      const apiUser = await this.api.user(userId);
-      // A chain's newest link names this key itself, and was checked when it came.
-      if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
-      const sealed = sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, this.allEpochKeys(groupId));
+      // A bot gets nothing from before it came in, whatever the server says it asked for.
+      if (!user || user.bot) continue;
+      // With no key to trust for them yet, another member answers, or this one when they ask again.
+      const key = await this.historyKeyOf(userId);
+      if (!key) continue;
+      const sealed = sealHistoryGrant(key, groupId, userId, signer, this.account.deviceSecret, this.allEpochKeys(groupId));
       await this.api.grantChannelHistory(groupId, userId, sealed);
       this.historyHandedOn.add(asked);
     }

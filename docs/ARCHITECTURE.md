@@ -153,7 +153,7 @@ Every key that agrees on a key is X-Wing, ML-KEM-768 and X25519 together: MLS's,
 
 An account's keys are replaced as **generations**, in the background, whenever a device goes or a secret changes. Each publishes a link, signed by the old and new identity keys and by a device, which lists the devices that stay. `docs/ACCOUNT_KEY_ROTATION.md` has the design, and what happens at each step.
 
-History reaches new members with an **HPKE-sealed grant**: an admin seals the group's older content keys to the new member's public key. The new member's device merges them into their vault.
+History reaches new members with an **HPKE-sealed grant**: an admin seals the group's older content keys to the new member's public key, the one their pinned identity key, or the newest link of their chain the log names, signed, never one the server lists on its own word. The new member's device merges them into their vault.
 
 ## Local storage
 

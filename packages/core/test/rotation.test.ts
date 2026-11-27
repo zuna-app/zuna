@@ -413,11 +413,11 @@ describe("rotating (Z-04)", () => {
     // Alice's app carries on as if the rotation hadn't reached it.
     await waitFor(() => sessionOf(alice).headGeneration(dave.userId) === 1, "alice to hear");
     expect(toBase64(sessionOf(alice).users.get(dave.userId).hpkeKey)).not.toBe(toBase64(stale));
-    sessionOf(alice).users.get(dave.userId).hpkeKey = stale;
-    const realUser = sessionOf(alice).ensureUser.bind(sessionOf(alice));
-    sessionOf(alice).ensureUser = async (userId: string, refresh = false) => (userId === dave.userId ? sessionOf(alice).users.get(userId) : realUser(userId, refresh));
+    // As when the log hadn't got to the new generation yet, which leaves the key of the one before it.
+    const realKey = sessionOf(alice).historyKeyOf.bind(sessionOf(alice));
+    sessionOf(alice).historyKeyOf = async (userId: string) => (userId === dave.userId ? stale : realKey(userId));
     await alice.session.addMembers(groupId, [dave.userId]);
-    sessionOf(alice).ensureUser = realUser;
+    sessionOf(alice).historyKeyOf = realKey;
     await waitFor(async () => (await dave.session.loadMessages(groupId)).messages.some((item) => item.text === "old news"), "the history to reach them");
   });
 });

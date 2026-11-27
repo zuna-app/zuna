@@ -249,7 +249,13 @@ export abstract class SessionGroups extends SessionRotation {
     if (this.keptBack(userId)) throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
     const user = await this.ensureUser(userId, true);
     if (!user) return [];
-    const pinned = this.pinnedIdentity(userId) ?? user.identityKey;
+    // A device of theirs counts only by the key they're pinned to, never one the server lists: with none yet, none does.
+    const pinned = this.pinnedIdentity(userId);
+    if (!pinned) return [];
+    // A generation the log names comes first, so that their devices are checked as they are now.
+    if (userId !== this.account.userId && this.loggedGeneration(userId) > this.headGeneration(userId)) {
+      await this.followChain(userId).catch((error) => console.warn("[zuna] following a chain of keys", error));
+    }
     const claimed = await this.claimWithPatience(userId, groupId);
     const valid: { deviceId: string; data: Uint8Array }[] = [];
     for (const item of claimed) {
