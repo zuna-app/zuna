@@ -18,8 +18,10 @@ export async function jpeg(reader: Reader): Promise<Output> {
   let at = 2;
   while (at < reader.size) {
     check((await reader.u8(at)) === 0xff);
-    let marker = await reader.u8(at + 1);
-    while (marker === 0xff) marker = await reader.u8(++at + 1);
+    // Any number of fill bytes may come before a marker: the last of them is taken as its start.
+    at = (await pastFill(reader, at + 1)) - 1;
+    check(at + 1 < reader.size);
+    const marker = await reader.u8(at + 1);
     if (marker === 0xd9) {
       out.copy(at, at + 2);
       return out;
@@ -51,19 +53,50 @@ export async function jpeg(reader: Reader): Promise<Output> {
   return out;
 }
 
-/** Where the compressed picture after a scan header ends: at the next marker, or the end of the file. */
+/** Where the first byte that isn't FF is from `from` on, a window at a time: the file's end if none is. */
+async function pastFill(reader: Reader, from: number): Promise<number> {
+  let at = from;
+  while (at < reader.size) {
+    const window = await reader.bytes(at, Math.min(SCAN, reader.size - at));
+    let i = 0;
+    while (i < window.length && window[i] === 0xff) i++;
+    if (i < window.length) return at + i;
+    at += window.length;
+  }
+  return reader.size;
+}
+
+/** Inside a compressed picture, FF is followed by 00, or by a restart marker. */
+const inScan = (byte: number) => byte === 0 || (byte >= 0xd0 && byte <= 0xd7);
+
+/**
+ * Where the compressed picture after a scan header ends: at the next marker, or the end of the
+ * file. Fill bytes, more FF, may come before a restart marker as before any other.
+ */
 async function afterScan(reader: Reader, from: number): Promise<number> {
   let at = from;
   while (at < reader.size - 1) {
     const chunk = await reader.bytes(at, Math.min(SCAN, reader.size - at));
     let i = chunk.indexOf(0xff);
-    while (i !== -1 && i < chunk.length - 1) {
-      const next = chunk[i + 1]!;
-      if (next !== 0 && !(next >= 0xd0 && next <= 0xd7)) return at + i;
-      i = chunk.indexOf(0xff, i + 1);
+    while (i !== -1) {
+      let next = i + 1;
+      while (next < chunk.length && chunk[next] === 0xff) next++;
+      // A run of FF at the end is read again with what comes after it.
+      if (next === chunk.length) break;
+      if (!inScan(chunk[next]!)) return at + i;
+      i = chunk.indexOf(0xff, next + 1);
     }
-    // A marker's first byte at the end is read again with the byte after it.
-    at += i === chunk.length - 1 ? chunk.length - 1 : chunk.length;
+    if (i === -1) {
+      at += chunk.length;
+    } else if (i > 0) {
+      at += i;
+    } else {
+      // A window that's all FF, as it can't be read again from its first.
+      const after = await pastFill(reader, at + chunk.length);
+      if (after === reader.size) return reader.size;
+      if (!inScan(await reader.u8(after))) return at;
+      at = after + 1;
+    }
   }
   return reader.size;
 }

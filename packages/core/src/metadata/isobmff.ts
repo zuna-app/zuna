@@ -157,7 +157,12 @@ async function samplesOf(reader: Reader, mediaBoxes: Box[]): Promise<[number, nu
   for (let chunk = 0; chunk < offsets.length && sample < sampleCount; chunk++) {
     while (run + 1 < runs.length && runs[run + 1]!.first <= chunk + 1) run++;
     let length = 0;
-    for (let i = 0; i < (runs[run]?.samples ?? 0) && sample < sampleCount; i++) length += sizeOf(sample++);
+    const samples = Math.min(runs[run]?.samples ?? 0, sampleCount - sample);
+    // Samples of one size are counted at once, as a table can say there are four billion of them.
+    if (fixedSize) {
+      length = samples * fixedSize;
+      sample += samples;
+    } else for (let i = 0; i < samples; i++) length += sizeOf(sample++);
     const from = offsets[chunk]!;
     check(from + length <= reader.size);
     ranges.push([from, from + length]);
@@ -177,9 +182,16 @@ async function heifItems(reader: Reader, patches: Patches, meta: Box): Promise<v
   const childrenOf = (from: number, to: number) => {
     const found: { type: string; payload: number; end: number }[] = [];
     for (let at = from; at + 8 <= to; ) {
-      const size = view.getUint32(at);
-      check(size >= 8 && at + size <= to);
-      found.push({ type: ascii(bytes, at + 4, 4), payload: at + 8, end: at + size });
+      let size = view.getUint32(at);
+      let header = 8;
+      // A size too large for 32 bits, after the type.
+      if (size === 1) {
+        check(at + 16 <= to);
+        size = Number(view.getBigUint64(at + 8));
+        header = 16;
+      }
+      check(size >= header && at + size <= to);
+      found.push({ type: ascii(bytes, at + 4, 4), payload: at + header, end: at + size });
       at += size;
     }
     return found;
@@ -249,7 +261,9 @@ async function heifItems(reader: Reader, patches: Patches, meta: Box): Promise<v
     const extentCount = view.getUint16(at);
     at += 2;
     const extents: [number, number][] = [];
-    for (let i = 0; i < extentCount; i++) {
+    // With no size for any of an extent's numbers, each is written in no bytes and says the same.
+    const once = indexSize + offsetSize + lengthSize === 0;
+    for (let i = 0; i < (once ? Math.min(extentCount, 1) : extentCount); i++) {
       if (indexSize) uint(indexSize);
       const offset = uint(offsetSize);
       const length = uint(lengthSize);

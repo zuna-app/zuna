@@ -176,3 +176,77 @@ describe("taking metadata out of a file", () => {
     await expect(withoutMetadata(failing, "image/jpeg", "photo.jpg")).rejects.toThrow("disk gone");
   });
 });
+
+// Files made to the shape of one this reads, a few bytes at a time, as a crafted file is.
+const u16 = (value: number) => [(value >> 8) & 255, value & 255];
+const u32 = (value: number) => [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
+const latin = (value: string) => [...Buffer.from(value, "latin1")];
+const box = (type: string, body: number[]) => [...u32(8 + body.length), ...latin(type), ...body];
+const full = (type: string, body: number[]) => box(type, [0, 0, 0, 0, ...body]);
+const all = async (source: ByteSource) => source.read(0, source.size);
+
+/** A JPEG with Exif saying where it was, around a scan of these bytes. */
+const jpegAround = (scan: number[]) =>
+  Uint8Array.from([0xff, 0xd8, 0xff, 0xe1, ...u16(2 + 6 + 20), ...latin("Exif\0\0II*\0ZunaTestGPS52.2N"), 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, ...scan, 0xff, 0xd9]);
+
+/** A HEIF picture whose Exif item is at the end, in its own box, with `extra` in its meta box. */
+function heifWith(extra: number[] = [], iloc?: number[]): Uint8Array {
+  const ftyp = box("ftyp", [...latin("heic"), 0, 0, 0, 0, ...latin("mif1heic")]);
+  const exif = [...u32(0), ...latin("II*\0ZunaTestGPS52.2N")];
+  const iinf = full("iinf", [...u16(1), ...box("infe", [2, 0, 0, 0, ...u16(1), ...u16(0), ...latin("Exif"), 0])]);
+  const hdlr = full("hdlr", [0, 0, 0, 0, ...latin("pict"), ...new Array(13).fill(0)]);
+  const meta = (offset: number) => box("meta", [0, 0, 0, 0, ...hdlr, ...extra, ...iinf, ...box("iloc", iloc ?? [0, 0, 0, 0, 0x44, 0x00, ...u16(1), ...u16(1), ...u16(0), ...u16(1), ...u32(offset), ...u32(exif.length)])]);
+  const offset = ftyp.length + meta(0).length + 8;
+  return Uint8Array.from([...ftyp, ...meta(offset), ...box("mdat", exif)]);
+}
+
+describe("taking metadata out of a file made to trip it", () => {
+  it("keeps a scan's fill bytes before a restart marker, and cleans the picture", async () => {
+    // T.81 allows any number of FF before a marker, and decoders take FF FF 00 as data too.
+    for (const scan of [[1, 2, 0xff, 0xff, 0xd0, 4, 5], [1, 2, 0xff, 0xff, 0x00, 4], [1, 0xff, 0xff, 0xff, 0xd3, 2]]) {
+      const before = jpegAround(scan);
+      const after = await all(await withoutMetadata(memory(before), "image/jpeg", "a.jpg"));
+      expect(has(after, "ZunaTest")).toBe(false);
+      expect(has(after, [0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, ...scan, 0xff, 0xd9])).toBe(true);
+    }
+  });
+
+  it("goes through long runs of fill bytes a window at a time", { timeout: 3000 }, async () => {
+    // Before a marker, and inside a scan: each a file it can't read, sent as it is.
+    const fill = new Uint8Array(48 << 20).fill(0xff);
+    fill.set([0xff, 0xd8]);
+    expect(await withoutMetadata(memory(fill), "image/jpeg", "a.jpg")).toBeDefined();
+    const scan = new Uint8Array(48 << 20).fill(0xff);
+    scan.set([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, 1, 2]);
+    expect(await withoutMetadata(memory(scan), "image/jpeg", "a.jpg")).toBeDefined();
+  });
+
+  it("reads a box inside a HEIF picture's meta with a 64-bit size", async () => {
+    for (const extra of [[...u32(1), ...latin("free"), 0, 0, 0, 0, ...u32(16)], [...u32(1), ...latin("free"), 0, 0, 0, 0, ...u32(20), 1, 2, 3, 4]]) {
+      const before = heifWith(extra);
+      const after = await all(await withoutMetadata(memory(before), "image/heic", "a.heic"));
+      expect(after.length).toBe(before.length);
+      expect(has(after, "ZunaTest")).toBe(false);
+    }
+  });
+
+  it("spends no time on a HEIF picture's extents that take no bytes", { timeout: 3000 }, async () => {
+    // Every size nothing, so each of an item's 65,535 extents is read from nowhere.
+    const items = 20_000;
+    const iloc = [0, 0, 0, 0, 0x00, 0x00, ...u16(items)];
+    for (let item = 0; item < items; item++) iloc.push(...u16(item === 0 ? 1 : 2), ...u16(0), ...u16(0xffff));
+    const before = heifWith([], iloc);
+    expect((await withoutMetadata(memory(before), "image/heic", "a.heic")).size).toBe(before.length);
+  });
+
+  it("counts a track's samples of one size at once", { timeout: 3000 }, async () => {
+    // A track of timed metadata saying it has four billion samples of a byte, all in one chunk.
+    const stbl = box("stbl", [...full("stsc", [...u32(1), ...u32(1), ...u32(0xffffffff), ...u32(1)]), ...full("stsz", [...u32(1), ...u32(0xffffffff)]), ...full("stco", [...u32(1), ...u32(0)])]);
+    const mdia = box("mdia", [...full("hdlr", [0, 0, 0, 0, ...latin("meta"), ...new Array(13).fill(0)]), ...box("minf", stbl)]);
+    const before = Uint8Array.from([...box("ftyp", [...latin("isom"), 0, 0, 0, 0]), ...box("moov", box("trak", mdia))]);
+    const after = await all(await withoutMetadata(memory(before), "video/mp4", "a.mp4"));
+    expect(after.length).toBe(before.length);
+    expect(has(after, "trak")).toBe(false);
+  });
+
+});
