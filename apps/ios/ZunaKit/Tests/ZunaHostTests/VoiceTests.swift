@@ -24,6 +24,83 @@ final class VoiceTests: XCTestCase {
         }
     }
 
+    // When a replaced epoch's slot is retired, as packages/core/test/small-parts.test.ts has it.
+
+    private let start = ContinuousClock.now
+    private func at(_ ms: Int) -> ContinuousClock.Instant { start + .milliseconds(ms) }
+    private func pairs(_ due: [(index: Int32, epoch: Int)]) -> [[Int]] { due.map { [Int($0.index), $0.epoch] } }
+
+    func testRetiresAReplacedSlotOnceAfterItsTimeAndNeverTheCurrentOne() {
+        var slots = VoiceKeySlots()
+        XCTAssertNil(slots.take(epoch: 5, now: at(0)).retireAt)
+        let taken = slots.take(epoch: 6, now: at(1000))
+        XCTAssertEqual(taken.index, 6)
+        XCTAssertEqual(taken.retireAt, at(1000) + Voice.oldKeyKept)
+        XCTAssertTrue(slots.due(now: at(999) + Voice.oldKeyKept).isEmpty)
+        XCTAssertTrue(slots.holds(5, epoch: 5))
+        XCTAssertEqual(pairs(slots.due(now: taken.retireAt!)), [[5, 5]])
+        XCTAssertFalse(slots.holds(5, epoch: 5))
+        XCTAssertTrue(slots.due(now: at(1_000_000)).isEmpty)
+        XCTAssertTrue(slots.holds(6, epoch: 6))
+        XCTAssertNil(slots.take(epoch: 6, now: at(2000)).retireAt)
+    }
+
+    func testRetiresEachOfSeveralQuickEpochsInTurn() {
+        var slots = VoiceKeySlots()
+        _ = slots.take(epoch: 1, now: at(0))
+        _ = slots.take(epoch: 2, now: at(100))
+        _ = slots.take(epoch: 3, now: at(200))
+        XCTAssertTrue(slots.due(now: at(99) + Voice.oldKeyKept).isEmpty)
+        XCTAssertEqual(pairs(slots.due(now: at(100) + Voice.oldKeyKept)), [[1, 1]])
+        XCTAssertEqual(pairs(slots.due(now: at(200) + Voice.oldKeyKept)), [[2, 2]])
+        // A device that skipped epochs retires the last it held.
+        XCTAssertEqual(slots.take(epoch: 9, now: at(300)).retireAt, at(300) + Voice.oldKeyKept)
+        XCTAssertEqual(pairs(slots.due(now: at(300) + Voice.oldKeyKept)), [[3, 3]])
+    }
+
+    func testLeavesASlotTheRingCameRoundTo() {
+        let ring = Int(Voice.keyRing)
+        var slots = VoiceKeySlots()
+        // A whole ring's worth of joins and leaves within the time: epoch 0's slot is epoch 16's by then.
+        for epoch in 0...ring { _ = slots.take(epoch: epoch, now: at(epoch)) }
+        XCTAssertEqual(pairs(slots.due(now: at(ring) + Voice.oldKeyKept)), (1..<ring).map { [$0, $0] })
+        XCTAssertTrue(slots.holds(0, epoch: ring))
+        let next = slots.take(epoch: ring + 1, now: at(100))
+        XCTAssertEqual(next.index, 1)
+        XCTAssertEqual(pairs(slots.due(now: next.retireAt!)), [[0, ring]])
+        // Straight from epoch 3 to 19, the same slot: nothing older is left in it to retire.
+        var skipping = VoiceKeySlots()
+        _ = skipping.take(epoch: 3, now: at(0))
+        XCTAssertNil(skipping.take(epoch: 3 + ring, now: at(1)).retireAt)
+        XCTAssertTrue(skipping.due(now: at(1_000_000)).isEmpty)
+        XCTAssertTrue(skipping.holds(3, epoch: 3 + ring))
+    }
+
+    func testKeepsAnEpochAGroupWasTakenBackTo() {
+        var slots = VoiceKeySlots()
+        _ = slots.take(epoch: 4, now: at(0))
+        _ = slots.take(epoch: 5, now: at(10))
+        // A commit nobody could apply is undone, and the group is back at 4.
+        XCTAssertEqual(slots.take(epoch: 4, now: at(20)).retireAt, at(20) + Voice.oldKeyKept)
+        XCTAssertEqual(pairs(slots.due(now: at(1_000_000))), [[5, 5]])
+        XCTAssertTrue(slots.holds(4, epoch: 4))
+    }
+
+    @MainActor
+    func testTimersGoOffAtTheirTimeUnlessTheRoomIsLeft() async throws {
+        var fired = 0
+        let kept = VoiceKeyTimers()
+        kept.at(.now + .milliseconds(150)) { fired += 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(fired, 0)
+        let left = VoiceKeyTimers()
+        left.at(.now + .milliseconds(50)) { fired += 1 }
+        left.stop()
+        left.at(.now) { fired += 1 }
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(fired, 1)
+    }
+
     // What a share uses, as packages/core/test/channels.test.ts has it.
 
     private let automatic = ScreenChoices()

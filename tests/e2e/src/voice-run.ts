@@ -416,6 +416,13 @@ try {
   check("the phone still hears the desktop after the key changed", afterKey.ok, afterKey.detail);
   const desktopAfterKey = await desktopHears();
   check("the desktop still hears the phone after the key changed", desktopAfterKey > 0.02, `peak ${desktopAfterKey.toFixed(3)}`);
+  // 30 s after the new key came, each gives the old one's slot a random key (VOICE_OLD_KEY_MS), which
+  // nobody sending under the new one notices.
+  await sleep(30_000);
+  const afterRetired = await phoneHears(afterKey.packets);
+  check("the phone still hears the desktop once the old key's slot is retired", afterRetired.ok, afterRetired.detail);
+  const desktopAfterRetired = await desktopHears();
+  check("the desktop still hears the phone once the old key's slot is retired", desktopAfterRetired > 0.02, `peak ${desktopAfterRetired.toFixed(3)}`);
 
   // --- An admin's mute ---
   await alice.session.voiceMute(lounge, bobId, true);

@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import LiveKit
 import LiveKitWebRTC
@@ -105,6 +106,11 @@ final class VoiceRoom {
     private var mediaUrl = ""
     /// The keys in use, newest first: what's being sent under may be one behind for a moment.
     private var roomKeys: [(index: Int32, key: Data, epoch: Int)] = []
+    /// Which epoch each slot holds, and when one that's been replaced is retired.
+    private var slots = VoiceKeySlots()
+    private let retiring = VoiceKeyTimers()
+    /// Everyone keys have been set for here, whose slots LiveKit keeps until the room is left, whether they're here or not.
+    private var keyed = Set<String>()
     private var sendTask: Task<Void, Never>?
     private var micPublication: LocalTrackPublication?
     private var muted = false
@@ -265,11 +271,14 @@ final class VoiceRoom {
     func updateKeys(first: Bool = false) async throws {
         let current = try await session.voiceKey(channelId)
         guard !closed, roomKeys.first?.epoch != current.epoch else { return }
-        let index = Voice.keyIndex(epoch: current.epoch)
+        let (index, retireAt) = slots.take(epoch: current.epoch, now: .now)
+        if let retireAt {
+            retiring.at(retireAt) { [weak self] in self?.retire(at: retireAt) }
+        }
         roomKeys = [(index, current.key, current.epoch)] + roomKeys.prefix(1)
         for participant in room.remoteParticipants.values {
             guard let identity = participant.identity?.stringValue else { continue }
-            keys.setKey(keyData: Voice.senderKey(roomKey: current.key, identity: identity), participantId: identity, index: index)
+            setKey(Voice.senderKey(roomKey: current.key, identity: identity), of: identity, index: index)
         }
         sendTask?.cancel()
         let own = Voice.senderKey(roomKey: current.key, identity: identity)
@@ -289,8 +298,28 @@ final class VoiceRoom {
     /// The keys a participant may be sending under: the older first, so the newer ends up current.
     private func installFor(_ participant: Participant) {
         guard let identity = participant.identity?.stringValue, identity != self.identity else { return }
-        for (index, key, _) in roomKeys.reversed() {
-            keys.setKey(keyData: Voice.senderKey(roomKey: key, identity: identity), participantId: identity, index: index)
+        for (index, key, epoch) in roomKeys.reversed() where slots.holds(index, epoch: epoch) {
+            setKey(Voice.senderKey(roomKey: key, identity: identity), of: identity, index: index)
+        }
+    }
+
+    private func setKey(_ key: Data, of identity: String, index: Int32) {
+        keyed.insert(identity)
+        keys.setKey(keyData: key, participantId: identity, index: index)
+    }
+
+    /// Gives each slot due a random key for everyone it held a key for, so that nothing sealed under the
+    /// key it held opens any more: there's no taking a key out of LiveKit's ring. Whoever comes in later
+    /// isn't given it either. This device's own slots are left, as it opens nothing with them.
+    private func retire(at: ContinuousClock.Instant) {
+        guard !closed else { return }
+        for (index, epoch) in slots.due(now: at) {
+            roomKeys.removeAll { $0.epoch == epoch }
+            let random = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+            for identity in keyed {
+                keys.setKey(keyData: random, participantId: identity, index: index)
+            }
+            logger.debug("Retired the key in slot \(index, privacy: .public), of epoch \(epoch, privacy: .public)")
         }
     }
 
@@ -633,6 +662,7 @@ final class VoiceRoom {
         guard !closed else { return }
         closed = true
         sendTask?.cancel()
+        retiring.stop()
         // A broadcast would go on recording for a call that's gone.
         if broadcastPublication != nil { BroadcastManager.shared.requestStop() }
         if let listener { room.remove(delegate: listener) }

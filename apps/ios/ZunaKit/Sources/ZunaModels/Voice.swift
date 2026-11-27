@@ -26,6 +26,96 @@ public enum Voice {
 
     /// Which of a sender's key slots an epoch's key goes in. A few epochs go by before one is reused.
     public static func keyIndex(epoch: Int) -> Int32 { Int32(epoch % Int(keyRing)) }
+
+    /// How long a key goes on opening what others send once a newer epoch's has come (`VOICE_OLD_KEY_MS`).
+    /// Someone who hears of the new epoch late, or is a few behind for a moment, sends under the old one
+    /// meanwhile. After it, someone removed who kept the old one can't be played to the others, even
+    /// with the media server's help.
+    public static let oldKeyKept: Duration = .seconds(30)
+}
+
+/// Which epoch's key each slot of the key ring holds, and when one that's been replaced is retired,
+/// as `VoiceKeySlots` in packages/core/src/voice.ts keeps them. An epoch's slot is given a random key
+/// once, `Voice.oldKeyKept` after the epoch after it came, unless by then it holds another epoch's key,
+/// as it does when the ring has gone round, or it's the current one.
+public struct VoiceKeySlots: Sendable {
+    public typealias Instant = ContinuousClock.Instant
+
+    private struct Retiring: Sendable {
+        var epoch: Int
+        var at: Instant
+    }
+
+    /// The epoch whose key each slot holds.
+    private var held: [Int32: Int] = [:]
+    /// The slots to retire, with the epoch each held and when.
+    private var retiring: [Int32: Retiring] = [:]
+    private var current: Int?
+
+    public init() {}
+
+    /// The newest epoch's key goes in its slot, which takes it off any list to be retired, and the
+    /// epoch it replaces starts its time. Says which slot, and when the replaced one is due, if it is.
+    public mutating func take(epoch: Int, now: Instant) -> (index: Int32, retireAt: Instant?) {
+        let index = Voice.keyIndex(epoch: epoch)
+        let previous = current
+        current = epoch
+        retiring[index] = nil
+        held[index] = epoch
+        guard let previous, previous != epoch else { return (index, nil) }
+        let old = Voice.keyIndex(epoch: previous)
+        guard old != index, held[old] == previous else { return (index, nil) }
+        let at = now + Voice.oldKeyKept
+        retiring[old] = Retiring(epoch: previous, at: at)
+        return (index, at)
+    }
+
+    /// The slots due by `now`, each to be given a random key: they hold nothing from here on.
+    public mutating func due(now: Instant) -> [(index: Int32, epoch: Int)] {
+        let currentIndex = current.map { Voice.keyIndex(epoch: $0) }
+        var out: [(index: Int32, epoch: Int)] = []
+        for (index, slot) in retiring.sorted(by: { $0.key < $1.key }) where slot.at <= now {
+            retiring[index] = nil
+            guard held[index] == slot.epoch, index != currentIndex else { continue }
+            held[index] = nil
+            out.append((index, slot.epoch))
+        }
+        return out
+    }
+
+    /// Whether a slot still holds an epoch's key, so that it may be set for someone.
+    public func holds(_ index: Int32, epoch: Int) -> Bool {
+        held[index] == epoch
+    }
+}
+
+/// The timers retiring a room's key slots, which leaving the room stops, and which take no more after that.
+@MainActor
+public final class VoiceKeyTimers {
+    private var running: [Int: Task<Void, Never>] = [:]
+    private var next = 0
+    private var stopped = false
+
+    public init() {}
+
+    /// Does `then` at `at`, unless stopped first.
+    public func at(_ at: ContinuousClock.Instant, _ then: @escaping @MainActor () -> Void) {
+        guard !stopped else { return }
+        let id = next
+        next += 1
+        running[id] = Task { [weak self] in
+            try? await Task.sleep(until: at, clock: .continuous)
+            guard let self, !Task.isCancelled, !stopped else { return }
+            running[id] = nil
+            then()
+        }
+    }
+
+    public func stop() {
+        stopped = true
+        for task in running.values { task.cancel() }
+        running = [:]
+    }
 }
 
 /// Who a participant in a room is. Mirrors `VoiceIdentity`.
