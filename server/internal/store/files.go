@@ -64,8 +64,8 @@ func (d *DB) PruneUploads(ctx context.Context) error {
 func (d *DB) File(ctx context.Context, id string) (*File, error) {
 	var f File
 	var completed sql.NullInt64
-	err := d.sql.QueryRowContext(ctx, `SELECT id, owner_id, chunk_count, total_size, completed_at, received FROM files WHERE id = ?`, id).Scan(
-		&f.ID, &f.OwnerID, &f.ChunkCount, &f.TotalSize, &completed, &f.Received)
+	err := d.sql.QueryRowContext(ctx, `SELECT id, owner_id, chunk_count, total_size, completed_at, received, share_hash FROM files WHERE id = ?`, id).Scan(
+		&f.ID, &f.OwnerID, &f.ChunkCount, &f.TotalSize, &completed, &f.Received, &f.ShareHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -90,16 +90,21 @@ func (d *DB) AddReceived(ctx context.Context, id string, bytes int64) error {
 	return err
 }
 
-func (d *DB) CompleteFile(ctx context.Context, id string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE files SET completed_at = ? WHERE id = ?`, Now(), id)
-	return err
-}
-
-// AttachFile marks an upload as standing on its own, such as a group's picture,
-// which exempts it from cleanup.
-func (d *DB) AttachFile(ctx context.Context, id, ownerID string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE files SET attached_at = ?, standalone = 1 WHERE id = ? AND owner_id = ?`, Now(), id, ownerID)
-	return err
+// CompleteFile marks an upload of its owner's finished, if it isn't already, and says
+// whether it did. One that stands on its own, such as a group's picture, says so as it
+// finishes, which exempts it from cleanup.
+func (d *DB) CompleteFile(ctx context.Context, id, ownerID string, standalone bool) (bool, error) {
+	now := Now()
+	query, args := `UPDATE files SET completed_at = ? WHERE id = ? AND owner_id = ? AND completed_at IS NULL`, []any{now, id, ownerID}
+	if standalone {
+		query, args = `UPDATE files SET completed_at = ?, attached_at = ?, standalone = 1 WHERE id = ? AND owner_id = ? AND completed_at IS NULL`, []any{now, now, id, ownerID}
+	}
+	res, err := d.sql.ExecContext(ctx, query, args...)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
 func (d *DB) DeleteFile(ctx context.Context, id string) error {

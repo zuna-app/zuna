@@ -292,8 +292,8 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := db.AttachFile(ctx, "kept", "someone-else"); err != nil {
-		t.Fatal(err)
+	if done, err := db.CompleteFile(ctx, "kept", "someone-else", true); err != nil || done {
+		t.Fatal(done, err)
 	}
 	unattached, err := db.UnattachedFiles(ctx, Now()+1000)
 	if err != nil {
@@ -302,8 +302,12 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 	if !slices.Contains(unattached, "kept") {
 		t.Fatal("only a file's owner can attach it")
 	}
-	if err := db.AttachFile(ctx, "kept", "u"); err != nil {
-		t.Fatal(err)
+	if done, err := db.CompleteFile(ctx, "kept", "u", true); err != nil || !done {
+		t.Fatal(done, err)
+	}
+	// Once, as a file's finished only once.
+	if done, err := db.CompleteFile(ctx, "kept", "u", true); err != nil || done {
+		t.Fatal(done, err)
 	}
 	unattached, err = db.UnattachedFiles(ctx, Now()+1000)
 	if err != nil {
@@ -342,8 +346,8 @@ func ownFile(t *testing.T, db *DB, id string) {
 	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1, ShareHash: hash[:]}, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.CompleteFile(context.Background(), id); err != nil {
-		t.Fatal(err)
+	if done, err := db.CompleteFile(context.Background(), id, "u", false); err != nil || !done {
+		t.Fatal(done, err)
 	}
 }
 

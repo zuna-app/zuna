@@ -34,7 +34,7 @@ Private means a bot can't be found, never that it can't be seen: nobody is in a 
 
 Its owner also chooses who may add it to groups: only them, the server's admins too, or anyone. A private bot is always its owner's alone to add. The server holds everyone to that, and so does the bot itself: brought into a group by someone its owner didn't allow, which only a server that lies would let happen, it leaves.
 
-A bot can't start a group or write to anyone first, make invites or other bots, be one of the server's admins, or join voice. A listed bot joins the channels a server admin gives it, and no others, never an admin-only one. A private bot stays out of channels.
+A bot can't start a group or write to anyone first, make invites or other bots, be one of the server's admins, or join voice. One its owner lets send no files uploads none for a message, nor one that stands on its own, as a group's picture does, which anyone on the server could read: only its own picture. A listed bot joins the channels a server admin gives it, and no others, never an admin-only one. A private bot stays out of channels.
 
 ## Making one
 

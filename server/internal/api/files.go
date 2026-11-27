@@ -4,11 +4,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"zuna/server/internal/store"
 )
@@ -179,6 +181,7 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
 		return
 	}
+	id := file.ID
 	limit, err := s.maxUploadBytes(r)
 	if err != nil {
 		writeFailure(w, err)
@@ -212,6 +215,20 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusBadRequest, "bad_request", "That part of the upload couldn't be read.")
 		return
 	}
+	// A part that took a while to come may come after the file was completed, and sent, which
+	// nobody may change: it's put in place only while the upload is still open and its uploader's.
+	lock := s.fileLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+	file, err = s.db.File(r.Context(), id)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if file.OwnerID != sess.UserID || file.CompletedAt != nil {
+		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
+		return
+	}
 	// What arrives counts against what the upload said it would be, as it arrives.
 	replacing := int64(0)
 	if existing, err := os.Stat(s.chunkPath(file.ID, n)); err == nil {
@@ -238,6 +255,16 @@ func (s *Server) handleCompleteFile(w http.ResponseWriter, r *http.Request, sess
 		writeFailure(w, store.ErrNotFound)
 		return
 	}
+	// Files that aren't sent in a message, such as group pictures, say so here, or cleanup would
+	// take them for abandoned uploads. Standing on its own, a file is anyone's to read and kept for
+	// good, so one made for a message isn't one, and a bot that may send no files makes none.
+	attach := r.URL.Query().Get("attach") == "1"
+	if attach && !s.botMaySendFiles(w, r, sess) {
+		return
+	}
+	lock := s.fileLock(id)
+	lock.Lock()
+	defer lock.Unlock()
 	file, err := s.db.File(r.Context(), id)
 	if err != nil {
 		writeFailure(w, err)
@@ -245,6 +272,16 @@ func (s *Server) handleCompleteFile(w http.ResponseWriter, r *http.Request, sess
 	}
 	if file.OwnerID != sess.UserID {
 		writeError(w, http.StatusForbidden, "forbidden", "This upload belongs to someone else.")
+		return
+	}
+	if attach && file.ShareHash != nil {
+		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
+		return
+	}
+	// Sent again by an app that never heard the answer. No part is taken once it's complete,
+	// so it's what it was.
+	if file.CompletedAt != nil {
+		writeOK(w)
 		return
 	}
 	var total int64
@@ -266,19 +303,24 @@ func (s *Server) handleCompleteFile(w http.ResponseWriter, r *http.Request, sess
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That file is too large for this server.")
 		return
 	}
-	if err := s.db.CompleteFile(r.Context(), id); err != nil {
+	done, err := s.db.CompleteFile(r.Context(), id, sess.UserID, attach)
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	// Files that aren't sent in a message, such as group pictures, say so here.
-	// Otherwise cleanup would treat them as abandoned uploads.
-	if r.URL.Query().Get("attach") == "1" {
-		if err := s.db.AttachFile(r.Context(), id, sess.UserID); err != nil {
-			writeFailure(w, err)
-			return
-		}
+	if !done {
+		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
+		return
 	}
 	writeOK(w)
+}
+
+// fileLock is the lock a file's parts and its completion take, one at a time, so that a part
+// is put in place only while the file is still open. Files share a fixed few, by their ID.
+func (s *Server) fileLock(id string) *sync.Mutex {
+	sum := fnv.New32a()
+	sum.Write([]byte(id))
+	return &s.fileLocks[sum.Sum32()%uint32(len(s.fileLocks))]
 }
 
 func (s *Server) handleDownloadChunk(w http.ResponseWriter, r *http.Request, sess *store.Session) {

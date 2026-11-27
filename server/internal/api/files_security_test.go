@@ -2,13 +2,16 @@ package api_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/store"
@@ -272,5 +275,99 @@ func TestParallelUploadsCantPassTheQuota(t *testing.T) {
 	wg.Wait()
 	if accepted.Load() != 4 {
 		t.Fatalf("%d uploads of 1 MiB accepted under a 4 MiB quota", accepted.Load())
+	}
+}
+
+// Z-36: a file that stands on its own is anyone's to read and kept for good. A file made
+// for a message isn't one, and a bot its owner lets send no files makes none.
+func TestOnlyAPictureStandsOnItsOwn(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	bot := owner.runBot("helper", map[string]any{"listed": true, "files": false})
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.mustDo("POST", "/api/files", bot.token, map[string]any{"chunk_count": 1, "total_size": 5}, &created)
+	h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", bot.token, []byte("hello"), nil)
+	if status, resp := h.do("POST", "/api/files/"+created.ID+"/complete?attach=1", bot.token, map[string]any{}, nil); status != http.StatusForbidden || resp["error"] != "bot" {
+		t.Fatalf("a bot that may send no files making one that stands on its own got %d %v", status, resp)
+	}
+	if status := bob.readFile(created.ID); status != http.StatusNotFound {
+		t.Fatalf("someone sharing no chat with the bot read its file: %d", status)
+	}
+	// Its own picture, which its profile shows, it still makes.
+	h.mustDo("POST", "/api/files/"+created.ID+"/complete", bot.token, map[string]any{}, nil)
+
+	id := bob.upload([]byte("for a message"))
+	if status, _ := h.do("POST", "/api/files/"+id+"/complete?attach=1", bob.token, map[string]any{}, nil); status != http.StatusForbidden {
+		t.Fatalf("a message's file made one that stands on its own gave %d", status)
+	}
+	if status := owner.readFile(id); status != http.StatusNotFound {
+		t.Fatalf("someone who was sent nothing read a message's file: %d", status)
+	}
+	if stale, err := h.db.UnattachedFiles(t.Context(), store.Now()+1000); err != nil || !slices.Contains(stale, id) {
+		t.Fatalf("cleaning up wouldn't take the file no message carries: %v %v", stale, err)
+	}
+
+	// A picture of a person's own stands on its own as it did, and finishing it again changes nothing.
+	picture := bob.uploadPicture([]byte("a group's picture"))
+	h.mustDo("POST", "/api/files/"+picture+"/complete?attach=1", bob.token, map[string]any{}, nil)
+	if status := owner.readFile(picture); status != http.StatusOK {
+		t.Fatalf("a picture gave %d", status)
+	}
+}
+
+// Z-36: a part sent again whose upload began before the file was completed, and that came
+// after, put other bytes in place of what a message had been sent with.
+func TestAFileIsWhatItWasWhenItWasSent(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.group(bob)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	secret, hash := newShare()
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1, "total_size": 5, "share_hash": hash}, &created)
+	h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", owner.token, []byte("first"), nil)
+
+	// The same part again, its upload held open.
+	reader, writer := io.Pipe()
+	req, _ := http.NewRequest("PUT", h.url+"/api/files/"+created.ID+"/chunks/0", reader)
+	req.Header.Set("Authorization", "Bearer "+owner.token)
+	done := make(chan int, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			done <- -1
+			return
+		}
+		resp.Body.Close()
+		done <- resp.StatusCode
+	}()
+	writer.Write([]byte("sec"))
+	time.Sleep(200 * time.Millisecond)
+
+	h.mustDo("POST", "/api/files/"+created.ID+"/complete", owner.token, map[string]any{}, nil)
+	// Finished again, by an app that never heard the answer, it's the same.
+	info, _ := h.db.File(t.Context(), created.ID)
+	h.mustDo("POST", "/api/files/"+created.ID+"/complete", owner.token, map[string]any{}, nil)
+	if again, _ := h.db.File(t.Context(), created.ID); *again.CompletedAt != *info.CompletedAt {
+		t.Error("finishing a file again changed it")
+	}
+	shareSecrets.Store(created.ID, secret)
+	if status, resp, _ := owner.sendWith(group.ID, 1, store.NewID(), map[string]any{"files": []any{shareOf(created.ID)}}); status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("sending the message with the file: %d %v", status, resp)
+	}
+	writer.Write([]byte("ond"))
+	writer.Close()
+	if status := <-done; status != http.StatusForbidden {
+		t.Errorf("the part that came after gave %d", status)
+	}
+	if _, data, _ := h.raw("GET", "/api/files/"+created.ID+"/chunks/0", bob.token, nil, nil); string(data) != "first" {
+		t.Fatalf("bob reads %q", data)
 	}
 }

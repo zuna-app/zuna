@@ -177,6 +177,9 @@ type Server struct {
 	watchLimiter *ratelimit.Keyed
 	liveKit      *http.Client
 
+	// fileLocks keep a file's parts from being put in place once it's complete (fileLock).
+	fileLocks [64]sync.Mutex
+
 	// work counts the sockets and background loops the server waits for when it stops,
 	// once stopping is set, so that the database isn't closed under them.
 	workMu   sync.Mutex
