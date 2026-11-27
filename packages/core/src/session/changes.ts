@@ -730,7 +730,7 @@ export abstract class SessionChanges extends SessionJoining {
 
   /**
    * With none of a group's admins left in it, the server makes its longest-standing
-   * member its admin, as it always has. That person's device then says so in the
+   * member its admin, as it always has, never a bot. That person's device then says so in the
    * roster, where the others accept it only in exactly that case.
    */
   protected async takeOverIfNoAdmin(groupId: string): Promise<void> {

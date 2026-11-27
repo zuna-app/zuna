@@ -405,7 +405,7 @@ func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*
 	return &event, nil
 }
 
-// PromoteIfNoAdmin makes the longest-standing member an admin if none remain.
+// PromoteIfNoAdmin makes the longest-standing person an admin if none remain.
 func (d *DB) PromoteIfNoAdmin(ctx context.Context, groupID string) (bool, error) {
 	var promoted bool
 	err := d.tx(ctx, func(tx handle) error {
@@ -425,8 +425,10 @@ func (d *DB) PromoteIfNoAdmin(ctx context.Context, groupID string) (bool, error)
 		if admins > 0 {
 			return nil
 		}
+		// Never a bot, which is nobody's admin: with only bots left, nobody is.
 		res, err := tx.ExecContext(ctx, `UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = (
-			SELECT user_id FROM group_members WHERE group_id = ? ORDER BY joined_at LIMIT 1)`, groupID, groupID)
+			SELECT m.user_id FROM group_members m WHERE m.group_id = ?
+			AND NOT EXISTS (SELECT 1 FROM bots b WHERE b.id = m.user_id) ORDER BY m.joined_at LIMIT 1)`, groupID, groupID)
 		if err != nil {
 			return err
 		}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/hybrid"
@@ -764,5 +765,46 @@ func TestABotHearsNothingOfWhosInVoice(t *testing.T) {
 	h.mustDo("GET", "/api/calls", bob.token, nil, &calls)
 	if len(channels.Voice) != 1 || len(calls.Calls) != 1 || len(calls.Voice) != 1 {
 		t.Fatalf("bob was told %v in channels and %v, %v in calls", channels.Voice, calls.Calls, calls.Voice)
+	}
+}
+
+// A group left with no admin gets the person who's been in it longest, never a bot, which is
+// nobody's admin, however long it's been there: with only bots left, nobody.
+func TestABotIsNeverMadeAGroupsAdmin(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	owner.setSettings(map[string]any{"allow_member_bots": true})
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	carol := h.register("carol", invite)
+	bot := bob.runBot("helper", nil)
+	roles := func(groupID string) map[string]string {
+		var group store.Group
+		h.mustDo("GET", "/api/groups/"+groupID, carol.token, nil, &group)
+		roles := map[string]string{}
+		for _, member := range group.Members {
+			roles[member.UserID] = member.Role
+		}
+		return roles
+	}
+
+	group := bob.group(bot)
+	time.Sleep(5 * time.Millisecond)
+	if status, resp := bob.commit(group.ID, 1, map[string]any{"add_users": []string{carol.userID}}); status != http.StatusOK {
+		t.Fatalf("adding carol: %d %v", status, resp)
+	}
+	h.mustDo("POST", "/api/groups/"+group.ID+"/leave", bob.token, map[string]any{}, nil)
+	if got := roles(group.ID); got[carol.userID] != "admin" || got[bot.userID] == "admin" {
+		t.Fatalf("roles after the admin left: %v", got)
+	}
+
+	alone := bob.group(bot)
+	h.mustDo("POST", "/api/groups/"+alone.ID+"/leave", bob.token, map[string]any{}, nil)
+	var left store.Group
+	h.mustDo("GET", "/api/groups/"+alone.ID, bot.token, nil, &left)
+	for _, member := range left.Members {
+		if member.Role == "admin" {
+			t.Fatalf("a bot left alone was made admin: %+v", left.Members)
+		}
 	}
 }
