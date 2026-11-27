@@ -83,6 +83,9 @@ func TestAOneTimeKeyPackageIsHandedOutOnce(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
 	user := testUser(t, db, "bob")
+	if err := db.CreateSession(ctx, []byte("token"), user); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.AddDevice(ctx, []byte("token"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0); err != nil {
 		t.Fatal(err)
 	}

@@ -18,10 +18,15 @@ func (d *DB) DeviceKey(ctx context.Context, deviceID string) ([]byte, error) {
 
 // AddDevice registers a device and binds the current session to it. A device
 // signing in says which generation of keys it got, since a rotation may have got
-// in first.
+// in first. The account and the session, which were looked at before, have to be
+// there still, the session with no device yet: a device of an account deleted or
+// banned meanwhile, or of a session that's over, would stand with nobody's session.
 func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, generation int64) error {
 	return d.logTx(ctx, func(tx handle) error {
 		now := Now()
+		if err := standing(ctx, tx, dev.UserID); err != nil {
+			return err
+		}
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, dev.UserID).Scan(&current); err != nil {
 			return err
@@ -48,7 +53,14 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 		if err := appendLog(ctx, tx, dev.UserID, deviceEntry(dev)); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET device_id = ? WHERE token_hash = ?`, dev.ID, tokenHash); err != nil {
+		bound, err := tx.ExecContext(ctx, `UPDATE sessions SET device_id = ? WHERE token_hash = ? AND user_id = ? AND device_id IS NULL`, dev.ID, tokenHash, dev.UserID)
+		if err != nil {
+			return err
+		}
+		if n, err := bound.RowsAffected(); err != nil || n != 1 {
+			if err == nil {
+				err = ErrNotFound
+			}
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, now, dev.UserID)

@@ -28,7 +28,11 @@ func TestDevicesAreLimited(t *testing.T) {
 	db := openTestDB(t)
 	user := testUser(t, db, "bob")
 	add := func(id string) error {
-		return db.AddDevice(ctx, []byte("token"), Device{ID: id, UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0)
+		// Each device signs in with a session of its own.
+		if err := db.CreateSession(ctx, []byte(id), user); err != nil {
+			return err
+		}
+		return db.AddDevice(ctx, []byte(id), Device{ID: id, UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0)
 	}
 	for i := range maxActiveDevices {
 		if err := add(fmt.Sprintf("d%d", i)); err != nil {

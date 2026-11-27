@@ -7,10 +7,27 @@ import (
 	"time"
 )
 
+// CreateSession starts a session for an account, which has to be there still: a sign-in
+// reads the account before it gets here, and it may have been deleted or banned since.
 func (d *DB) CreateSession(ctx context.Context, tokenHash []byte, userID string) error {
-	now := Now()
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO sessions(token_hash, user_id, created_at, last_used_at) VALUES(?,?,?,?)`,
-		tokenHash, userID, now, now)
+	return d.tx(ctx, func(tx handle) error {
+		if err := standing(ctx, tx, userID); err != nil {
+			return err
+		}
+		now := Now()
+		_, err := tx.ExecContext(ctx, `INSERT INTO sessions(token_hash, user_id, created_at, last_used_at) VALUES(?,?,?,?)`,
+			tokenHash, userID, now, now)
+		return err
+	})
+}
+
+// standing says whether an account is neither deleted nor banned, with ErrNotFound if not.
+func standing(ctx context.Context, tx handle, userID string) error {
+	var one int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = ? AND banned_at IS NULL AND deleted_at IS NULL`, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
 	return err
 }
 
@@ -42,8 +59,9 @@ func (d *DB) SessionByToken(ctx context.Context, tokenHash []byte) (*Session, er
 	var bot int
 	err := d.sql.QueryRowContext(ctx, `SELECT s.user_id, s.device_id, u.username, u.role, s.created_at, s.last_used_at,
 		CASE WHEN b.id IS NULL THEN 0 ELSE 1 END
-		FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN bots b ON b.id = u.id
-		WHERE s.token_hash = ? AND u.banned_at IS NULL`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role, &createdAt, &lastUsedAt, &bot)
+		FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN bots b ON b.id = u.id LEFT JOIN devices d ON d.id = s.device_id
+		WHERE s.token_hash = ? AND u.banned_at IS NULL AND u.deleted_at IS NULL
+			AND (s.device_id IS NULL OR (d.id IS NOT NULL AND d.revoked_at IS NULL))`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role, &createdAt, &lastUsedAt, &bot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
