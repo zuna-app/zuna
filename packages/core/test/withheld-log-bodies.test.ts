@@ -158,4 +158,34 @@ describe("what the log says of someone, kept back from one person", () => {
       phone.client.stop();
     }
   });
+
+  it("reads someone's bodies a page at a time", async () => {
+    const { dave, erin, phone, session, real, restore, bare, readToEnd } = await setUp();
+    try {
+      bare();
+      let trimmed = 0;
+      session.api.logBodies = async (id: string, era?: number, after = 0) => {
+        const answer = await real.logBodies.call(session.api, id, era, after);
+        if (id !== erin.userId || answer.bodies.length <= 1) return answer;
+        trimmed++;
+        return { ...answer, bodies: answer.bodies.slice(0, 1), more: true };
+      };
+      const warningsBefore = securityEvents(dave).length;
+      const laptop = await new TestApp("erin-laptop").open();
+      await laptop.login(sessionOf(erin).account.serverUrl, erin.session.getSelf().username);
+      const laptopId = laptop.session.getSelf().deviceId;
+      laptop.client.stop();
+      await readToEnd();
+      const listed = (await real.user.call(session.api, erin.userId)).devices.find((device: { id: string }) => device.id === laptopId)!;
+      await waitFor(
+        () => session.logStanding(erin.userId, laptopId, decode(listed.signature_key), decode(listed.certificate)) === "named" && !session.withheldUsers.has(erin.userId),
+        "dave to read erin's laptop from her bodies",
+      );
+      expect(trimmed).toBeGreaterThan(1);
+      expect(withheldWarnings(dave, warningsBefore)).toHaveLength(0);
+    } finally {
+      restore();
+      phone.client.stop();
+    }
+  });
 });

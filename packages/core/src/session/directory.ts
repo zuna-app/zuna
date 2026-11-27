@@ -910,7 +910,7 @@ export abstract class SessionDirectory extends SessionChains {
     if (places.length === 0) return this.settleOwed(userId, null);
     let answer: { era: number; bodies: { idx: number; body: string }[] };
     try {
-      answer = await this.api.logBodies(userId, kept.era);
+      answer = await this.readLogBodies(userId, kept.era, Math.max(...places.map((place) => place.idx)) + 1);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 404) throw error;
       // The server named the account to this device itself, in the era after.
@@ -1293,13 +1293,33 @@ export abstract class SessionDirectory extends SessionChains {
   }
 
   /**
+   * Every body of one account's entries before `until`, a page at a time. A server that doesn't move on from
+   * one page to the next, or answers from another era partway, isn't read further, and is asked again later.
+   */
+  protected async readLogBodies(userId: string, era: number | undefined, until: number): Promise<{ era: number; bodies: { idx: number; body: string }[] }> {
+    const first = await this.api.logBodies(userId, era);
+    const bodies = [...first.bodies];
+    let more = first.more === true;
+    while (more && bodies.length > 0 && bodies.at(-1)!.idx + 1 < until) {
+      const after = bodies.at(-1)!.idx + 1;
+      const page = await this.api.logBodies(userId, era, after);
+      if (page.era !== first.era || page.bodies.length === 0 || page.bodies.some((item, i) => item.idx < (i === 0 ? after : page.bodies[i - 1]!.idx + 1))) {
+        throw new Error("the server's answer about someone's log entries doesn't go on from where it was");
+      }
+      bodies.push(...page.bodies);
+      more = page.more === true;
+    }
+    return { era: first.era, bodies };
+  }
+
+  /**
    * Asks for what the log says of one account, whose records came without their bodies. The
    * server may keep them back only from someone that account isn't there for at all.
    */
   protected async askForBodies(userId: string, places: number[]): Promise<void> {
     let answer: { era: number; bodies: { idx: number; body: string }[] };
     try {
-      answer = await this.api.logBodies(userId);
+      answer = await this.readLogBodies(userId, undefined, this.logState().frontier.size);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 404) throw error;
       if (await this.stillThere(userId)) this.warnOnce(`log/withheld/${userId}`, t(WARNINGS.withheld), userId);

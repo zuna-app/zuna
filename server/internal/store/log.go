@@ -35,6 +35,9 @@ const (
 // The most of the log one answer gives.
 const MaxLogPage = 5000
 
+// The most of one account's entries' bodies one answer gives.
+const MaxLogBodiesPage = 1000
+
 // LogEntry is one place in the log: its record, and its body for whoever gets it.
 type LogEntry struct {
 	Idx    int64  `json:"idx"`
@@ -462,33 +465,39 @@ func (d *DB) Log(ctx context.Context, viewer string, withDevice bool, era, after
 	return page, err
 }
 
-// LogBodies is every body of one account's entries in the current era, for someone
-// it has only now become there for. Asked for an earlier era, it's that era's, as it
-// was kept, for a device that read it before this one and was given its records about
-// the account without their bodies. It says which era it answered with.
-func (d *DB) LogBodies(ctx context.Context, userID string, era int64) (int64, []LogEntry, error) {
+// LogBodies is the bodies of one account's entries in the current era from a place
+// on, at most `limit` of them, and whether there are more, for someone it has only now
+// become there for. Asked for an earlier era, they're that era's, as it was kept, for a
+// device that read it before this one and was given its records about the account
+// without their bodies. It says which era it answered with.
+func (d *DB) LogBodies(ctx context.Context, userID string, era, after int64, limit int) (int64, []LogEntry, bool, error) {
 	state, err := readLogState(ctx, d.sql)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, false, err
 	}
 	served := state.era
 	if era >= 1 && era < state.era {
 		served = era
 	}
-	rows, err := d.sql.QueryContext(ctx, `SELECT idx, body FROM log_entries WHERE era = ? AND user_id = ? ORDER BY idx`, served, userID)
+	rows, err := d.sql.QueryContext(ctx, `SELECT idx, body FROM log_entries WHERE era = ? AND user_id = ? AND idx >= ? ORDER BY idx LIMIT ?`,
+		served, userID, max(after, 0), limit+1)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, false, err
 	}
 	defer rows.Close()
 	entries := []LogEntry{}
 	for rows.Next() {
 		var entry LogEntry
 		if err := rows.Scan(&entry.Idx, &entry.Body); err != nil {
-			return 0, nil, err
+			return 0, nil, false, err
 		}
 		entries = append(entries, entry)
 	}
-	return served, entries, rows.Err()
+	more := len(entries) > limit
+	if more {
+		entries = entries[:limit]
+	}
+	return served, entries, more, rows.Err()
 }
 
 // StartLogEra starts the log again, under its next era and the same key, written

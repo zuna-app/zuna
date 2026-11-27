@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"context"
 	"database/sql"
@@ -592,6 +593,56 @@ func TestQueriesThatFindFewRowsUseTheirIndexes(t *testing.T) {
 		joined := strings.Join(plan, "; ")
 		if !strings.Contains(joined, "USING INDEX "+c.index) || strings.Contains(joined, "SCAN messages") || strings.Contains(joined, "SCAN group_events") {
 			t.Errorf("%s: %s", c.name, joined)
+		}
+	}
+}
+
+// An account's bodies come a page at a time, each going on from where the last ended.
+func TestLogBodiesComeAPageAtATime(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	user, err := db.CreateUser(ctx, NewUser{
+		Username: "paged", KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
+		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"), IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := []byte(NewID())
+	if err := db.CreateSession(ctx, token, user); err != nil {
+		t.Fatal(err)
+	}
+	gen := int64(0)
+	dev := Device{ID: NewID(), UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k"), SealKey: []byte("s"), EnrollProof: []byte("e"), SealGeneration: &gen, SealProof: []byte("p")}
+	if err := db.AddDevice(ctx, token, dev, 0); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5 {
+		if _, err := db.SetDeviceSealKey(ctx, user, dev.ID, []byte{byte(i)}, 0, []byte("p")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, all, more, err := db.LogBodies(ctx, user, 0, 0, MaxLogBodiesPage)
+	if err != nil || more || len(all) != 7 {
+		t.Fatalf("all of them at once: %d, more %v, %v", len(all), more, err)
+	}
+	var paged []LogEntry
+	pages := 0
+	for after, more := int64(0), true; more; pages++ {
+		var page []LogEntry
+		_, page, more, err = db.LogBodies(ctx, user, 0, after, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		paged = append(paged, page...)
+		after = page[len(page)-1].Idx + 1
+	}
+	if pages != 3 || len(paged) != len(all) {
+		t.Fatalf("%d pages of %d bodies, want 3 of %d", pages, len(paged), len(all))
+	}
+	for i := range all {
+		if paged[i].Idx != all[i].Idx || !bytes.Equal(paged[i].Body, all[i].Body) {
+			t.Fatalf("body %d came as another", i)
 		}
 	}
 }

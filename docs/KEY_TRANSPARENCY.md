@@ -375,7 +375,7 @@ Tables: `log_entries(era, idx, record, body, user_id, root)`, with `root` the tr
 | Route | Wrapper | Purpose |
 |---|---|---|
 | `GET /api/log?era=&after=&limit=` | `authed`. A session with a device gets each body its account is there for, and every `deleted` entry's, and one with none yet, signing in, only its own account's | The signed head, and the records after a place, each with its body if its account is there for whoever asks. With `past=1`, an earlier era as it was kept |
-| `GET /api/log/bodies?user=&era=` | `withDevice` | The bodies of one account's entries, for someone it has just become visible to. With `era`, those of an earlier era as it was kept, for a device that was given its records there without them |
+| `GET /api/log/bodies?user=&era=&after=` | `withDevice` | The bodies of one account's entries from `after` on, a thousand at most, and whether there are `more`, for someone it has just become visible to, whose device reads on from the last until it has them all (`readLogBodies`). With `era`, those of an earlier era as it was kept, for a device that was given its records there without them |
 | `GET /api/users` | `withDevice` | Also says the log's era and size |
 | `GET /api/info` | `pageLimited` | Also gives `log_key` to someone signed in |
 

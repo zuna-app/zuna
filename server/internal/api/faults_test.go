@@ -620,7 +620,7 @@ func TestFailingDatabaseForUpkeep(t *testing.T) {
 		"sign-in attempts":           func() error { _, err := h.db.RecentSignInAttempts(ctx, 0); return err },
 		"forgetting sign-in tries":   func() error { return h.db.DeleteSignInAttemptsBefore(ctx, future) },
 		"chats phones were told of":  func() error { _, err := h.db.PushNotified(ctx); return err },
-		"an account's log bodies":    func() error { _, _, err := h.db.LogBodies(ctx, w.owner.userID, 0); return err },
+		"an account's log bodies":    func() error { _, _, _, err := h.db.LogBodies(ctx, w.owner.userID, 0, 0, store.MaxLogBodiesPage); return err },
 	}
 	for name, job := range jobs {
 		for n := int64(1); n < 400; n++ {

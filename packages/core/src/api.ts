@@ -788,9 +788,15 @@ export class Api {
   /** The log after a place in its era. With `past`, an earlier era as the server kept it, which a server that kept none answers with its own. */
   log = (era: number, after: number, limit: number, past = false) =>
     this.request<ApiLogPage>("GET", past ? at`/api/log?era=${era}&after=${after}&limit=${limit}&past=1` : at`/api/log?era=${era}&after=${after}&limit=${limit}`);
-  /** Every body of one account's entries, for someone it has only now become there for. With `era`, those of an earlier era as the server kept it. */
-  logBodies = (userId: string, era?: number) =>
-    this.request<{ era: number; bodies: { idx: number; body: string }[] }>("GET", era === undefined ? at`/api/log/bodies?user=${userId}` : at`/api/log/bodies?user=${userId}&era=${era}`);
+  /**
+   * The bodies of one account's entries from a place on, for someone it has only now become there for, as many as
+   * the server gives at once, and whether there are more. With `era`, those of an earlier era as the server kept it.
+   */
+  logBodies = (userId: string, era?: number, after = 0) =>
+    this.request<{ era: number; bodies: { idx: number; body: string }[]; more?: boolean }>(
+      "GET",
+      era === undefined ? at`/api/log/bodies?user=${userId}&after=${after}` : at`/api/log/bodies?user=${userId}&era=${era}&after=${after}`,
+    );
 
   // Groups
   groups = async () => (await this.request<{ groups: ApiGroup[] }>("GET", "/api/groups")).groups;

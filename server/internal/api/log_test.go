@@ -438,10 +438,11 @@ func TestANewEraIsWhatTheTablesHold(t *testing.T) {
 	var kept, current struct {
 		Era    int64       `json:"era"`
 		Bodies []logRecord `json:"bodies"`
+		More   bool        `json:"more"`
 	}
 	h.mustDo("GET", "/api/log/bodies?user="+owner.userID+"&era="+itoa(era), member.token, nil, &kept)
 	h.mustDo("GET", "/api/log/bodies?user="+owner.userID, member.token, nil, &current)
-	if kept.Era != era || current.Era != next || len(kept.Bodies) == 0 || len(current.Bodies) == 0 {
+	if kept.Era != era || current.Era != next || len(kept.Bodies) == 0 || len(current.Bodies) == 0 || kept.More || current.More {
 		t.Fatalf("an account's entries came from eras %d and %d, %d and %d of them", kept.Era, current.Era, len(kept.Bodies), len(current.Bodies))
 	}
 	for _, body := range kept.Bodies {

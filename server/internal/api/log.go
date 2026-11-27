@@ -24,9 +24,9 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request, sess *store.S
 	writeJSON(w, http.StatusOK, page)
 }
 
-// handleLogBodies gives every body of one account's entries, to someone it has only
-// now become there for, such as a private bot they were just put in a chat with. With
-// `era`, they're those of an earlier era, as it was kept.
+// handleLogBodies gives the bodies of one account's entries from a place on, a page
+// at a time, to someone it has only now become there for, such as a private bot they
+// were just put in a chat with. With `era`, they're those of an earlier era, as it was kept.
 func (s *Server) handleLogBodies(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	userID := r.URL.Query().Get("user")
 	if !store.ValidID(userID) {
@@ -36,12 +36,12 @@ func (s *Server) handleLogBodies(w http.ResponseWriter, r *http.Request, sess *s
 	if !s.canSee(w, r, sess, userID) {
 		return
 	}
-	era, bodies, err := s.db.LogBodies(r.Context(), userID, queryInt(r, "era", 0))
+	era, bodies, more, err := s.db.LogBodies(r.Context(), userID, queryInt(r, "era", 0), queryInt(r, "after", 0), store.MaxLogBodiesPage)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"era": era, "bodies": bodies})
+	writeJSON(w, http.StatusOK, map[string]any{"era": era, "bodies": bodies, "more": more})
 }
 
 // logStatus is where the log is now, which tells a device whether it has all of it.
