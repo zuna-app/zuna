@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -644,5 +645,57 @@ func TestLogBodiesComeAPageAtATime(t *testing.T) {
 		if paged[i].Idx != all[i].Idx || !bytes.Equal(paged[i].Body, all[i].Body) {
 			t.Fatalf("body %d came as another", i)
 		}
+	}
+}
+
+// A transaction whose function panics lets go of the turn it took, as net/http recovers
+// the handler's panic and the server lives on: every write after it, and every append to
+// the log of keys, goes through as before.
+func TestAPanicInATransactionHoldsUpNothing(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	panicking := func(run func(context.Context, func(handle) error) error) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the panic didn't go on up")
+			}
+		}()
+		run(ctx, func(tx handle) error {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET username = username WHERE id = ?`, "nobody"); err != nil {
+				return err
+			}
+			panic("in the middle of it")
+		})
+	}
+	within := func(what string, do func() error) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- do() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s: %v", what, err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s is still waiting for a lock the panic left held", what)
+		}
+	}
+	for i, run := range []func(context.Context, func(handle) error) error{db.tx, db.logTx} {
+		panicking(run)
+		within("a write", func() error {
+			return db.tx(ctx, func(tx handle) error {
+				_, err := tx.ExecContext(ctx, `UPDATE users SET username = username WHERE id = ?`, "nobody")
+				return err
+			})
+		})
+		within("an append to the log", func() error {
+			_, err := db.CreateUser(ctx, NewUser{
+				Username: fmt.Sprintf("after%d", i), KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
+				RecoveryHash: []byte("h"), RecoverySalt: []byte("s"),
+				IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
+			}, "")
+			return err
+		})
 	}
 }

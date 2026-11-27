@@ -263,22 +263,18 @@ func (d *DB) run(ctx context.Context, fn func(handle) error, logging bool) error
 		}
 	}
 	if !d.postgres {
-		d.writing.Lock()
-		logged, err := d.attempt(ctx, nil, do)
-		d.writing.Unlock()
+		logged, err := d.attemptHolding(ctx, d.writing, nil, do)
 		if err == nil && logged && d.onLog != nil {
 			d.onLog()
 		}
 		return err
 	}
+	var turn *sync.Mutex
+	if logging {
+		turn = &d.appending
+	}
 	for attempt := 1; ; attempt++ {
-		if logging {
-			d.appending.Lock()
-		}
-		logged, err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, do)
-		if logging {
-			d.appending.Unlock()
-		}
+		logged, err := d.attemptHolding(ctx, turn, &sql.TxOptions{Isolation: sql.LevelSerializable}, do)
 		if err == nil {
 			if logged && d.onLog != nil {
 				d.onLog()
@@ -301,6 +297,17 @@ func (d *DB) run(ctx context.Context, fn func(handle) error, logging bool) error
 		case <-time.After(retryDelay(attempt)):
 		}
 	}
+}
+
+// attemptHolding is attempt holding mu, when there's one, which it lets go of even when
+// fn panics: net/http recovers a handler's panic and the server lives on, so a lock
+// left held would keep every later write, or every append to the log, waiting for ever.
+func (d *DB) attemptHolding(ctx context.Context, mu *sync.Mutex, options *sql.TxOptions, fn func(handle) error) (bool, error) {
+	if mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	return d.attempt(ctx, options, fn)
 }
 
 func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle) error) (bool, error) {
