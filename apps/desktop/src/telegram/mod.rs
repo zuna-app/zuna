@@ -8,6 +8,7 @@
 //! adapter, which keeps none of it.
 
 mod door;
+pub mod files;
 #[path = "../../telegram/src/frame.rs"]
 mod frame;
 mod functions;
@@ -651,13 +652,9 @@ impl Engine {
     }
 }
 
-/// Whether a file the engine names is inside its own folder, once every link and junction on
-/// the way is followed: what the app reads and copies of Telegram's comes from there alone.
-pub fn inside_engine_folder(path: &Path, engine_folder: &Path) -> bool {
-    let Ok(root) = std::fs::canonicalize(engine_folder) else { return false };
-    inside_canonical_root(path, &root)
-}
-
+/// Whether a path the engine names leads inside its own folder, once every link and junction on
+/// the way is followed: a first sift of what it sends, as the file may change after. What the app
+/// reads of it is opened and checked again on the handle (`files::open_inside`).
 fn inside_canonical_root(path: &Path, root: &Path) -> bool {
     let Ok(path) = std::fs::canonicalize(path) else { return false };
     path.starts_with(root) && path != root
@@ -804,7 +801,8 @@ mod tests {
         assert_eq!(value["others"][1]["path"], "");
         assert_eq!(value["others"][2]["path"], "");
         // The folder itself isn't a file of it.
-        assert!(!inside_engine_folder(&engine, &engine));
+        let mut folder_itself = serde_json::json!({ "@type": "localFile", "path": engine.to_string_lossy() });
+        assert!(confine_paths(&mut folder_itself, &engine));
         std::fs::remove_dir_all(&base).ok();
     }
 

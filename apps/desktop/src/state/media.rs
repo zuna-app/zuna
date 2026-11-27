@@ -2,17 +2,41 @@
 
 use super::*;
 
-/// A download from the linked Telegram account is read only from inside its engine's folder, where
-/// TDLib keeps what it downloads (`telegram::inside_engine_folder`), whatever the engine says.
-pub fn checked_download(server_id: &str, value: serde_json::Value) -> Result<serde_json::Value, String> {
+/// What `downloadFile` gave, made ready to read: a Telegram file is opened once, inside its
+/// engine's folder, where TDLib keeps what it downloads, whatever the engine says, and read from
+/// that handle alone (`telegram::files::open_inside`).
+pub enum Downloaded {
+    Value(serde_json::Value),
+    Engine(std::fs::File),
+}
+
+pub fn checked_download(server_id: &str, value: serde_json::Value) -> Result<Downloaded, String> {
     if server_id != crate::telegram::SERVER_ID {
-        return Ok(value);
+        return Ok(Downloaded::Value(value));
     }
     let path = value.get("$file").and_then(|file| file.get("path")).and_then(serde_json::Value::as_str).ok_or(crate::i18n::t("media.telegram.noFile"))?;
-    if crate::telegram::inside_engine_folder(std::path::Path::new(path), &crate::telegram::folder(&host::data_dir())) {
-        Ok(value)
-    } else {
-        Err(crate::i18n::t("media.telegram.notTheirs").into())
+    match crate::telegram::files::open_inside(std::path::Path::new(path), &crate::telegram::folder(&host::data_dir())) {
+        Some(file) => Ok(Downloaded::Engine(file)),
+        None => Err(crate::i18n::t("media.telegram.notTheirs").into()),
+    }
+}
+
+impl Downloaded {
+    /// Its bytes, as `host::value_bytes` gives them.
+    pub fn bytes(self) -> Option<Vec<u8>> {
+        match self {
+            Downloaded::Value(value) => host::value_bytes(&value),
+            Downloaded::Engine(file) => crate::telegram::files::read_all(file).ok(),
+        }
+    }
+
+    /// Written to `target`, as `host::save_value` writes it. The engine's file is copied, as it
+    /// keeps it.
+    pub fn save(self, target: &std::path::Path, moving: bool) -> Result<(), String> {
+        match self {
+            Downloaded::Value(value) => host::save_value(&value, target, moving),
+            Downloaded::Engine(file) => crate::telegram::files::copy_to(file, target).map_err(|error| error.to_string()),
+        }
     }
 }
 
@@ -74,7 +98,7 @@ impl AppState {
         let mime = avatar.mime.clone();
         let server = server_id.to_string();
         self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
-            let bytes = result.map_err(|error| error.message).and_then(|value| checked_download(&server, value)).and_then(|value| host::value_bytes(&value).ok_or_else(|| "no picture".to_string()));
+            let bytes = result.map_err(|error| error.message).and_then(|value| checked_download(&server, value)).and_then(|download| download.bytes().ok_or_else(|| "no picture".to_string()));
             state.store_picture(key, bytes.map(|bytes| (bytes, mime)), cx);
         });
         None
@@ -99,9 +123,7 @@ impl AppState {
                 std::fs::create_dir_all(target.parent().unwrap()).map_err(|error| error.to_string())?;
                 // Moved rather than copied, so there's one decrypted copy, under the name Media Foundation
                 // needs; but a Telegram file is copied, as it's the engine's, which keeps it.
-                let telegram = server == crate::telegram::SERVER_ID;
-                let value = checked_download(&server, value)?;
-                host::save_value(&value, &target, !telegram)
+                checked_download(&server, value)?.save(&target, true)
             });
             let ready = written.is_ok();
             state.touch_media(&id);

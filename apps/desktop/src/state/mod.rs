@@ -7,7 +7,7 @@ mod notify;
 mod media;
 mod picture;
 pub use picture::picture;
-pub use media::checked_download;
+pub use media::{Downloaded, checked_download};
 mod telegram;
 
 use std::collections::{HashMap, HashSet, VecDeque};

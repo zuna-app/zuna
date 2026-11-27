@@ -292,7 +292,7 @@ pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: se
             let result = call.await;
             state
                 .update(cx, |state, cx| match result.map_err(|error| error.message).and_then(|value| crate::state::checked_download(&server_id, value)) {
-                    Ok(value) => match crate::host::save_value(&value, &path, false) {
+                    Ok(download) => match download.save(&path, false) {
                         Ok(()) => state.toast(t("common.saved"), ToastKind::Info, cx),
                         Err(error) => state.toast(tr!("message.saveFailed", error = error), ToastKind::Error, cx),
                     },
