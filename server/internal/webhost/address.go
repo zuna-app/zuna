@@ -17,6 +17,8 @@ var reserved = []netip.Prefix{
 	netip.MustParsePrefix("203.0.113.0/24"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("::/96"),
+	// IPv4 translated into IPv6, beside the usual ::ffff:0:0/96, which Unmap takes care of.
+	netip.MustParsePrefix("::ffff:0:0:0/96"),
 	// The ways of carrying IPv4 inside IPv6, which can lead anywhere in IPv4.
 	netip.MustParsePrefix("64:ff9b::/96"),
 	netip.MustParsePrefix("64:ff9b:1::/48"),
@@ -30,6 +32,10 @@ var reserved = []netip.Prefix{
 // privateAddress reports whether an address is on this machine or a network a
 // public page shouldn't reach, as packages/core/src/links.ts decides on the desktop.
 func privateAddress(addr netip.Addr) bool {
+	// A public page's address names no interface, and a prefix never contains one that does.
+	if addr.Zone() != "" {
+		return true
+	}
 	addr = addr.Unmap()
 	if !addr.IsValid() || addr.IsUnspecified() || addr.IsLoopback() || addr.IsPrivate() ||
 		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsInterfaceLocalMulticast() || addr.IsMulticast() {
