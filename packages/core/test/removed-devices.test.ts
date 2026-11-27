@@ -206,4 +206,31 @@ describe("a commit made for something else", () => {
       session.scheduleReconcile = reconcile;
     }
   });
+
+  it("takes nobody out on what this device has heard alone, when it's behind on who's in the group", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const frank = await person("frank");
+    const groupId = await groupWith(dave, [erin]);
+    await dave.session.setGroupRole(groupId, erin.userId, "admin");
+    const session = sessionOf(dave);
+    const inTree = (userId: string) => session.treeMembers(groupId).some((member: { userId: string }) => member.userId === userId);
+    const reconcile = session.scheduleReconcile;
+    session.scheduleReconcile = () => undefined;
+    try {
+      // Erin adds frank, and dave's device takes the commit in, but hasn't yet heard that the server lists him.
+      await waitFor(() => !!sessionOf(erin).rosterOf(sessionOf(erin).groups.get(groupId))?.roster.admins.includes(erin.userId), "erin to be an admin");
+      await erin.session.addMembers(groupId, [frank.userId]);
+      await waitFor(() => inTree(frank.userId), "dave to take in the commit that adds frank");
+      const cached = session.groups.get(groupId);
+      cached.members = cached.members.filter((member: { userId: string }) => member.userId !== frank.userId);
+      // A commit of dave's for something else.
+      await dave.session.setGroupRole(groupId, erin.userId, "member");
+      expect(inTree(frank.userId)).toBe(true);
+      expect(session.groups.get(groupId).members.some((member: { userId: string }) => member.userId === frank.userId)).toBe(true);
+      await waitFor(() => frank.session.getConversations().some((item) => item.groupId === groupId && item.ready), "frank to join");
+    } finally {
+      session.scheduleReconcile = reconcile;
+    }
+  });
 });

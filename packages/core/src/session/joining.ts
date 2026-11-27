@@ -407,6 +407,34 @@ export abstract class SessionJoining extends SessionGroups {
    * isn't what it claims. What's sent next is under a key they don't have. A check
    * is remembered for its epoch, so sending stays quick.
    */
+  /** Whether a leaf of someone in the group couldn't be checked yet, which nothing goes to until it is. */
+  protected uncheckedInTree(groupId: string, members: TreeMember[]): boolean {
+    const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
+    return members.some((member) => member.unchecked && roster.has(member.userId));
+  }
+
+  /**
+   * The leaves a commit this device makes for something else takes out too, beside those it
+   * removes itself, as carefully as `ensureTreeClean` would: only once the server has said who's in
+   * the group now, as what's known here may be behind, and none while a leaf can't be checked or
+   * one the server doesn't list may have gone in a way this device hasn't heard of. Then, or if the
+   * server can't be asked, the commit goes as it was, and `ensureTreeClean` takes them out later.
+   */
+  protected async staleBeside(groupId: string, planned: number[]): Promise<number[]> {
+    const extra = (leaves: number[]) => leaves.filter((leaf) => !planned.includes(leaf));
+    try {
+      if (extra(await this.staleLeaves(groupId)).length === 0) return [];
+      this.applyGroup(await this.api.group(groupId));
+      await this.checkTree(groupId);
+      const members = this.treeMembers(groupId);
+      if (this.uncheckedInTree(groupId, members) || this.unlistedLeaves(groupId, members).length > 0) return [];
+      return extra(await this.staleLeaves(groupId, members));
+    } catch (error) {
+      console.warn("[zuna] looking for stale leaves to take out with a commit", error);
+      return [];
+    }
+  }
+
   protected async ensureTreeClean(groupId: string): Promise<void> {
     if (!this.hasMlsGroup(groupId)) return;
     const cached = this.groups.get(groupId);
@@ -418,8 +446,7 @@ export abstract class SessionJoining extends SessionGroups {
       await this.checkTree(groupId);
       // Nothing goes to a leaf nobody could check. This can wait until the server answers.
       const members = this.treeMembers(groupId);
-      const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
-      if (members.some((member) => member.unchecked && roster.has(member.userId))) {
+      if (this.uncheckedInTree(groupId, members)) {
         throw new ApiError(0, "unchecked_member", t("errors.couldntCheckMembersYet"));
       }
       if ((await this.staleLeaves(groupId, members)).length === 0) {
@@ -545,7 +572,10 @@ export abstract class SessionJoining extends SessionGroups {
       const plan = await build();
       // Whoever shouldn't hold the group's keys goes in this commit too, whatever it's for, so the
       // epoch it makes, and what's sealed for that epoch with it, reaches none of them. Each leaf once.
-      const removeLeaves = [...new Set([...(plan.removeLeaves ?? []), ...(await this.staleLeaves(groupId))])];
+      // A device leaving takes nobody out on its way: it won't hold the keys it would keep from them.
+      const leaving = !!plan.roster && !plan.roster.members.includes(this.account.userId);
+      const planned = plan.removeLeaves ?? [];
+      const removeLeaves = [...new Set([...planned, ...(leaving ? [] : await this.staleBeside(groupId, planned))])];
       const epoch = this.mlsEpoch(groupId);
       const packages = plan.keyPackages ?? [];
       const roster = plan.roster ? this.nextRoster(groupId, plan.roster) : null;
