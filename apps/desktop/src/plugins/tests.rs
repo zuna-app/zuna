@@ -311,6 +311,19 @@ fn the_network_reaches_only_named_hosts_over_https() {
     assert!(!allowed("https://api.example.com.evil.org/"), "a name that only starts like it");
 }
 
+#[test]
+fn a_redirect_is_held_to_what_the_first_request_is() {
+    let hosts = vec!["api.example.com".to_string(), "printer.local".to_string()];
+    let hop = |url: &str, local: bool| net::redirect_refused(&url::Url::parse(url).unwrap(), &hosts, local);
+    assert_eq!(hop("https://api.example.com/next", false), None);
+    assert_eq!(hop("https://evil.example.org/", false), Some("It redirected to a host the plugin didn't list."));
+    assert_eq!(hop("http://api.example.com/", false), Some("It redirected to a host the plugin didn't list."), "nor off TLS");
+    // A host it lists that's a name of this machine's network, which a proxy would resolve for it.
+    assert_eq!(hop("https://printer.local/admin", false), Some("That host is on your local network."));
+    assert_eq!(hop("https://PRINTER.local./admin", false), Some("It redirected to a host the plugin didn't list."));
+    assert_eq!(hop("https://printer.local/admin", true), None, "a developer's folder may reach this machine");
+}
+
 fn leaf(index: usize) -> Value {
     json!({ "type": "text", "props": {}, "children": [{ "type": "string", "props": { "text": index.to_string() }, "children": [] }] })
 }

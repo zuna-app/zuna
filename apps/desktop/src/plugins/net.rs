@@ -3,7 +3,7 @@
 //! nothing of the account. Names are resolved here and refused if any address they lead to is on
 //! this machine or a private network, as link previews refuse them (host/web.rs), but for a plugin
 //! a developer loaded from a folder, which may reach a server of their own on this machine.
-//! A redirect is followed only to another of the plugin's hosts.
+//! A redirect is followed only to another of the plugin's hosts, checked as the first request is.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -52,19 +52,33 @@ pub fn allowed(url: &Url, hosts: &[String]) -> bool {
         && matches!(url.host(), Some(url::Host::Domain(name)) if hosts.iter().any(|host| host == &name.to_ascii_lowercase()))
 }
 
+/// Why a redirect isn't followed, if it isn't: it leads to a host the plugin didn't list, or,
+/// but for a developer's folder, to a name of this machine's network, as the first request
+/// would be refused (`fetch`). Through a proxy, which resolves names, the name is all there is
+/// to judge; without one, the resolver judges where it leads too.
+pub fn redirect_refused(url: &Url, hosts: &[String], local: bool) -> Option<&'static str> {
+    if !allowed(url, hosts) {
+        Some("It redirected to a host the plugin didn't list.")
+    } else if !local && url.host_str().is_some_and(crate::host::web::local_name) {
+        Some("That host is on your local network.")
+    } else {
+        None
+    }
+}
+
 /// Through a proxy nothing is resolved here, as the proxy resolves names, so only the names a
-/// manifest gives are judged, as link previews judge theirs (host/web.rs).
+/// manifest gives are judged, as link previews judge theirs (host/web.rs), at each hop.
 fn client(hosts: Vec<String>, local: bool) -> reqwest::Client {
     let builder = crate::host::net::client().use_preconfigured_tls(crate::host::tls_config());
     let builder = if crate::host::net::proxy().is_some() { builder } else { builder.dns_resolver(Arc::new(Resolver { local })) };
     builder
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() > 5 {
-                attempt.error("Too many redirects.")
-            } else if allowed(attempt.url(), &hosts) {
-                attempt.follow()
-            } else {
-                attempt.error("It redirected to a host the plugin didn't list.")
+                return attempt.error("Too many redirects.");
+            }
+            match redirect_refused(attempt.url(), &hosts, local) {
+                Some(why) => attempt.error(why),
+                None => attempt.follow(),
             }
         }))
         .connect_timeout(Duration::from_secs(15))
