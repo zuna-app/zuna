@@ -716,3 +716,53 @@ func TestABotTakesNoPartInVoice(t *testing.T) {
 		t.Errorf("after the bot's frame, the voice channels have %+v", channels.Voice)
 	}
 }
+
+// A bot takes no part in voice, so it hears nothing of who's in a voice channel or a call:
+// not as they come and go, nor from the lists of channels and calls, though a person in the
+// same chats hears all of it.
+func TestABotHearsNothingOfWhosInVoice(t *testing.T) {
+	h := newHarness(t, withLiveKit("ws://livekit.test"))
+	owner := h.owner()
+	owner.setSettings(map[string]any{"allow_member_bots": true})
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	carol := h.register("carol", invite)
+	voice := owner.createChannel("voice", 0)
+	bob.joinChannel(voice.ID, false)
+	bot := bob.runBot("helper", nil)
+	group := bob.group(carol, bot)
+	bots := bot.connect()
+	bots.ping()
+	carols := carol.connect()
+	carols.ping()
+
+	bobs := bob.connect()
+	bobs.sendVoice(voice.ID, map[string]any{})
+	bobs.ping()
+	carols.waitFor("voice")
+	bots.hearsNo("voice")
+	calling := carol.inCall(group.ID, false)
+	calling.ping()
+	bobs.waitFor("call")
+	if heard := bots.heard(); slices.Contains(heard, "voice") || slices.Contains(heard, "call") {
+		t.Fatalf("the bot heard of a call: %v", heard)
+	}
+
+	var channels struct {
+		Voice []api.VoiceState `json:"voice"`
+	}
+	h.mustDo("GET", "/api/channels", bot.token, nil, &channels)
+	var calls struct {
+		Calls []api.Call       `json:"calls"`
+		Voice []api.VoiceState `json:"voice"`
+	}
+	h.mustDo("GET", "/api/calls", bot.token, nil, &calls)
+	if channels.Voice == nil || len(channels.Voice) != 0 || calls.Calls == nil || len(calls.Calls) != 0 || len(calls.Voice) != 0 {
+		t.Fatalf("the bot was told %v in channels and %v, %v in calls", channels.Voice, calls.Calls, calls.Voice)
+	}
+	h.mustDo("GET", "/api/channels", bob.token, nil, &channels)
+	h.mustDo("GET", "/api/calls", bob.token, nil, &calls)
+	if len(channels.Voice) != 1 || len(calls.Calls) != 1 || len(calls.Voice) != 1 {
+		t.Fatalf("bob was told %v in channels and %v, %v in calls", channels.Voice, calls.Calls, calls.Voice)
+	}
+}

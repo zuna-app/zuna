@@ -238,6 +238,21 @@ func (h *Hub) ToAll(event Event) {
 	}
 }
 
+// ToPeople sends an event to everyone connected but bots.
+func (h *Hub) ToPeople(event Event) {
+	frame := encodeEvent(event)
+	if frame == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, c := range h.allConns {
+		if !c.quiet {
+			c.deliver(frame)
+		}
+	}
+}
+
 // ToAllExcept sends an event to everyone connected apart from one user.
 func (h *Hub) ToAllExcept(exceptUser string, event Event) {
 	frame := encodeEvent(event)

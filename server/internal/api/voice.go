@@ -351,7 +351,8 @@ func signLiveKitToken(secret string, claims map[string]any) (string, error) {
 func voiceIdentity(userID, deviceID string) string { return userID + "." + deviceID }
 
 // tellVoice says what a device is doing in a room, or that it left: to everyone for a voice
-// channel, and only to the conversation's members for a call or an admin-only channel.
+// channel, and only to the conversation's members for a call or an admin-only channel. Never
+// to a bot, which takes no part in voice.
 func (s *Server) tellVoice(state VoiceState, left bool) {
 	change := voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, Call: state.Call}
 	if !left {
@@ -359,9 +360,9 @@ func (s *Server) tellVoice(state VoiceState, left bool) {
 	}
 	event := Event{Type: "voice", Data: change}
 	if state.Call || state.AdminOnly {
-		s.toMembers(state.ChannelID, event)
+		s.toPeopleIn(state.ChannelID, event)
 	} else {
-		s.hub.ToAll(event)
+		s.hub.ToPeople(event)
 	}
 }
 

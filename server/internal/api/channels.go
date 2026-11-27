@@ -52,6 +52,8 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, sess *st
 			return
 		}
 		channels = slices.DeleteFunc(channels, func(channel *store.Channel) bool { return !slices.Contains(given, channel.ID) })
+		// A bot takes no part in voice, so it hears of nobody there.
+		voice = []VoiceState{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": voice})
 }

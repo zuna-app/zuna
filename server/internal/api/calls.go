@@ -178,20 +178,21 @@ func (v *voiceRooms) anyoneIn(roomID string) bool {
 	return false
 }
 
-// toMembers sends an event to everyone in a conversation.
-func (s *Server) toMembers(groupID string, event Event) {
-	members, err := s.db.GroupMemberIDs(context.Background(), groupID)
+// toPeopleIn sends an event about voice to everyone in a conversation but its bots, which take
+// no part in voice.
+func (s *Server) toPeopleIn(groupID string, event Event) {
+	people, err := s.db.GroupPeople(context.Background(), groupID)
 	if err != nil {
 		slog.Debug("telling a conversation's members", "error", err)
 		return
 	}
-	s.hub.ToUsers(members, event)
+	s.hub.ToUsers(people, event)
 }
 
 // tellCall tells a conversation's members how its call stands, or that it ended, and wakes
 // the phones of anyone it's started ringing.
 func (s *Server) tellCall(groupID string, call *Call) {
-	s.toMembers(groupID, Event{Type: "call", Data: map[string]any{"group_id": groupID, "call": call}})
+	s.toPeopleIn(groupID, Event{Type: "call", Data: map[string]any{"group_id": groupID, "call": call}})
 	s.pushRings(groupID, call)
 }
 
@@ -346,6 +347,11 @@ func (s *Server) endVoiceOf(ctx context.Context, groupID string, users []string)
 
 // handleCalls lists the calls in this person's conversations, and who's in each.
 func (s *Server) handleCalls(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	// A bot takes no part in voice, so it hears of no call.
+	if sess.Bot {
+		writeJSON(w, http.StatusOK, map[string]any{"calls": []*Call{}, "voice": []VoiceState{}})
+		return
+	}
 	s.voice.mu.Lock()
 	views := make([]*Call, 0, len(s.voice.calls))
 	for groupID, call := range s.voice.calls {
