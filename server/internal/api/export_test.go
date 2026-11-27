@@ -236,3 +236,22 @@ func TestAFormerMemberIsntToldWhosInAConversationNow(t *testing.T) {
 		t.Fatalf("someone in it now: %+v", now)
 	}
 }
+
+// An export reads all that's kept about an account, so one person can't ask for one over and
+// over, though pressing the button a few times in a row works.
+func TestExportsAreLimited(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	for range 10 {
+		h.mustDo("POST", "/api/account/export", owner.token, map[string]any{}, nil)
+	}
+	limited := false
+	for range 5 {
+		if status, resp := h.do("POST", "/api/account/export", owner.token, map[string]any{}, nil); status == http.StatusTooManyRequests && resp["error"] == "rate_limited" {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Fatal("15 exports in a row weren't limited")
+	}
+}

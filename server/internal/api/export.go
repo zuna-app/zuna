@@ -11,6 +11,10 @@ import (
 // so that a session token alone, as one copied from a proxy's log would be, can't read
 // it, and only ever gives an account its own.
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if !s.exportLimiter.Allow(sess.UserID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many requests at once. Please wait a moment.")
+		return
+	}
 	export, err := s.db.Export(r.Context(), sess.UserID)
 	if err != nil {
 		writeFailure(w, err)
