@@ -107,7 +107,7 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 	fresh := NewID()
 	id := fresh
 	now := Now()
-	err := d.tx(ctx, func(tx handle) error {
+	err := d.logTx(ctx, func(tx handle) error {
 		id = fresh
 		bot := ""
 		role := "member"
@@ -445,7 +445,7 @@ func (d *DB) MarkBanned(ctx context.Context, userID, bannedBy string) error {
 }
 
 func (d *DB) BanUser(ctx context.Context, userID, bannedBy string) error {
-	return d.tx(ctx, func(tx handle) error {
+	return d.logTx(ctx, func(tx handle) error {
 		now := Now()
 		res, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = ?, banned_by = ?, updated_at = ? WHERE id = ?`, now, bannedBy, now, userID)
 		if err != nil {
@@ -577,7 +577,7 @@ func (d *DB) Bans(ctx context.Context) ([]Ban, error) {
 // avatar, if nothing else uses it, so it can be deleted.
 func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 	var orphaned []string
-	err := d.tx(ctx, func(tx handle) error {
+	err := d.logTx(ctx, func(tx handle) error {
 		orphaned = nil
 		var name string
 		var avatar sql.NullString

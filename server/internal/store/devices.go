@@ -20,7 +20,7 @@ func (d *DB) DeviceKey(ctx context.Context, deviceID string) ([]byte, error) {
 // signing in says which generation of keys it got, since a rotation may have got
 // in first.
 func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, generation int64) error {
-	return d.tx(ctx, func(tx handle) error {
+	return d.logTx(ctx, func(tx handle) error {
 		now := Now()
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, dev.UserID).Scan(&current); err != nil {
@@ -58,7 +58,7 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 
 // RevokeDevice removes a device of the user and ends its sessions.
 func (d *DB) RevokeDevice(ctx context.Context, userID, deviceID string) error {
-	return d.tx(ctx, func(tx handle) error {
+	return d.logTx(ctx, func(tx handle) error {
 		return revokeDevice(ctx, tx, userID, deviceID, Now())
 	})
 }

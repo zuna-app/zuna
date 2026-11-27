@@ -56,6 +56,11 @@ type DB struct {
 	// second behind writes that took a few milliseconds all told. It's nil for
 	// PostgreSQL, which writes side by side.
 	writing *sync.Mutex
+	// appending lets one transaction at a time append to the log of keys on
+	// PostgreSQL (logTx), as SQLite does with writing, so that each starts once the
+	// one before is kept and finds the log as it left it. Another server on the same
+	// database has its own, and meets this one's in claimLog.
+	appending sync.Mutex
 	// onLog is called once a transaction that grew the log of keys is kept.
 	onLog func()
 	// logKey is the key the log's heads are signed with, once it's been read.
@@ -234,9 +239,32 @@ func (d *DB) Close() error { return d.conn.Close() }
 // side by side, each as though it were alone, and starts one again from the
 // beginning when it couldn't be, so fn must only leave behind what it sets.
 func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
+	return d.run(ctx, fn, false)
+}
+
+// logTx is tx for what appends to the log of keys. Every append writes the same rows,
+// so on PostgreSQL these wait their turn here, and take the log as they start, rather
+// than all starting at once and all but one starting again, over and over, or a long
+// one finding the log taken each time by short ones that started after it.
+func (d *DB) logTx(ctx context.Context, fn func(handle) error) error {
+	return d.run(ctx, fn, true)
+}
+
+// run is tx, and logTx when logging: one at a time on this server, each taking the
+// log first, and starting again at once when it ran into another.
+func (d *DB) run(ctx context.Context, fn func(handle) error, logging bool) error {
+	do := fn
+	if logging {
+		do = func(tx handle) error {
+			if err := claimLog(ctx, tx); err != nil {
+				return err
+			}
+			return fn(tx)
+		}
+	}
 	if !d.postgres {
 		d.writing.Lock()
-		logged, err := d.attempt(ctx, nil, fn)
+		logged, err := d.attempt(ctx, nil, do)
 		d.writing.Unlock()
 		if err == nil && logged && d.onLog != nil {
 			d.onLog()
@@ -244,7 +272,13 @@ func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 		return err
 	}
 	for attempt := 1; ; attempt++ {
-		logged, err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, fn)
+		if logging {
+			d.appending.Lock()
+		}
+		logged, err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, do)
+		if logging {
+			d.appending.Unlock()
+		}
 		if err == nil {
 			if logged && d.onLog != nil {
 				d.onLog()
@@ -253,6 +287,13 @@ func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
 		}
 		if !mustRetry(err) || attempt == maxAttempts {
 			return err
+		}
+		// One that waits its turn needs no other waiting.
+		if logging {
+			if ctx.Err() != nil {
+				return err
+			}
+			continue
 		}
 		select {
 		case <-ctx.Done():

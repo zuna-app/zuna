@@ -206,6 +206,16 @@ func writeLogState(ctx context.Context, tx handle, state logState) error {
 	return err
 }
 
+// claimLog takes the log of keys for a transaction about to append to it, as the
+// first thing it does. On PostgreSQL, one that finds it taken waits, and then starts
+// again with the log as the other left it, at once and not having done anything else.
+// It takes the row writeLogState writes first, so that every transaction takes the
+// log's rows in one order, and none holds one that another holding the one before waits for.
+func claimLog(ctx context.Context, tx handle) error {
+	_, err := tx.ExecContext(ctx, `UPDATE settings SET value = value WHERE key = ?`, settingLogEra)
+	return err
+}
+
 // appendLog adds an entry about an account, inside the transaction that makes the
 // change it's about, so that one is never kept without the other.
 func appendLog(ctx context.Context, tx handle, userID string, body any) error {
@@ -227,11 +237,15 @@ func appendLog(ctx context.Context, tx handle, userID string, body any) error {
 	idx := state.frontier.Size
 	state.frontier.Append(merkle.Leaf(record))
 	root := state.frontier.Root()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO log_entries(era, idx, record, body, user_id, root) VALUES(?, ?, ?, ?, ?, ?)`,
-		state.era, int64(idx), record, data, userID, root[:]); err != nil {
+	// The log's state is written first. On PostgreSQL, two transactions appending at once
+	// read the same state and would take the same place: written first, the second to write
+	// it waits for the first and is then refused as a collision, which tx starts again,
+	// where the place written first would have been refused as taken, which it doesn't.
+	if err := writeLogState(ctx, tx, state); err != nil {
 		return err
 	}
-	if err := writeLogState(ctx, tx, state); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO log_entries(era, idx, record, body, user_id, root) VALUES(?, ?, ?, ?, ?, ?)`,
+		state.era, int64(idx), record, data, userID, root[:]); err != nil {
 		return err
 	}
 	if tx.logged != nil {
@@ -483,7 +497,7 @@ func (d *DB) LogBodies(ctx context.Context, userID string, era int64) (int64, []
 // they were, for a device that joins with a link made in one of them to read first.
 func (d *DB) StartLogEra(ctx context.Context) (int64, error) {
 	var era int64
-	err := d.tx(ctx, func(tx handle) error {
+	err := d.logTx(ctx, func(tx handle) error {
 		state, err := readLogState(ctx, tx)
 		if err != nil {
 			return err

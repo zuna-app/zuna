@@ -210,7 +210,7 @@ func (d *DB) IdentityLinks(ctx context.Context, userID string, after int64, limi
 // repeat of a rotation that already went through succeeds without doing anything,
 // so a client that never heard the answer can simply send it again.
 func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
-	return d.tx(ctx, func(tx handle) error {
+	return d.logTx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, rotation.UserID).Scan(&current); err != nil {
 			return err
@@ -414,7 +414,7 @@ func (d *DB) SetDeviceCertificate(ctx context.Context, userID, deviceID string, 
 }
 
 func (d *DB) touchDevice(ctx context.Context, userID, deviceID string, entry any, query string, args ...any) error {
-	return d.tx(ctx, func(tx handle) error {
+	return d.logTx(ctx, func(tx handle) error {
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return err
