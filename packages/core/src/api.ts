@@ -573,11 +573,10 @@ export class Api {
 
   constructor(readonly baseUrl: string) {}
 
-  /** `anonymous` sends nothing of the session: no token and no device's proof. */
-  private async request<T>(method: string, path: string, body?: unknown, raw?: Uint8Array | Blob, anonymous = false): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, raw?: Uint8Array | Blob): Promise<T> {
     const headers: Record<string, string> = {};
-    const prove = anonymous ? null : this.prove;
-    if (this.token && !anonymous) headers["Authorization"] = `Bearer ${this.token}`;
+    const prove = this.prove;
+    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     let payload: BodyInit | undefined;
     let bytes: Uint8Array = new Uint8Array(0);
     if (raw) {
@@ -617,16 +616,7 @@ export class Api {
       if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
       this.clockOffset = parsed.now - Date.now();
     }
-    if (!response.ok) {
-      const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError(
-        response.status,
-        typeof parsed.error === "string" ? parsed.error : "error",
-        typeof parsed.message === "string" ? translate(parsed.message) : t("errors.serverStatus", { status: response.status }),
-        parsed,
-      );
-    }
-    return (await response.json()) as T;
+    return this.answer<T>(response);
   }
 
   /**
@@ -639,7 +629,7 @@ export class Api {
     const text = body === undefined ? "" : JSON.stringify(encodeBody(body));
     const bytes = utf8(text);
     const token = seal.token ?? new Uint8Array(0);
-    const send = this.sealedFetch ?? ((url: string, init: RequestInit) => fetch(url, { ...init, credentials: "omit", cache: "no-store" }));
+    const send = this.sealedFetcher;
     let response: Response;
     for (let attempt = 0; ; attempt++) {
       const at = Date.now() + this.clockOffset;
@@ -668,6 +658,11 @@ export class Api {
       if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
       this.clockOffset = parsed.now - Date.now();
     }
+    return this.answer<T>(response);
+  }
+
+  /** What a request was answered, or the error it was refused with. */
+  private async answer<T>(response: Response): Promise<T> {
     if (!response.ok) {
       const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       throw new ApiError(
@@ -678,6 +673,25 @@ export class Api {
       );
     }
     return (await response.json()) as T;
+  }
+
+  /** How requests that name nobody go, on connections that share nothing with the session's where the host gives them. */
+  private get sealedFetcher(): (url: string, init: RequestInit) => Promise<Response> {
+    return this.sealedFetch ?? ((url: string, init: RequestInit) => fetch(url, { ...init, credentials: "omit", cache: "no-store" }));
+  }
+
+  /**
+   * A question anyone may ask, asked as sealed requests go, with nothing of the session and on
+   * their connections, so that the server can't tell who's asking, nor answer them alone.
+   */
+  private async unnamed<T>(path: string): Promise<T> {
+    let response: Response;
+    try {
+      response = await this.sealedFetcher(this.baseUrl + path, { method: "GET", signal: AbortSignal.timeout(this.timeout) });
+    } catch {
+      throw new ApiError(0, "network", t("errors.network"));
+    }
+    return this.answer<T>(response);
   }
 
   // Server
@@ -715,8 +729,8 @@ export class Api {
   revokeDevice = (id: string) => this.request("DELETE", at`/api/devices/${id}`);
 
   // Tokens, which pay for what's added to a conversation without a name
-  /** The keys tokens are issued under, asked without the session, so this device is shown what anyone is. */
-  tokenKeys = () => this.request<{ period: number; keys: ApiTokenKey[] }>("GET", "/api/tokens/keys", undefined, undefined, true);
+  /** The keys tokens are issued under, asked as sealed requests go, so this device is shown what anyone is. */
+  tokenKeys = () => this.unnamed<{ period: number; keys: ApiTokenKey[] }>("/api/tokens/keys");
   /** Blinded tokens evaluated, counted against this person, with the proof that they were under the period's key. */
   issueTokens = (period: number, size: TokenSize, blinded: Uint8Array[]) =>
     this.request<{ evaluated: string[]; proof: string }>("POST", "/api/tokens", { period, size, blinded });

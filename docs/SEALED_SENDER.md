@@ -86,7 +86,7 @@ A limit on a person needs a name, and a limit on a whole group would let one mem
 - **Asked for while signed in, at times of their own** (`POST /api/tokens`, behind `withDevice`): a device fetches 100 small once it holds fewer than 40 for the current period, and 10 large below 4, a random one to ten minutes after it notices, and its first as soon as it's signed in. One with none, as a new device sending at once, fetches then and sends, which says something that one time. They're kept sealed in the core's `tokens` table (`session/sending.ts`, the Tokens part).
 - **Spent in the same transaction as the write,** so one refused for `stale_epoch` costs nothing (`spent_tokens`). Reactions, edits, pins and deletions spend a small one. Typing spends none.
 - **What changes nothing costs nothing, and is told to nobody.** A message sent again with the item key it came with, a reaction added again and a deletion of what's deleted spend no token, so they're not sent on to the group or pushed either: any member, whom nothing names, could otherwise have the server send a message it holds to everyone as often as they liked.
-- **Everyone must be shown the same keys.** `GET /api/tokens/keys` takes no session, and the server proves each batch was evaluated under the key shown there. Each signed body carries a short hash of the keys its sender was shown (`tokenKeys`), and an app whose own differ for the same period warns once (`compareTokenKeys`), as a key made for one person would let the server follow their tokens.
+- **Everyone must be shown the same keys, for the same period.** A key made for one person would let the server follow their tokens, and so would a period of their own, which every token names in the clear. `GET /api/tokens/keys` takes no session and goes as sealed requests do, on their connections (`unnamed` in `api.ts`), so the server isn't told who's asking, and it proves each batch of tokens was evaluated under the key shown there. A device takes the keys of the period the server says it's in and of the one before, the only ones an honest server redeems, and fetches and spends tokens only of a period it holds both sizes' keys for (`refreshTokenKeys`, `tokenPeriods` in `session/sending.ts`). Which period that is can't come from the device's clock, which would lock out a phone whose clock is wrong, nor from how far ahead the server says its clock is, which the server's own answers set, so it's the server's word, and what holds it to one word for everyone is the comparison: each signed body carries a short hash of the keys of each period its sender holds (`tokenKeys`), and an app warns once (`compareTokenKeys`) when someone's differ from its own for a period it holds, or name a period the server is in, or past it, that it was shown no keys for once it has asked again. Someone the server keeps behind everyone sees the others' newer period, and someone it puts ahead is seen by them. A key changed within its period, or a period that goes back, warns too. The device's clock, as far as it knows the server's, only says when to ask again, and a token the server no longer takes has it ask at once.
 - **Bots** get tokens at a bot's pace. There's no pace for a bot in each chat any more: it can't be held without a name, and members see a bot flooding and remove it.
 
 A token on the wire is the period (8 bytes), the size (1 byte), the input (32) and the output (64).
@@ -167,7 +167,7 @@ A commit that changes who's in a group names people by its nature, and the serve
 
 - The send key is given with every commit and is what every member makes; a wrong one is noticed and put right; undoing a commit brings the right one back.
 - An old epoch is renewed as its group is synced, so sending needn't commit just before.
-- Tokens are fetched at once and kept sealed, fetched again a while after running low and at once when there are none, and a device warns when someone was shown other keys.
+- Tokens are fetched at once and kept sealed, fetched again a while after running low and at once when there are none, and a device warns when someone was shown other keys, when the server keeps someone in a period of their own, or a period no honest server could be in, and when the server's period goes back, but not for an older message's period or someone who moved on to the next one first. Sending works however wrong a device's idea of the server's clock is, and the keys are asked for with nothing of the session.
 - No sealed request carries a session, and nothing the server says of a message names anyone.
 - Someone removed can't write with the last epoch's send key, and someone outside the group can't with tokens of their own.
 - Someone who left or was banned can't write with the key their device still makes, and those who stay send again at once.
@@ -204,11 +204,15 @@ The Go side is in `server/internal/api/sealed_test.go`, `tokens_test.go` and `se
 - **Who it didn't have to wake,** and who never fetched a file because they already had it.
 - **Two people.** In a direct message, who wrote is one of two, and most of the above settles which.
 - **Tokens asked for** just before sending, when a device had none left.
+- **A period of someone's own, for a while.** The comparison that catches it runs on messages people read, so it comes after the fact: until someone the server kept apart reads a message from someone it didn't, or the other way round, every token they spend says it's theirs. A device can't tell a period from before the server's last from an older message's, so only the person kept behind notices that one. The server can answer each address, or in the web app each connection, as it likes, and none of that is caught any sooner.
+- **The period after a new one starts.** A device that fetched in the last period spends those tokens until they run out, as an honest one does, so for a few hours after each change the period on a token says roughly when its sender last fetched.
 
 And from a copy of its data alone, with nothing watched:
 
 - **Who uploaded on which day.** Quota keeps how many MiB each person uploaded each day, for thirty days (`uploads`), and a file keeps when it was made. On a day only one person uploaded, the files made that day were theirs, and so was each message that first carried one.
 - **Who was issued tokens** in the last twelve hours, and how many (`token_issues`), which says who was about to send something, not what.
+
+The warning for a period can also be wrong: a server whose clock steps back across the start of a period, or servers of one install whose clocks differ, at the moment one starts, look as one going back would.
 
 ## How it was built
 

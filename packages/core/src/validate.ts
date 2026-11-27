@@ -304,9 +304,13 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   }
   const buttons = parseButtons(value.buttons);
   if (buttons) body.buttons = buttons;
-  const tokenKeys = value.tokenKeys;
-  if (isObject(tokenKeys) && isCount(tokenKeys.p, Number.MAX_SAFE_INTEGER) && typeof tokenKeys.h === "string" && /^[0-9a-f]{16}$/.test(tokenKeys.h)) {
-    body.tokenKeys = { p: tokenKeys.p, h: tokenKeys.h };
+  // A device holds the keys of two periods at most, the server's and the one before.
+  if (Array.isArray(value.tokenKeys)) {
+    const tags = value.tokenKeys
+      .slice(0, 2)
+      .filter((tag): tag is { p: number; h: string } => isObject(tag) && isCount(tag.p, Number.MAX_SAFE_INTEGER) && typeof tag.h === "string" && /^[0-9a-f]{16}$/.test(tag.h))
+      .map((tag) => ({ p: tag.p, h: tag.h }));
+    if (tags.length > 0) body.tokenKeys = tags;
   }
   // Only a head that reads as one, which is compared, and is nothing to show. Its signature is the
   // log key's, a lasting hybrid one (`LASTING_SIGNATURE_BYTES` in crypto.ts, which the interface doesn't load).

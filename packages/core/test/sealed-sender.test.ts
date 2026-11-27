@@ -120,11 +120,136 @@ describe("tokens", () => {
     await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "same keys");
     expect(warned(bob, "different sending keys")).toBe(false);
     // As if the server had shown bob keys of his own.
-    const keys = sessionOf(bob).heldTokenKeys();
-    for (const period of Object.keys(keys)) keys[period] = { small: toBase64(wasm.randomBytes(32)), large: toBase64(wasm.randomBytes(32)) };
-    sessionOf(bob).setKv("token_keys", keys);
+    const bobs = sessionOf(bob).heldTokenKeys();
+    for (const period of Object.keys(bobs.keys)) bobs.keys[period] = { small: toBase64(wasm.randomBytes(32)), large: toBase64(wasm.randomBytes(32)) };
+    sessionOf(bob).setKv("token_keys", bobs);
     await sentAndSeen(ann, [bob], await groupWith(ann, [bob]), "other keys");
     expect(warned(bob, "different sending keys")).toBe(true);
+  });
+
+  it("warn when the server keeps someone in a period of their own, which every token they spend names", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
+    const groupId = await groupWith(ann, [bob]);
+    // A server that keeps bob a period behind everyone else, under the very keys it issues with now. The one
+    // under test redeems only this period and the last, so the last is given those keys in its database, as a
+    // server changed to do this would give bob a period of his own, whatever its number.
+    const { period } = await apiOf(ann).tokenKeys();
+    withServerDatabase((db) => db.prepare("INSERT OR REPLACE INTO token_keys(period, size, secret, public) SELECT period - 1, size, secret, public FROM token_keys WHERE period = ?").run(period));
+    // Which everyone else is shown as the last period's, as if it had always had them.
+    await sessionOf(ann).refreshTokenKeys();
+    const bobs = apiOf(bob);
+    const [shown, issue] = [bobs.tokenKeys, bobs.issueTokens];
+    bobs.tokenKeys = async () => {
+      const answer = await shown();
+      return { period: answer.period - 1, keys: answer.keys.filter((key) => key.period === answer.period).map((key) => ({ ...key, period: key.period - 1 })) };
+    };
+    bobs.issueTokens = (asked, size, blinded) => issue(asked + 1, size, blinded);
+    // As if bob had been shown that from the start.
+    sessionOf(bob).db.run("DELETE FROM tokens");
+    sessionOf(bob).db.run("DELETE FROM kv WHERE k = 'token_keys'");
+    // The period each sealed request's token names, as the server sees it.
+    const named = { ann: new Set<number>(), bob: new Set<number>() };
+    for (const [name, app] of [["ann", ann], ["bob", bob]] as const) {
+      const real = apiOf(app).sealedFetch!;
+      apiOf(app).sealedFetch = (url, init) => {
+        const token = (init.headers as Record<string, string> | undefined)?.["X-Zuna-Token"];
+        if (token) named[name].add(Number(Buffer.from(token, "base64").readBigUInt64BE(0)));
+        return real(url, init);
+      };
+    }
+    await sentAndSeen(bob, [ann], groupId, "from the period before");
+    await sentAndSeen(ann, [bob], groupId, "from this one");
+    // Which is all the server needs to tell whose each request is.
+    expect([...named.bob]).toEqual([period - 1]);
+    expect([...named.ann]).toEqual([period]);
+    // Bob was shown no keys for the period ann spends from, which the server is in.
+    await waitFor(() => warned(bob, "different sending keys"), "bob to notice", 10_000);
+    expect(warned(ann, "different sending keys")).toBe(false);
+  });
+
+  it("warn of a period no honest server could be in, asking again first, and not of an older message's", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
+    const groupId = await groupWith(ann, [bob]);
+    const { period } = await apiOf(bob).tokenKeys();
+    const asked: string[] = [];
+    const real = apiOf(bob).sealedFetch!;
+    apiOf(bob).sealedFetch = (url, init) => {
+      if (url.endsWith("/api/tokens/keys")) asked.push(url);
+      return real(url, init);
+    };
+    // A message from long before, from a period whose keys are gone: nothing to compare, and nothing asked.
+    const tagged = (p: number) => (session: any) => ({ ...session.signedBody({ text: `from period ${p}` }, groupId), tokenKeys: [{ p, h: "0123456789abcdef" }] });
+    await sendSealed(ann, groupId, tagged(period - 3));
+    await waitFor(() => bob.texts(`group:${groupId}`).includes(`from period ${period - 3}`), "the old one");
+    await sleep(500);
+    expect(warned(bob, "different sending keys")).toBe(false);
+    expect(asked).toEqual([]);
+    // One of a period ahead of the server's, which only a server showing ann keys of her own could have given her,
+    // when bob hasn't asked in the last minute.
+    sessionOf(bob).tokenKeysRead = undefined;
+    await sendSealed(ann, groupId, tagged(period + 5));
+    await waitFor(() => warned(bob, "different sending keys"), "bob to notice");
+    expect(asked.length).toBe(1);
+  });
+
+  it("say nothing when someone has moved on to the next period first", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
+    const groupId = await groupWith(ann, [bob]);
+    // Bob last asked in the period before, as a device does that hasn't since the server moved on.
+    const { period, keys } = await apiOf(bob).tokenKeys();
+    const before = Object.fromEntries(keys.filter((key) => key.period === period - 1).map((key) => [key.size, key.public]));
+    sessionOf(bob).setKv("token_keys", { period: period - 1, keys: { [period - 1]: before } });
+    sessionOf(bob).tokenKeysRead = undefined;
+    await sentAndSeen(ann, [bob], groupId, "from the new period");
+    await waitFor(() => sessionOf(bob).heldTokenKeys().period === period, "bob to ask again");
+    await sleep(200);
+    expect(warned(bob, "different sending keys")).toBe(false);
+    expect(warned(bob, "changed its sending keys")).toBe(false);
+  });
+
+  it("warn when the server goes back to a period before the one it was in", async () => {
+    const bob = await person("bob");
+    await waitFor(() => held(bob, "small") > 0, "his tokens");
+    const shown = apiOf(bob).tokenKeys;
+    apiOf(bob).tokenKeys = async () => {
+      const answer = await shown();
+      return { period: answer.period - 1, keys: [] };
+    };
+    await sessionOf(bob).refreshTokenKeys().catch(() => {});
+    expect(warned(bob, "changed its sending keys")).toBe(true);
+  });
+
+  it("go however wrong this device's idea of the server's clock is", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    await waitFor(() => held(ann, "small") > 0 && held(bob, "small") > 0, "their tokens");
+    const groupId = await groupWith(ann, [bob]);
+    for (const wrong of [10 ** 9, 0]) {
+      sessionOf(bob).tokenPeriod = () => wrong;
+      await sentAndSeen(bob, [ann], groupId, `with the clock at period ${wrong}`);
+    }
+    sessionOf(bob).db.run("DELETE FROM tokens");
+    await sentAndSeen(bob, [ann], groupId, "with none held");
+    expect(warned(ann, "different sending keys")).toBe(false);
+  });
+
+  it("are asked about as sealed requests go, with nothing of the session", async () => {
+    const bob = await person("bob");
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const real = apiOf(bob).sealedFetch!;
+    apiOf(bob).sealedFetch = (url, init) => {
+      seen.push({ url, headers: { ...(init.headers as Record<string, string> | undefined) } });
+      return real(url, init);
+    };
+    await sessionOf(bob).refreshTokenKeys();
+    expect(seen.map((request) => request.url)).toEqual([`${server.url}/api/tokens/keys`]);
+    expect(Object.keys(seen[0].headers).map((name) => name.toLowerCase())).not.toContain("authorization");
   });
 });
 
@@ -176,7 +301,8 @@ describe("what the server is told", () => {
     await waitFor(() => seen.some((request) => request.url.endsWith("/typing")), "the typing signal");
     expect(seen.length).toBeGreaterThanOrEqual(6);
     for (const request of seen) {
-      expect(request.url).toContain("/api/sealed/");
+      // Or what tokens are issued under, which anyone may ask.
+      expect(request.url).toMatch(/\/api\/(sealed\/|tokens\/keys$)/);
       expect(Object.keys(request.headers).map((name) => name.toLowerCase())).not.toContain("authorization");
     }
     // What the server says of the group's messages names nobody.

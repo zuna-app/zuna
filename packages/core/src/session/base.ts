@@ -23,7 +23,7 @@ import { mediaTag } from "../search";
 import { Socket, type SocketFrame } from "../socket";
 import type { SignedRoster } from "../roster";
 import type { WatchState } from "../watch";
-import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, VoiceUpdate } from "../types";
+import type { ConnectionState, CoreEvent, EmoteSet, LinkPreview, MediaKind, MessageBody, Preferences, PushSettings, ServerInfo, SystemEvent, TokenKeysTag, VoiceUpdate } from "../types";
 import type { IdentityState, CachedUser, GroupMeta, CachedGroup, CachedChannel, CachedSound, Mutex, TreeMember } from "./shared";
 import type { LogStanding } from "./directory";
 import type { Standing } from "./chains";
@@ -112,6 +112,8 @@ export abstract class SessionBase {
   protected reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** When this device fetches more tokens, having run low (`topUpTokensSoon`). */
   protected tokenTopUp: ReturnType<typeof setTimeout> | undefined;
+  /** When this device last asked which keys tokens are issued under, and the period it was told (`refreshTokenKeys`). */
+  protected tokenKeysRead: { at: number; done: Promise<number> } | undefined;
   /** Groups whose send key the server holds wrong, waiting for this device to put it right (`checkSendKey`). */
   protected sendKeyFixes = new Map<string, ReturnType<typeof setTimeout>>();
   /** The epoch and send key last found right for each group, so it isn't worked out again each time. */
@@ -327,7 +329,7 @@ export abstract class SessionBase {
   protected abstract noteArrivals(groupId: string): void;
   protected abstract scheduleReconcile(groupId: string): void;
   protected abstract topUpTokensSoon(now?: boolean): void;
-  protected abstract compareTokenKeys(tag: { p: number; h: string }, from: string): void;
+  protected abstract compareTokenKeys(tags: TokenKeysTag[], from: string): void;
   protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
   protected abstract staleLeaves(groupId: string, members?: TreeMember[]): Promise<number[]>;
   protected abstract ensureTreeClean(groupId: string): Promise<void>;

@@ -122,7 +122,7 @@ describe("a message body", () => {
       expiresIn: 60,
       location: { lat: 1, lon: 2, accuracy: 5 },
       buttons: [[{ text: "Go", data: "g" }]],
-      tokenKeys: { p: 7, h: "0123456789abcdef" },
+      tokenKeys: [{ p: 7, h: "0123456789abcdef" }, { p: 6, h: "fedcba9876543210" }],
       log: { e: 1, n: 2, r: KEY32, s: LOG_SIG },
       signal: { type: "button", message: ID, data: "pressed" },
     };
@@ -130,7 +130,7 @@ describe("a message body", () => {
     expect(parsed).toMatchObject({ text: "hello", replyTo: ID, mentions: ["u1"], forwarded: { userId: "u2" }, sentAt: 123, revision: 2, expiresIn: 60, location: { lat: 1, lon: 2, accuracy: 5 } });
     expect(parsed.attachments![0]).toMatchObject({ width: 10, height: 20, thumb: THUMB, duration: 1.5, voice: true, waveform: "AAAA", share: KEY32 });
     expect(parsed.after).toEqual({ id: ID, epoch: 3, at: 456, expiresIn: 60 });
-    expect(parsed.tokenKeys).toEqual({ p: 7, h: "0123456789abcdef" });
+    expect(parsed.tokenKeys).toEqual([{ p: 7, h: "0123456789abcdef" }, { p: 6, h: "fedcba9876543210" }]);
     expect(parsed.log).toEqual({ e: 1, n: 2, r: KEY32, s: LOG_SIG });
     expect(parsed.signal).toEqual({ type: "button", message: ID, data: "pressed" });
   });
@@ -173,7 +173,7 @@ describe("a message body", () => {
       after: { id: ID, epoch: 1, at: Infinity },
       expiresIn: MAX_EXPIRES_IN + 1,
       buttons: [[{ text: "x" }]],
-      tokenKeys: { p: 1, h: "short" },
+      tokenKeys: [{ p: 1, h: "short" }],
       log: { e: 0, n: 1, r: KEY32, s: LOG_SIG },
     })!;
     expect(parsed).toEqual({ text: "hi" });
@@ -184,6 +184,10 @@ describe("a message body", () => {
     expect(parseMessageBody({ after: { id: ID, epoch: 1, at: 1, expiresIn: 0 } })).toEqual({ after: { id: ID, epoch: 1, at: 1 } });
     expect(parseMessageBody({ location: { lat: 1, lon: 2, accuracy: -1 } })).toEqual({ location: { lat: 1, lon: 2 } });
     expect(parseMessageBody({ tokenKeys: "x", log: "x" })).toEqual({});
+    // No more than the two periods a device holds keys for.
+    const tag = (p: number) => ({ p, h: "0123456789abcdef" });
+    expect(parseMessageBody({ tokenKeys: [tag(3), tag(2), tag(1)] })).toEqual({ tokenKeys: [tag(3), tag(2)] });
+    expect(parseMessageBody({ tokenKeys: tag(3) })).toEqual({});
     expect(parseMessageBody({ log: { e: 1, n: -1, r: KEY32, s: LOG_SIG } })).toEqual({});
     expect(parseMessageBody({ log: { e: 1, n: 1, r: "short", s: LOG_SIG } })).toEqual({});
     expect(parseMessageBody({ log: { e: 1, n: 1, r: KEY32, s: 5 } })).toEqual({});

@@ -235,10 +235,16 @@ export interface MessageBody {
   buttons?: MessageButton[][];
   /** Something for apps to act on. A message with one is shown nowhere. */
   signal?: MessageSignal;
-  /** A short hash of the token keys the sender's device was shown for a period, signed with the rest, which apps compare with their own. */
-  tokenKeys?: { p: number; h: string };
+  /** A short hash of the token keys the sender's device holds for each period it spends tokens of, signed with the rest, which apps compare with their own. */
+  tokenKeys?: TokenKeysTag[];
   /** The newest head of the server's log of keys the sender's device holds, signed by the server and with the rest, which apps compare with their own. */
   log?: { e: number; n: number; r: string; s: string };
+}
+
+/** A period's token keys as a message tells them: the period, and a short hash of its keys. */
+export interface TokenKeysTag {
+  p: number;
+  h: string;
 }
 
 /**
