@@ -434,3 +434,39 @@ func TestARoomTakesBackOutWhoeverItIsntForAtItsOwnAddress(t *testing.T) {
 		t.Fatalf("taken out on a word that wasn't LiveKit's: %v", out[len(before):])
 	}
 }
+
+// A device revoked, signed out or left out of a rotation is taken out of the room it's in at
+// once, as someone banned is, and not only once its socket's moment to come back is up.
+func TestADeviceThatGoesIsTakenOutOfItsRoomAtOnce(t *testing.T) {
+	media, url := newFakeMediaServer(t)
+	h := newHarness(t, withLiveKit("ws"+strings.TrimPrefix(url, "http")))
+	owner := h.signUp("owner", h.invite)
+	voice := owner.createChannel("voice", 0)
+	path := "/api/channels/" + voice.ID + "/voice"
+
+	for _, way := range []string{"revoked", "signed out", "rotated out"} {
+		phone := owner.anotherDevice()
+		phone.roomToken(path)
+		phone.inVoice(voice.ID)
+		switch way {
+		case "revoked":
+			h.mustDo("DELETE", "/api/devices/"+phone.device, owner.token, nil, nil)
+		case "signed out":
+			h.mustDo("POST", "/api/auth/logout", phone.token, map[string]any{}, nil)
+		case "rotated out":
+			body, next := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{phone.device})
+			h.mustDo("POST", "/api/account/rotate", owner.token, body, nil)
+			owner.accepted(body, next)
+		}
+		if media.takenOut(voice.ID, phone.identity()) != 1 {
+			t.Fatalf("a device %s wasn't taken out of the room: %v", way, media.out())
+		}
+		var listed struct {
+			Voice []api.VoiceState `json:"voice"`
+		}
+		h.mustDo("GET", "/api/channels", owner.token, nil, &listed)
+		if len(listed.Voice) != 0 {
+			t.Fatalf("a device %s is still in the channel: %v", way, listed.Voice)
+		}
+	}
+}

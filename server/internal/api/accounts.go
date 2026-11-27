@@ -396,6 +396,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, sess *stor
 			return
 		}
 		s.broadcastUser(r, sess.UserID)
+		s.leaveVoice(sess.UserID, sess.DeviceID, true)
 		s.hub.Disconnect(sess.UserID, sess.DeviceID)
 		s.notified.forget(sess.DeviceID)
 	}
