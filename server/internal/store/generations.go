@@ -401,20 +401,39 @@ func (d *DB) CloseGeneration(ctx context.Context, userID string, generation int6
 	})
 }
 
-// SetDeviceSealKey is a device saying what to seal account keys to from now on.
-func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key []byte, generation int64, proof []byte) error {
+// SetDeviceSealKey is a device saying what to seal account keys to from now on. The
+// one it has already, sent again, changes nothing, and says so.
+func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key []byte, generation int64, proof []byte) (bool, error) {
 	return d.touchDevice(ctx, userID, deviceID, sealBody{1, "seal", userID, deviceID, generation, sealHash(key, generation, proof)},
+		`SELECT seal_key = ? AND seal_generation = ? AND seal_proof = ? FROM devices WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, []any{key, generation, proof, deviceID, userID},
 		`UPDATE devices SET seal_key = ?, seal_generation = ?, seal_proof = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, key, generation, proof, deviceID, userID)
 }
 
-// SetDeviceCertificate is a device publishing the certificate it has now.
-func (d *DB) SetDeviceCertificate(ctx context.Context, userID, deviceID string, certificate []byte) error {
+// SetDeviceCertificate is a device publishing the certificate it has now. The one it
+// has already, sent again, changes nothing, and says so.
+func (d *DB) SetDeviceCertificate(ctx context.Context, userID, deviceID string, certificate []byte) (bool, error) {
 	return d.touchDevice(ctx, userID, deviceID, certificateBody{1, "certificate", userID, deviceID, sha(certificate)},
+		`SELECT certificate = ? FROM devices WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, []any{certificate, deviceID, userID},
 		`UPDATE devices SET certificate = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, certificate, deviceID, userID)
 }
 
-func (d *DB) touchDevice(ctx context.Context, userID, deviceID string, entry any, query string, args ...any) error {
-	return d.logTx(ctx, func(tx handle) error {
+// touchDevice changes something of a device's that the log has, with its entry, unless
+// `same` says the device has it already, and says whether it did.
+func (d *DB) touchDevice(ctx context.Context, userID, deviceID string, entry any, same string, sameArgs []any, query string, args ...any) (bool, error) {
+	changed := false
+	err := d.logTx(ctx, func(tx handle) error {
+		changed = false
+		var held sql.NullBool
+		err := tx.QueryRowContext(ctx, same, sameArgs...).Scan(&held)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if held.Valid && held.Bool {
+			return nil
+		}
 		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return err
@@ -425,9 +444,11 @@ func (d *DB) touchDevice(ctx context.Context, userID, deviceID string, entry any
 		if err := appendLog(ctx, tx, userID, entry); err != nil {
 			return err
 		}
+		changed = true
 		_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, Now(), userID)
 		return err
 	})
+	return changed, err
 }
 
 // VaultItems is the vault after a place in it, at whichever generation each item is.

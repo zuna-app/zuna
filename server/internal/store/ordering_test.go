@@ -223,10 +223,10 @@ func TestKeyChangesMadeAtOnceEachGetTheirOwnPlaceInTheLog(t *testing.T) {
 					if err := db.AddDevice(ctx, token, dev, 0); err != nil {
 						return fmt.Errorf("adding a device: %w", err)
 					}
-					if err := db.SetDeviceSealKey(ctx, user, dev.ID, []byte("s2"), 0, []byte("p2")); err != nil {
+					if _, err := db.SetDeviceSealKey(ctx, user, dev.ID, []byte("s2"), 0, []byte("p2")); err != nil {
 						return fmt.Errorf("publishing a seal key: %w", err)
 					}
-					if err := db.SetDeviceCertificate(ctx, user, dev.ID, []byte("c2")); err != nil {
+					if _, err := db.SetDeviceCertificate(ctx, user, dev.ID, []byte("c2")); err != nil {
 						return fmt.Errorf("publishing a certificate: %w", err)
 					}
 					if err := db.ApplyRotation(ctx, Rotation{

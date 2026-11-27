@@ -3,6 +3,7 @@ package api_test
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -580,5 +581,46 @@ func TestASlotIsOnlyReplacedByWhoeverKnowsItsSecret(t *testing.T) {
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'n')}, &signedIn)
 	if string(signedIn.Slot.SealedSecret) != "secret-passworde" {
 		t.Fatalf("after a new password: %+v", signedIn)
+	}
+}
+
+// Z-35: each seal key and certificate a device publishes is an entry in the log, which
+// every device reads, so a device publishes only as often as its account could rotate.
+func TestADevicePublishesItsKeysOnlySoOften(t *testing.T) {
+	h := newHarness(t)
+	owner := h.signUp("owner", h.invite)
+	phone := owner.anotherDevice()
+	publish := map[string]func(device, token string, i int) int{
+		"seal-key": func(device, token string, i int) int {
+			status, _ := h.do("PUT", "/api/devices/"+device+"/seal-key", token, map[string]any{"seal_key": hpkeShape(byte(i)), "seal_generation": 0, "seal_proof": bytesOf(hybrid.DeviceSignatureSize, byte(i))}, nil)
+			return status
+		},
+		"certificate": func(device, token string, i int) int {
+			status, _ := h.do("PUT", "/api/devices/"+device+"/certificate", token, map[string]any{"certificate": []byte(fmt.Sprintf("cert %d", i))}, nil)
+			return status
+		},
+	}
+	for what, put := range publish {
+		// Twice what a device could need, after the most rotations its account is let make at once.
+		for i := 1; i <= 60; i++ {
+			if status := put(owner.client.device, owner.token, i); status != http.StatusOK {
+				t.Fatalf("%s %d gave %d", what, i, status)
+			}
+		}
+		if status := put(owner.client.device, owner.token, 61); status != http.StatusTooManyRequests {
+			t.Fatalf("one %s too many gave %d", what, status)
+		}
+		// Another device of the account has its own.
+		if status := put(phone.device, phone.token, 1); status != http.StatusOK {
+			t.Fatalf("another device's %s gave %d", what, status)
+		}
+		// The one it has, sent again, is answered and logs nothing.
+		before := logSize(h)
+		if status := put(phone.device, phone.token, 1); status != http.StatusOK {
+			t.Fatalf("the same %s again gave %d", what, status)
+		}
+		if logSize(h) != before {
+			t.Fatalf("the same %s again was logged", what)
+		}
 	}
 }

@@ -101,6 +101,8 @@ Every change to an account's keys or devices appends one entry, inside the trans
 | `link` | A generation and the hash of its link's payload, before that rotation's `revoked` entries | `ApplyRotation` |
 | `deleted` | The account is deleted, and its username is free | `DeleteAccount` |
 
+A device's own `certificate` and `seal` entries are the only ones it can append whenever it likes, so each device may publish each at most 60 times at once and then once every 30 seconds, twice what following its account's rotations at their limit takes (`sealKeyLimiter`, `certificateLimiter`), and the one the log already has for it, sent again, is answered and appends nothing.
+
 Bodies carry hashes of certificates and links, not the things themselves. Those go on travelling as they do now, in `GET /api/users`, in MLS leaves and from `GET /api/users/{id}/identity-links`, and are held to the hash.
 
 Nothing in an entry says when. Other people aren't told when someone's devices were added or removed (`seenByOthers` in `api/users.go`), and the log keeps to that. It does give the order of changes, which someone who's always connected sees already.

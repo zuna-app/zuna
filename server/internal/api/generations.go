@@ -353,8 +353,18 @@ func (s *Server) handleSealKey(w http.ResponseWriter, r *http.Request, sess *sto
 		writeError(w, http.StatusBadRequest, "bad_request", "That key isn't valid.")
 		return
 	}
-	if err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, *body.SealGeneration, body.SealProof); err != nil {
+	if !s.sealKeyLimiter.Allow(sess.DeviceID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes at once. Please wait a moment.")
+		return
+	}
+	changed, err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, *body.SealGeneration, body.SealProof)
+	if err != nil {
 		writeFailure(w, err)
+		return
+	}
+	// The one the log has already, sent again, changes nothing, and nobody is told of it.
+	if !changed {
+		writeOK(w)
 		return
 	}
 	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "account"})
@@ -376,11 +386,18 @@ func (s *Server) handleCertificate(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusBadRequest, "bad_request", "That certificate isn't valid.")
 		return
 	}
-	if err := s.db.SetDeviceCertificate(r.Context(), sess.UserID, sess.DeviceID, body.Certificate); err != nil {
+	if !s.certificateLimiter.Allow(sess.DeviceID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes at once. Please wait a moment.")
+		return
+	}
+	changed, err := s.db.SetDeviceCertificate(r.Context(), sess.UserID, sess.DeviceID, body.Certificate)
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	s.broadcastUser(r, sess.UserID)
+	if changed {
+		s.broadcastUser(r, sess.UserID)
+	}
 	writeOK(w)
 }
 

@@ -146,6 +146,9 @@ type Server struct {
 	rotateLimiter   *ratelimit.Keyed
 	signInFailures  *ratelimit.Backoff
 	accountAttempts *ratelimit.Backoff
+	// Per device: each seal key or certificate it publishes is an entry in the log, which every device reads.
+	sealKeyLimiter     *ratelimit.Keyed
+	certificateLimiter *ratelimit.Keyed
 
 	// How many reports each person sends, and whom they've reported today, kept
 	// in memory alone.
@@ -251,6 +254,10 @@ func New(cfg Config, db *store.DB) *Server {
 		targetLimiter: keyed(rate.Every(2*time.Second), 20),
 		// Each rotation is a link for every contact to follow, so they stay rare.
 		rotateLimiter:   keyed(rate.Every(time.Minute), 30),
+		// A device publishes each once for every rotation of its account it makes or follows, and again
+		// only if the server doesn't have it then, so twice as many as rotations are let through.
+		sealKeyLimiter:     keyed(rate.Every(30*time.Second), 60),
+		certificateLimiter: keyed(rate.Every(30*time.Second), 60),
 		signInFailures:  ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
 		accountAttempts: ratelimit.NewBackoff(accountFreeAttempts, signInFirstWait, accountLongestWait),
 		// Per person in a group. The burst is less than store.UndoableCommits, so that
