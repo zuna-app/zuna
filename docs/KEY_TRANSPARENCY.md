@@ -168,6 +168,7 @@ A device with no pin for someone takes it from their `account` entry. It no long
 - **A device the log says is gone** is revoked for this device whatever `revoked_at` says, alongside the carried rule, which stays. In a tree it's a stale leaf, whether or not the server still lists it, and one of someone else's that the server stops listing is held as unchecked until it says what became of it. A change to any of this, or to who a group lists, makes every tree be checked again before anything else is encrypted, rather than trusting a check from before (`ensureTreeClean`).
 - **A leaf the log doesn't name yet** makes the device read the log to its newest head first. A device has to be registered before it can join anything, so its entry is already there on an honest server.
 - **What a device already counted stays counted** if the log can't be read. Only what's new waits. A server that withholds the log gets no further than one that withholds the list of people.
+- **A device that came with a head counts nothing until the log has held it.** One that joined by an invite link, or signed in, has a head the log has to hold (5.8). Until it has read the log that far, and the root there was the head's, what it read may not be the log the head is of: no key is taken from it, it names no device, no link in it is followed, and nothing it says of anyone is said. All of that is taken at once when the head is held. A first page with other records in it, from a server that then gives no more, gets nobody counted.
 
 ### 5.7 Watching your own account
 
@@ -179,7 +180,7 @@ The entries tagged for this account get the checks a device already makes of wha
 - **Each `link` entry** is one this account's devices made. Anything else is the existing "different history of your account's keys" warning.
 - **A name tag that fits its username** on another account's entry gets a warning that someone was signed up under its name.
 
-A device signing in reads the log before it registers, with records and its own account's bodies open to a session that has no device yet, and holds what it was handed to it: the generation and head link have to be the newest the log has for the account.
+A device signing in reads the log before it registers, with records and its own account's bodies open to a session that has no device yet, and holds what it was handed to it: the generation and head link have to be the newest the log has for the account. The head it read then is one the log has to hold from there on, beside the manifest's (5.8).
 
 ### 5.8 Telling each other
 
@@ -199,12 +200,23 @@ A device given someone's head, signed by the key it pinned:
 - **Bigger:** it reads the log up to that size, then compares.
 - **From an earlier era:** held to what this device read of that era, whose records it keeps (5.10). One from an era it never read is ignored.
 
+A device's first read is held to the heads it came with, of which there can be two: the one its invite link carried, or the one it read as it signed in, and the one its account's manifest carries.
+
+- **Each is checked as the log goes past it,** and the log has to get to the furthest. A page that runs past one with another root is refused whole.
+- **Nothing counts until then** (5.6). When a head turns out not to be held, what the device read on the way is let go, as it was a log the head isn't of, and it starts again: only the log's own tables go, which is all that read wrote.
+- **Two heads of one size with different roots** can't both be held. The device says so at once, and takes no log while it's so.
+- **A log that ends before a link's head** is refused, with the link's warning, and nothing of it is taken. Whoever joins can ask for another link.
+- **A log that ends before the manifest's head, or the one signed in with,** gets that head's warning and is taken as it is: a new device of an account has no other way in to a server restored from a backup, and holds its other devices' key for everyone, which the log is held to. The head stays, for when the log gets there.
+- **The head signed in with is the server's own,** so a log that doesn't hold it gets the warning for a log gone back, not the link's.
+
+A server can't keep the rest of a log back by failing the request. While something it didn't write says there's more than a device holds, one of those heads or one from someone's message, the device asks again some seconds later, and the third refusal gets the warning a log that doesn't hold that head would: the link's, the manifest's, or the one for a log gone back. Not reaching the server at all counts for nothing, and a log that can't be read while nothing says it goes further is only a server that's down.
+
 ### 5.9 When heads disagree
 
 | What a device finds | What it means | What it does |
 |---|---|---|
 | Two roots for one size, both under the log key's signature | The server kept two logs. This is proof | Keeps both signed heads. A `security` event: the server showed different people different records of who holds which keys |
-| The server's log is shorter than a head someone holds, or than this device's own. Or an earlier era, as the server kept it, is shorter than a head someone holds of it (5.10) | The server went back, or is holding entries from this device. For an earlier era that includes its going on for everyone else, with the era after it shown to this device alone | The same event, worded for it. Section 5.10 is the way out for a restored backup |
+| The server's log is shorter than a head someone holds, or than this device's own, or the server refuses three times to give the rest of it (5.8). Or an earlier era, as the server kept it, is shorter than a head someone holds of it (5.10) | The server went back, or is holding entries from this device. For an earlier era that includes its going on for everyone else, with the era after it shown to this device alone | The same event, worded for it. Section 5.10 is the way out for a restored backup |
 | A head signed by another key | Either the server gave someone another log key, or their app made it up | A milder warning that names whose message it was in, as `compareTokenKeys` does. This is the one a member can cause |
 
 None of these erases, blocks or asks anything. What a device holds stays, and what it does next is what it already does when someone's keys are in doubt.
@@ -378,5 +390,6 @@ Where the code goes into more detail than the design above:
 - **Roots before now.** A device keeps the tree's frontier after every 256th record rather than a root after each (`log_records.frontier`), and works out a root from before from the nearest one, which is at most 256 records to hash again. A root after every record would have tripled the hashing of a first read.
 - **Bodies.** A device doesn't keep the bodies, only whether each record's came (`log_records.opened`, which also marks the records of a deleted account that was never there for the device), and what they say of each account, sealed, one row each (`log_accounts`), with the usernames held, by a keyed hash of the name (`log_names`).
 - **Every page is signed.** `GET /api/log` signs the head at the end of each page, not only the newest, so a device checks each page as it comes and keeps none it can't.
-- **A floor.** The head an invite link or the manifest carries is a floor the log has to hold: a page that runs past it with another root is refused whole, as is a log that ends before it, which gets the warning.
+- **A floor.** The furthest head a device has still to reach is its floor (`LogState.floor`), and the others of that era are kept beside it (`marks`), each checked in `takeLogPage` as the log goes past it (`holdTo`). A device that came with one is `unheld` until the floor is reached: records are kept and what they say is worked out, but nothing goes by it (`counted`), and `settleLog` takes it all once the floor is held. A head that isn't held is `refuseHead`'s, which on an unheld device lets go of what was read (`forgetUnheld`). On a device that has read the log before, a head from the manifest that's further than it has read is a floor too, and what it counted before still counts.
+- **A log the server won't give.** `logOwes` says what the server didn't write that shows there's more of the log, and `noteLogRefused` counts the refusals and asks again. A head from a message that the log couldn't be read for is compared once it has been (`compareHeadAhead`).
 - **Timing.** A first read of 100,000 records, checked and hashed, took about half a second in Node, and the same hashing through the iOS host's crypto in JavaScriptCore without a JIT, as on a device, 2.9 seconds (`tests/e2e/test/performance.test.ts`), both on an M-series Mac. That's in the background and once, so hashing stays in the core. QuickJS, the native desktop app's, wasn't timed.

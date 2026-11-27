@@ -72,9 +72,10 @@ export interface AccountState {
   /**
    * The key the server's log of who holds which keys is signed with, and a head that log has to
    * hold, as the invite link this device joined with carried them, or as signing in checked them,
-   * all as base64. A device goes by these, and not by the server's first answer.
+   * all as base64. A device goes by these, and not by the server's first answer. `signedIn` is that
+   * the head is the one signing in checked, which the server gave this device itself.
    */
-  log?: { key: string; era: number; size: number; root: string };
+  log?: { key: string; era: number; size: number; root: string; signedIn?: boolean };
 }
 
 /** A device signed in, and whatever has to happen next, in one go, for it to count. */
@@ -505,7 +506,7 @@ async function checkSignInLog(api: Api, session: LoginResponse): Promise<NonNull
   if (links.length > session.generation) throw new ApiError(409, "stale_generation", unfit.message);
   if (links.length !== session.generation) throw unfit;
   if (session.generation > 0 && !equalBytes(links.at(-1)!, hash(decode(session.head_link?.payload)))) throw unfit;
-  return keptHead({ key, era, size: frontier.size, root: frontier.root() });
+  return { ...keptHead({ key, era, size: frontier.size, root: frontier.root() }), signedIn: true };
 }
 
 /**

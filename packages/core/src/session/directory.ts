@@ -48,8 +48,22 @@ const HEAD_IN_MANIFEST_MS = 24 * 3600 * 1000;
 /** A record of an account the log says is deleted, which was never there for this device (`log_records.opened`). */
 const GONE = 2;
 
+/** How many heads the log has still to hold are kept beside the furthest of them. */
+const MARKS_KEPT = 8;
+
 const LOG_STATE = "log";
 const HEADS_SENT = "log_sent";
+
+/** Where a head the log has to hold came from: the invite link, the account's other devices, or what signing in checked. */
+type HeadFrom = "link" | "manifest" | "signin";
+
+/** A head the log has to hold, which the server didn't choose once this device had it. */
+interface Floor {
+  era: number;
+  size: number;
+  root: string;
+  from: HeadFrom;
+}
 
 /** What this device holds of the log, sealed in kv. */
 interface LogState {
@@ -65,15 +79,26 @@ interface LogState {
   quietBelow: number;
   /** This account's devices as the log named them before it was last written again: any other in it since is asked about. */
   ownBefore?: string[];
-  /** A head the log has to hold, from the invite link or the manifest, until it's been read that far. */
-  floor: { era: number; size: number; root: string; from: "link" | "manifest" } | null;
+  /**
+   * A head the log has to hold, from the invite link, the manifest or signing in, until it's been
+   * read that far: the furthest of those this device has, in the earliest era it has one of.
+   */
+  floor: Floor | null;
+  /** The others of the floor's era, each short of it, or of its size with another root: held on the way to it, as it is. */
+  marks?: Floor[];
   /**
    * The head a device signed in with, of the server's own era, when its manifest's is of an era
    * before: that era is read first, held to the manifest's, and then the server's, held to this.
    */
-  floorAfter?: { era: number; size: number; root: string; from: "link" | "manifest" };
+  floorAfter?: Floor;
+  /**
+   * This device came with a head the log has to hold, and hasn't read the log to it yet. Until it
+   * has, and the log held it, nothing the log says counts: no key is taken from it, no device it
+   * names is named, and nothing it says of anyone is said (`counted`, `settleLog`).
+   */
+  unheld?: boolean;
   /** The head the log last held, of those. */
-  held?: { era: number; size: number; from: "link" | "manifest" };
+  held?: { era: number; size: number; from: HeadFrom };
   /** The era held was read only to hold that head to, before the server's own later one, which hasn't begun yet (`readEraOfFloor`). */
   heldOnly?: boolean;
   /**
@@ -82,7 +107,7 @@ interface LogState {
    * whose first key is still owed from it, and `checked` whether everyone it named was looked for
    * in the era read after it.
    */
-  kept?: { era: number; from: "link" | "manifest"; owed: string[]; checked: boolean };
+  kept?: { era: number; from: HeadFrom; owed: string[]; checked: boolean };
   /**
    * The eras before this one that this device read, each as far as it holds it: its records are
    * kept (`log_past`), with the tree's frontier and the last signed head they came to, for a head
@@ -119,6 +144,8 @@ export interface LoggedAccount {
   devices: Record<string, LoggedDevice>;
   /** Each generation's link, by the hash of its payload. */
   links: Record<string, string>;
+  /** A second link for a generation, with another hash. */
+  forked?: boolean;
 }
 
 export interface LoggedDevice {
@@ -140,6 +167,8 @@ const WARNINGS = {
   back: mark("security.logBack"),
   link: mark("security.logLink"),
   manifest: mark("security.logManifest"),
+  // The head a device signed in with is one the server gave it: a log that doesn't hold it went back.
+  signin: mark("security.logBack"),
   serverKey: mark("security.logServerKey"),
   unfit: mark("security.logUnfit"),
   odd: mark("security.logOdd"),
@@ -193,9 +222,19 @@ export abstract class SessionDirectory extends SessionChains {
   /** Eras before this one whose rest is being read, and how many times the server refused each. */
   protected pastReading = new Map<number, Promise<void>>();
   protected pastRefused = new Map<number, number>();
-  /** How many times the server refused the era a link's or manifest's head is of, and the next try, while one waits. */
-  protected floorRefused = 0;
-  protected floorRetry: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * How many times the server refused to give the log while something it didn't write said there
+   * was more of it than this device holds (`logOwes`), and the next try, while one waits.
+   */
+  protected logRefused = 0;
+  protected logRetry: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The furthest head someone signed that's past what this device holds, while it is. `failed` is
+   * that the log couldn't be read to compare it, so it's compared once the log has been.
+   */
+  protected headAhead: { wire: WireHead; era: number; size: number; from: string; failed: boolean } | null = null;
+  /** The era a link's or manifest's head is of is being read, before the server's own: what it says is taken once it's all held. */
+  protected floorEraReading = false;
 
   protected logState(): LogState {
     if (!this.logLoaded) {
@@ -205,7 +244,10 @@ export abstract class SessionDirectory extends SessionChains {
         // What the device signed in or joined with: the key, and a head the log has to hold.
         const pinned = this.account.log;
         this.logLoaded.key = pinned.key;
-        if (pinned.size > 0) this.logLoaded.floor = { era: pinned.era, size: pinned.size, root: pinned.root, from: "link" };
+        if (pinned.size > 0) {
+          this.logLoaded.floor = { era: pinned.era, size: pinned.size, root: pinned.root, from: pinned.signedIn ? "signin" : "link" };
+          this.logLoaded.unheld = true;
+        }
       }
     }
     return this.logLoaded;
@@ -233,7 +275,7 @@ export abstract class SessionDirectory extends SessionChains {
   /** Whether this device has read the log as far as the server says it goes, so that what isn't in it isn't there. */
   protected logCurrent(): boolean {
     const state = this.logState();
-    if (!this.logRead || !state.key) return false;
+    if (!this.logRead || !state.key || state.unheld) return false;
     const announced = this.logAnnounced;
     return !announced || announced.era < state.era || (announced.era === state.era && announced.size <= state.frontier.size);
   }
@@ -265,6 +307,7 @@ export abstract class SessionDirectory extends SessionChains {
         this.logReading = null;
       }
       await this.refreshLogTouched();
+      this.compareHeadAhead();
     })();
     this.logReading = entry;
     return entry.done;
@@ -276,7 +319,13 @@ export abstract class SessionDirectory extends SessionChains {
     let read = false;
     for (;;) {
       const state = this.logState();
-      const page = await this.api.log(state.era, state.frontier.size, LOG_PAGE);
+      let page: Awaited<ReturnType<typeof this.api.log>>;
+      try {
+        page = await this.api.log(state.era, state.frontier.size, LOG_PAGE);
+      } catch (error) {
+        this.noteLogRefused(error);
+        throw error;
+      }
       const head: LogHead = { era: page.head.era, size: page.head.size, root: decode(page.head.root), sig: decode(page.head.sig) };
       if (head.era !== page.era || !headSigned(key, head)) {
         this.logRead = false;
@@ -285,6 +334,12 @@ export abstract class SessionDirectory extends SessionChains {
       if (page.era < state.era || (page.era === state.era && page.size < state.frontier.size)) {
         this.logRead = false;
         return this.warnOnce(`log/back/${page.era}/${page.size}`, t(WARNINGS.back));
+      }
+      // The server moved on to a later era before this device got to the head it has to hold in the
+      // one it was reading: what it read of that counts for nothing, and it starts again from there.
+      if (state.unheld && state.era > 0 && page.era > state.era) {
+        this.forgetUnheld();
+        continue;
       }
       // A device that has read nothing yet holds the log to the head its link or manifest carried.
       // One of an era before that head's is refused, and one of a later era is taken only once the
@@ -296,10 +351,13 @@ export abstract class SessionDirectory extends SessionChains {
         // A link's head that can't be held stops here, and whoever joins can ask for another link. A
         // new device of an account has no other way in, and has its other devices' key for everyone
         // from the manifest, which the server's era is held to as it is: it's told, and reads on.
-        if (from !== "manifest" || era > page.era) return;
+        if (from === "link" || era > page.era) return;
         const now = this.logState();
         now.floor = now.floorAfter ?? null;
         delete now.floorAfter;
+        delete now.marks;
+        // With no head left to hold the log to, it's taken as any device's first read is.
+        if (!now.floor) delete now.unheld;
         this.saveLogState();
         continue;
       }
@@ -319,6 +377,7 @@ export abstract class SessionDirectory extends SessionChains {
     }
     this.logRead = true;
     this.logReadAt = Date.now();
+    this.logRefused = 0;
     // Once a session too, as nothing remembers which accounts had records come without their bodies.
     if (read || !this.withheldLooked) {
       this.withheldLooked = true;
@@ -370,6 +429,8 @@ export abstract class SessionDirectory extends SessionChains {
     this.keptRecords = null;
     // What the log says of a device decides whose leaves are stale, so every tree is checked again.
     this.cleanEpochs.clear();
+    const floor = [state.floor, state.floorAfter].find((head) => head && head.era === era) ?? null;
+    const marks = floor && floor === state.floor ? state.marks : undefined;
     this.logLoaded = {
       ...state,
       era,
@@ -379,8 +440,11 @@ export abstract class SessionDirectory extends SessionChains {
       // What a log written again says of this account's devices isn't news.
       quietBelow: first ? 0 : size,
       ownBefore,
-      floor: [state.floor, state.floorAfter].find((floor) => floor && floor.era === era) ?? null,
+      floor,
+      marks: marks?.length ? marks : undefined,
       floorAfter: state.floorAfter && state.floorAfter.era > era ? state.floorAfter : undefined,
+      // An era with no head to hold it to is taken as it comes.
+      unheld: state.unheld && floor ? true : undefined,
       heldOnly: undefined,
       kept: keep ?? state.kept,
       past,
@@ -405,6 +469,7 @@ export abstract class SessionDirectory extends SessionChains {
     const before = this.logState();
     const floor = before.floor!;
     let read = false;
+    this.floorEraReading = true;
     try {
       this.startLogEra(floor.era, 0);
       for (;;) {
@@ -419,33 +484,66 @@ export abstract class SessionDirectory extends SessionChains {
       // A head the log went past is let go once it's held (`takeLogPage`): one still there wasn't reached.
       read = this.logState().floor === null;
       if (read) {
-        this.logState().heldOnly = true;
-        this.saveLogState();
+        // All of that era held, what it says is taken: each account's first key, as any device that read it then took it.
+        this.db.transaction(() => {
+          this.settleLog();
+          this.logState().heldOnly = true;
+          this.saveLogState();
+        });
       }
-      this.floorRefused = 0;
+      this.logRefused = 0;
       return read;
     } catch (error) {
-      this.noteFloorFailed(floor.from, error);
+      this.noteLogRefused(error);
       throw error;
     } finally {
+      this.floorEraReading = false;
       if (!read) this.backToNothingRead(before);
     }
   }
 
   /**
-   * Reading the era a link's or manifest's head is of failed. It's tried again, and a server that
-   * answered with a refusal three times, some seconds apart, has kept it from this device.
+   * What says there's more of the log than this device holds, which the server didn't write, or
+   * can't take back: a head the log has to hold, from the device's link, its account's other devices
+   * or signing in, or one someone signed in a message. Null when nothing does.
    */
-  protected noteFloorFailed(from: "link" | "manifest", error: unknown): void {
-    if (this.stopped || this.floorRetry || (error instanceof ApiError && error.status === 401)) return;
+  protected logOwes(): { key: string; text: string } | null {
+    const state = this.logState();
+    if (state.floor) return { key: `log/floor/${state.floor.from}`, text: t(WARNINGS[state.floor.from]) };
+    const ahead = this.headAhead;
+    if (ahead && (ahead.era > state.era || (ahead.era === state.era && ahead.size > state.frontier.size))) return { key: `log/back/${ahead.era}/${ahead.size}`, text: t(WARNINGS.back) };
+    return null;
+  }
+
+  /**
+   * Reading the log failed. While something says there's more of it than this device holds, a
+   * server can't keep the rest back by failing the request: it's asked again, and one that answered
+   * with a refusal three times, some seconds apart, is keeping it from this device, which says so
+   * with the warning for a log that doesn't hold that head. A log that can't be read while nothing
+   * says it goes further is only a server that's down.
+   */
+  protected noteLogRefused(error: unknown): void {
+    if (this.stopped || this.logRetry || (error instanceof ApiError && error.status === 401)) return;
+    const owed = this.logOwes();
+    if (!owed) return;
     // Not being able to reach the server at all says nothing of it.
-    if (error instanceof ApiError && error.status !== 0) this.floorRefused++;
-    if (this.floorRefused >= BODIES_TRIES) this.warnOnce(`log/floor/${from}`, t(WARNINGS[from]));
-    this.floorRetry = setTimeout(() => {
-      this.floorRetry = null;
+    if (error instanceof ApiError && error.status !== 0) this.logRefused++;
+    if (this.logRefused >= BODIES_TRIES) this.warnOnce(owed.key, owed.text);
+    this.logRetry = setTimeout(() => {
+      this.logRetry = null;
       if (!this.stopped) void this.syncLog().catch((failure) => console.warn("[zuna] reading the log of keys", failure));
-    }, Math.min(BODIES_RETRY_MS * 2 ** Math.max(this.floorRefused - 1, 0), BODIES_RETRY_MAX_MS));
-    (this.floorRetry as { unref?: () => void }).unref?.();
+    }, Math.min(BODIES_RETRY_MS * 2 ** Math.max(this.logRefused - 1, 0), BODIES_RETRY_MAX_MS));
+    (this.logRetry as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * What this device read of the log, before the log held the head the device came with, is let go:
+   * it's back to having read nothing, with the heads it has to hold as they are. Only what that read
+   * wrote goes, which is the log's own tables, as nothing was taken from it (`settleLog`).
+   */
+  protected forgetUnheld(): void {
+    const state = this.logState();
+    this.backToNothingRead({ ...state, era: 0, frontier: { size: 0, roots: [] }, head: null, own: null, quietBelow: 0, ownBefore: undefined, held: undefined, heldOnly: undefined });
   }
 
   /** Puts this device back to having read none of the log, as it was before `readEraOfFloor`. */
@@ -473,6 +571,8 @@ export abstract class SessionDirectory extends SessionChains {
     const state = this.logState();
     const frontier = this.logFrontier();
     const floor = state.floor && state.floor.era === state.era ? state.floor : null;
+    // Every head this log has to hold, the floor and those short of it, by where it's checked.
+    const heads = floor ? [floor, ...(state.marks ?? [])] : [];
     const rows: { idx: number; record: Uint8Array; checkpoint: Uint8Array | null; body: LogBody | null }[] = [];
     for (const wire of records) {
       const record = decode(wire.record);
@@ -490,14 +590,22 @@ export abstract class SessionDirectory extends SessionChains {
       }
       frontier.append(leafHash(record));
       // A head this log has to hold is checked on the way past it.
-      if (floor && frontier.size === floor.size && !equalBytes(frontier.root(), fromBase64(floor.root))) return this.refuseLog(floor.from);
+      const broken = heads.find((held) => held.size === frontier.size && !equalBytes(frontier.root(), fromBase64(held.root)));
+      if (broken) return this.refuseHead(broken);
       const checkpoint = frontier.size % LOG_CHECKPOINT === 0 ? concat(...frontier.roots) : null;
       rows.push({ idx: wire.idx, record, checkpoint, body });
     }
     if (frontier.size !== head.size || !equalBytes(frontier.root(), head.root)) return this.refuseLog();
-    if (floor && size < floor.size && frontier.size >= size) {
-      this.logRead = false;
-      this.warnOnce(`log/floor/${floor.size}`, t(WARNINGS[floor.from]));
+    // The log ends before a head it has to hold.
+    const beyond = frontier.size >= size ? heads.filter((held) => held.size > size) : [];
+    if (beyond.length > 0) {
+      // Before the head a link carried, nothing of it is taken: a log that's shorter than the one the
+      // inviter read isn't that log, and whoever joins can ask for another link.
+      if (state.unheld && beyond.some((held) => held.from === "link")) return this.refuseLog("link");
+      // A new device of an account has no other way in, and a server restored from a backup is
+      // shorter than its other devices saw: it's told, and takes the log as it is, held to the keys
+      // they kept for everyone. The head stays, for when the log gets there.
+      this.warnOnce(`log/floor/${floor!.from}`, t(WARNINGS[floor!.from]));
     }
     this.db.transaction(() => {
       for (const row of rows) {
@@ -510,33 +618,94 @@ export abstract class SessionDirectory extends SessionChains {
       state.head = toWireHead(head);
       if (floor && frontier.size >= floor.size) {
         state.floor = null;
+        delete state.marks;
         state.held = { era: floor.era, size: floor.size, from: floor.from };
+      } else if (state.marks) {
+        // Those it went past are held.
+        const left = state.marks.filter((held) => held.size > frontier.size);
+        if (left.length > 0) state.marks = left;
+        else delete state.marks;
       }
+      // What the log says counts from where it held the head this device came with, or from where
+      // it ended short of one that isn't a link's. An era read only to hold a head to is taken whole (`readEraOfFloor`).
+      if ((state.floor === null || beyond.length > 0) && !this.floorEraReading) this.settleLog();
       this.saveLogState();
     });
     this.askForOwed();
     return true;
   }
 
-  protected refuseLog(from?: "link" | "manifest"): false {
+  protected refuseLog(from?: HeadFrom): false {
     this.logRead = false;
     this.warnOnce(from ? `log/floor/${from}` : "log/unfit", t(from ? WARNINGS[from] : WARNINGS.unfit));
     return false;
   }
 
-  /** A head this log has to hold that it's already past: the root it had then has to be the head's. */
+  /**
+   * The log doesn't hold a head it has to: at that size its root is another. Nothing of the page is
+   * taken, and on a device that hadn't got to the head it came with, what it read on the way there
+   * goes too, as that was a log the head isn't of: it starts again, should the server give the one it is.
+   */
+  protected refuseHead(head: Floor): false {
+    if (this.logState().unheld) this.forgetUnheld();
+    return this.refuseLog(head.from);
+  }
+
+  /** Heads this log has to hold that it's already past: the root it had then has to be each one's. */
   protected checkFloor(): void {
     const state = this.logState();
     const floor = state.floor;
-    if (!floor || floor.era !== state.era || floor.size > state.frontier.size) return;
-    state.floor = null;
-    if (equalBytes(this.rootAt(floor.size), fromBase64(floor.root))) {
-      state.held = { era: floor.era, size: floor.size, from: floor.from };
-    } else {
-      this.logRead = false;
-      this.warnOnce(`log/floor/${floor.from}`, t(WARNINGS[floor.from]));
+    if (!floor || floor.era !== state.era) return;
+    const past = [floor, ...(state.marks ?? [])].filter((held) => held.size <= state.frontier.size);
+    if (past.length === 0) return;
+    const broken = past.find((held) => !equalBytes(this.rootAt(held.size), fromBase64(held.root)));
+    if (broken && state.unheld) return void this.refuseHead(broken);
+    this.db.transaction(() => {
+      const left = (state.marks ?? []).filter((held) => !past.includes(held));
+      if (left.length > 0) state.marks = left;
+      else delete state.marks;
+      if (past.includes(floor)) {
+        // The furthest of them, so there are none left.
+        state.floor = null;
+        delete state.marks;
+        if (!broken) state.held = { era: floor.era, size: floor.size, from: floor.from };
+        this.settleLog();
+      }
+      this.saveLogState();
+    });
+    if (broken) this.refuseLog(broken.from);
+  }
+
+  /**
+   * The log held the head this device came with, so what it says counts from here, and what it
+   * said on the way is taken now: each account's first key, for a device with none for it, a key
+   * that isn't the one held, the links it names, and any device of this account after this one's
+   * own entry. While it hadn't, none of that was (`applyLogEntry`).
+   */
+  protected settleLog(): void {
+    const state = this.logState();
+    if (!state.unheld) return;
+    delete state.unheld;
+    const self = this.account.userId;
+    for (const row of this.db.all<{ user_id: string }>("SELECT user_id FROM log_accounts")) {
+      const userId = row.user_id;
+      const account = this.loggedAccount(userId);
+      if (!account) continue;
+      if (userId !== self) {
+        if (account.twice) this.noteLoggedRootChanged(userId);
+        else if (account.account && !account.void && !account.owed) this.takeLoggedRoot(userId, fromBase64(account.account.root));
+      } else if (state.own !== null) {
+        for (const [deviceId, device] of Object.entries(account.devices)) {
+          if (device.idx > state.own && device.revoked === undefined) this.noteNewDevice(deviceId);
+        }
+      }
+      for (const [generation, hash] of Object.entries(account.links)) this.noteLoggedLink(userId, Number(generation), fromBase64(hash));
+      if (account.forked) this.noteLoggedFork(userId);
+      this.logTouched.add(userId);
+      this.logBumps.set(userId, (this.logBumps.get(userId) ?? 0) + 1);
     }
-    this.saveLogState();
+    this.standingCache.clear();
+    this.cleanEpochs.clear();
   }
 
   /**
@@ -779,7 +948,7 @@ export abstract class SessionDirectory extends SessionChains {
         }
         for (const place of said.places) this.db.run("DELETE FROM log_kept_records WHERE idx = ?", [place.idx]);
         this.keptRecords = null;
-      } else if (account?.account && !account.void) {
+      } else if (account?.account && !account.void && !state.unheld) {
         this.takeLoggedRoot(userId, fromBase64(account.account.root));
       }
       if (account?.owed) {
@@ -826,6 +995,9 @@ export abstract class SessionDirectory extends SessionChains {
     const state = this.logState();
     const account = this.loggedAccount(body.user) ?? { account: null, devices: {}, links: {} };
     const odd = () => this.warnOnce("log/odd", t(WARNINGS.odd));
+    // Before the log has held the head this device came with, what it says is kept and nothing is
+    // done about it: no key taken, nobody's key said to have changed, nothing asked (`settleLog`).
+    const counts = !state.unheld;
     this.loggedAccounts.set(body.user, account);
     this.unsavedAccounts.add(body.user);
     this.logTouched.add(body.user);
@@ -835,7 +1007,7 @@ export abstract class SessionDirectory extends SessionChains {
       case "account": {
         if (account.account) {
           account.twice = true;
-          this.noteLoggedRootChanged(body.user);
+          if (counts) this.noteLoggedRootChanged(body.user);
           break;
         }
         // An account doesn't begin once the log has said it's gone.
@@ -872,7 +1044,7 @@ export abstract class SessionDirectory extends SessionChains {
           // So did this era, before this entry, which isn't the account's first then. Its key is taken
           // once all of them have come, in their order (`askForBodies`), and nothing of it counts until then.
           account.owed = true;
-        } else {
+        } else if (counts) {
           this.takeLoggedRoot(body.user, body.root);
         }
         break;
@@ -887,6 +1059,8 @@ export abstract class SessionDirectory extends SessionChains {
         if (body.device === this.account.deviceId) {
           state.own = idx;
           if (!equalBytes(body.key, this.account.devicePublic)) this.warnOnce("log/own-device", t(WARNINGS.ownHistory), self);
+        } else if (!counts) {
+          // Asked about once the log has held that head, if it's still there then.
         } else if (state.ownBefore && idx < state.quietBelow ? !state.ownBefore.includes(body.device) : state.own !== null && idx > state.own && idx >= state.quietBelow) {
           // From the entry, so the server can't leave a new device of this account unsaid.
           this.noteNewDevice(body.device);
@@ -920,7 +1094,10 @@ export abstract class SessionDirectory extends SessionChains {
         const hash = toBase64(body.link);
         const held = account.links[body.gen];
         if (held) {
-          if (held !== hash) this.noteLoggedFork(body.user);
+          if (held !== hash) {
+            account.forked = true;
+            if (counts) this.noteLoggedFork(body.user);
+          }
           break;
         }
         if (body.gen !== Object.keys(account.links).length + 1) {
@@ -928,7 +1105,7 @@ export abstract class SessionDirectory extends SessionChains {
           break;
         }
         account.links[body.gen] = hash;
-        this.noteLoggedLink(body.user, body.gen, body.link);
+        if (counts) this.noteLoggedLink(body.user, body.gen, body.link);
         break;
       }
       case "deleted": {
@@ -1194,9 +1371,17 @@ export abstract class SessionDirectory extends SessionChains {
 
   // --- What the log says, for the checks that go by it ---
 
+  /**
+   * What the log says of an account, for anything that goes by it. Nothing, on a device that hasn't
+   * read the log to the head it came with: what it read on the way may not be the log that head is of.
+   */
+  protected counted(userId: string): LoggedAccount | null {
+    return this.logState().unheld ? null : this.loggedAccount(userId);
+  }
+
   /** Whether the log names a device of an account, with this signing key and a certificate of this hash. */
   protected logStanding(userId: string, deviceId: string, key: Uint8Array, certificate: Uint8Array): LogStanding {
-    const account = this.loggedAccount(userId);
+    const account = this.counted(userId);
     // Nothing of an account counts while its first key is owed from the era before.
     if (account?.owed && !this.pinnedIdentity(userId)) return "unknown";
     const device = account?.devices[deviceId];
@@ -1209,7 +1394,8 @@ export abstract class SessionDirectory extends SessionChains {
 
   /** What changes when the log changes, for certificateStanding's answers to be worked out again. */
   protected logVersion(userId: string): string {
-    return `${this.logCurrent() ? 1 : 0}:${this.logState().era}:${this.logBumps.get(userId) ?? 0}`;
+    const state = this.logState();
+    return `${this.logCurrent() ? 1 : 0}:${state.unheld ? 0 : 1}:${state.era}:${this.logBumps.get(userId) ?? 0}`;
   }
 
   /**
@@ -1222,33 +1408,34 @@ export abstract class SessionDirectory extends SessionChains {
 
   /** The newest generation the log has a link for, for an account. */
   protected loggedGeneration(userId: string): number {
-    return Object.keys(this.loggedAccount(userId)?.links ?? {}).length;
+    return Object.keys(this.counted(userId)?.links ?? {}).length;
   }
 
   /** The hash of a generation's link, as the log has it. */
   protected loggedLink(userId: string, generation: number): Uint8Array | null {
-    const hash = this.loggedAccount(userId)?.links[generation];
+    const hash = this.counted(userId)?.links[generation];
     return hash ? fromBase64(hash) : null;
   }
 
   /**
    * The key an account began with, as the log says, for a device with none for it to go by: not that
-   * of an account made under a name another held, nor one this era gives where an earlier era's is owed.
+   * of an account made under a name another held, nor one this era gives where an earlier era's is
+   * owed, nor any before the log has held the head this device came with.
    */
   protected loggedRoot(userId: string): Uint8Array | null {
-    const account = this.loggedAccount(userId);
+    const account = this.counted(userId);
     const root = account && !account.void && !account.owed ? account.account?.root : null;
     return root ? fromBase64(root) : null;
   }
 
   /** Whether what the log says of an account can't be gone by yet: entries about it came without their bodies, in this era or the one before. */
   protected keptBack(userId: string): boolean {
-    return this.withheldUsers.has(userId) || (this.loggedAccount(userId)?.owed === true && !this.pinnedIdentity(userId));
+    return this.withheldUsers.has(userId) || (this.counted(userId)?.owed === true && !this.pinnedIdentity(userId));
   }
 
   /** Whether the log says something about an account's first key that doesn't fit: a second account entry, or one that isn't its pin. */
   protected loggedRootDisagrees(userId: string): boolean {
-    const account = this.loggedAccount(userId);
+    const account = this.counted(userId);
     if (!account?.account) return false;
     if (account.twice) return true;
     const pinned = this.pinnedIdentity(userId);
@@ -1257,7 +1444,7 @@ export abstract class SessionDirectory extends SessionChains {
 
   /** Whether an account was made under a name another held, which makes it count for nothing. */
   protected loggedVoid(userId: string): boolean {
-    return this.loggedAccount(userId)?.void === true;
+    return this.counted(userId)?.void === true;
   }
 
   /**
@@ -1265,7 +1452,7 @@ export abstract class SessionDirectory extends SessionChains {
    * log has for it. Null when the server offers one the log doesn't have, or an older one.
    */
   protected loggedSealKey(device: ApiDevice, seal: Uint8Array, generation: number): "newest" | "older" | "unlogged" | "unknown" {
-    const logged = this.loggedAccount(this.account.userId)?.devices[device.id];
+    const logged = this.counted(this.account.userId)?.devices[device.id];
     if (!logged) return this.logCurrent() ? "unlogged" : "unknown";
     const offered = toBase64(sealHash(seal, generation, decode(device.seal_proof)));
     // The same key registered again is still the newest.
@@ -1389,26 +1576,59 @@ export abstract class SessionDirectory extends SessionChains {
       const head = { era: log.era, size: log.size, root: fromBase64(log.root) };
       return void this.comparePast(head, null, this.account.userId).catch((error) => console.warn("[zuna] comparing a head of the log of keys", error));
     }
+    const head: Floor = { era: log.era, size: log.size, root: log.root, from: "manifest" };
     if (log.era > state.era || log.size > state.frontier.size) {
-      const floor = { era: log.era, size: log.size, root: log.root, from: "manifest" as const };
-      const held = state.floor;
-      if (!held || held.era < log.era || (held.era === log.era && held.size < log.size)) {
-        state.floor = floor;
-        this.saveLogState();
-      } else if (held.era > log.era && state.era === 0) {
-        // The head this device signed in with is of a later era than the one its other devices
-        // held: that era is read first, to their head, and the later one held to it (`readEraOfFloor`).
-        state.floor = floor;
-        state.floorAfter = held;
-        this.saveLogState();
-      }
+      this.holdTo(head);
       if (state.era > 0) void this.syncLog().catch((error) => console.warn("[zuna] reading the log of keys", error));
       return;
     }
     if (!equalBytes(this.rootAt(log.size), fromBase64(log.root))) {
+      // On a device that hadn't got to the head it came with, what it read isn't the log its other
+      // devices saw: it goes, and whatever is read next is held to their head on the way.
+      if (state.unheld) {
+        this.forgetUnheld();
+        this.holdTo(head);
+      }
       this.logRead = false;
       this.warnOnce("log/floor/manifest", t(WARNINGS.manifest), this.account.userId);
     }
+  }
+
+  /**
+   * A head the log has to hold, further than this device has read: it's kept with those the device
+   * is still to reach, each checked as the log goes past it (`takeLogPage`). The furthest of them
+   * is the floor, which the log has to get to. Two of one size with different roots can't both be
+   * held: that's said at once, and no log is taken while it's so.
+   */
+  protected holdTo(head: Floor): void {
+    const state = this.logState();
+    const floor = state.floor;
+    if (!floor || floor.era < head.era) {
+      state.floor = head;
+      delete state.marks;
+    } else if (floor.era > head.era) {
+      // The head this device signed in with is of a later era than the one its other devices
+      // held: that era is read first, to their head, and the later one held to it (`readEraOfFloor`).
+      if (state.era !== 0 || state.floorAfter) return;
+      state.floor = head;
+      state.floorAfter = floor;
+      delete state.marks;
+    } else {
+      const others = [floor, ...(state.marks ?? [])];
+      if (others.some((held) => held.size === head.size && held.root === head.root)) return;
+      if (others.some((held) => held.size === head.size)) {
+        this.logRead = false;
+        this.warnOnce(`log/floor/${head.from}`, t(WARNINGS[head.from]), this.account.userId);
+      }
+      const marks = head.size > floor.size ? [...(state.marks ?? []), floor] : [...(state.marks ?? []), head];
+      if (head.size > floor.size) state.floor = head;
+      // Only the manifest brings more than one, and its older heads go first: never a link's, or the one signed in with.
+      while (marks.length > MARKS_KEPT) marks.splice(Math.max(marks.findIndex((held) => held.from === "manifest"), 0), 1);
+      state.marks = marks;
+    }
+    // Nothing read yet, so nothing counted before: what's read on the way to it counts once it's held.
+    if (state.era === 0) state.unheld = true;
+    this.saveLogState();
   }
 
   /**
@@ -1434,7 +1654,20 @@ export abstract class SessionDirectory extends SessionChains {
     let state = this.logState();
     if (head.era < state.era) return this.comparePast(head, wire, from).catch((error) => this.headNotCompared(seen, error));
     if (head.era > state.era || head.size > state.frontier.size) {
-      await this.syncLog();
+      // Their head says the log goes further than this device holds, which a server that then
+      // won't give the rest can't unsay (`noteLogRefused`).
+      const ahead = this.headAhead;
+      const mine = ahead && (ahead.era > head.era || (ahead.era === head.era && ahead.size >= head.size)) ? ahead : { wire, era: head.era, size: head.size, from, failed: false };
+      this.headAhead = mine;
+      try {
+        await this.syncLog();
+      } catch (error) {
+        // Compared when it next comes, or once the log can be read.
+        this.headsCompared.delete(seen);
+        mine.failed = true;
+        throw error;
+      }
+      if (this.headAhead === mine && mine.era === head.era && mine.size === head.size) this.headAhead = null;
       state = this.logState();
       if (head.era < state.era) return this.comparePast(head, wire, from).catch((error) => this.headNotCompared(seen, error));
       if (head.era > state.era || head.size > state.frontier.size) return this.warnOnce(`log/back/${head.era}/${head.size}`, t(WARNINGS.back));
@@ -1448,6 +1681,14 @@ export abstract class SessionDirectory extends SessionChains {
       this.saveLogState();
     }
     this.warnOnce("log/proof", t(WARNINGS.proof), from);
+  }
+
+  /** The log was read: a head someone signed that it couldn't be read for before is compared now. */
+  protected compareHeadAhead(): void {
+    const ahead = this.headAhead;
+    if (!ahead?.failed || !this.logRead || this.stopped) return;
+    this.headAhead = null;
+    void this.compareHead(ahead.wire, ahead.from).catch((error) => console.warn("[zuna] comparing a head of the log of keys", error));
   }
 
   /** A head couldn't be compared, as the server couldn't be asked: it's compared when it next comes. */

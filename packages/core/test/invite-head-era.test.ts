@@ -172,8 +172,8 @@ async function newcomerGiven(mode: Mode) {
   if (how.refused) {
     // Asked again some seconds apart, which the test doesn't wait out, and told at the third refusal.
     await waitFor(async () => {
-      clearTimeout(session.floorRetry);
-      session.floorRetry = null;
+      clearTimeout(session.logRetry);
+      session.logRetry = null;
       await session.syncLog().catch(() => undefined);
       return securityEvents(frank).length > 0;
     }, "frank to be told the link's era is kept from him");
