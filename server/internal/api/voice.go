@@ -215,6 +215,7 @@ func (s *Server) liveKitProxy() http.Handler {
 			// these are the others LiveKit reads an address from.
 			request.Out.Header.Del("CF-Connecting-IP")
 			request.Out.Header.Del("X-Real-IP")
+			passOnToken(request)
 		},
 		// The middleware already said who may call, and saying it twice means nobody may.
 		ModifyResponse: func(response *http.Response) error {
@@ -231,13 +232,15 @@ func (s *Server) liveKitProxy() http.Handler {
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if admitted, err := s.mayEnter(r); err != nil {
+		token, admitted, err := s.mayEnter(r)
+		if err != nil {
 			writeFailure(w, err)
 			return
 		} else if !admitted {
 			writeFailure(w, store.ErrForbidden)
 			return
 		}
+		r = r.WithContext(context.WithValue(r.Context(), enteringWith{}, token))
 		// A socket here lasts as long as the call, far longer than a request's body may take.
 		controller := http.NewResponseController(w)
 		_ = controller.SetReadDeadline(time.Time{})

@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 
@@ -90,25 +92,68 @@ func (s *Server) admitted(ctx context.Context, identity, room string) (bool, err
 	return s.db.MayBeInRoom(ctx, room, userID, deviceID)
 }
 
-// liveKitTokenOf is the token a request to the media server carries, as LiveKit reads it:
-// from its Authorization header, or else its query's access_token. Every request an app
-// sends LiveKit carries one.
-func liveKitTokenOf(r *http.Request) string {
-	if header := r.Header.Get("Authorization"); header != "" {
-		token, _ := strings.CutPrefix(header, "Bearer ")
-		return token
+// liveKitTokenOf is the one token a request to the media server carries: in its
+// Authorization header, as a bearer's, in its query's access_token, or in both, the same.
+// LiveKit goes by the header and then the query, so a request with two different ones,
+// whichever it would go by, or a header it would refuse, carries none here. Every request an
+// app sends LiveKit carries one, in one of the two.
+func liveKitTokenOf(r *http.Request) (string, bool) {
+	var token string
+	one := func(found string) bool {
+		if found == "" || (token != "" && found != token) {
+			return false
+		}
+		token = found
+		return true
 	}
-	return r.URL.Query().Get("access_token")
+	for _, header := range r.Header.Values("Authorization") {
+		found, bearer := strings.CutPrefix(header, "Bearer ")
+		if !bearer || !one(found) {
+			return "", false
+		}
+	}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return "", false
+	}
+	for _, found := range query["access_token"] {
+		if !one(found) {
+			return "", false
+		}
+	}
+	return token, token != ""
 }
 
 // mayEnter says whether a request on its way to the media server through /livekit/ is let
-// through: only with a token to join a room, for a device the room is for now.
-func (s *Server) mayEnter(r *http.Request) (bool, error) {
-	claims, err := s.readLiveKitToken(liveKitTokenOf(r))
-	if err != nil || !claims.Video.RoomJoin {
-		return false, nil
+// through, and with which token: only one to join a room, for a device the room is for now.
+func (s *Server) mayEnter(r *http.Request) (string, bool, error) {
+	token, ok := liveKitTokenOf(r)
+	if !ok {
+		return "", false, nil
 	}
-	return s.admitted(r.Context(), claims.Subject, claims.Video.Room)
+	claims, err := s.readLiveKitToken(token)
+	if err != nil || !claims.Video.RoomJoin {
+		return "", false, nil
+	}
+	admitted, err := s.admitted(r.Context(), claims.Subject, claims.Video.Room)
+	return token, admitted, err
+}
+
+// enteringWith is the context's key for the token a request came through the door with.
+type enteringWith struct{}
+
+// passOnToken has a request through /livekit/ carry to the media server the token it was let
+// through with, and nothing else LiveKit could read one from: in its Authorization header,
+// with access_token out of its query. Whatever the caller sent there or named in Connection,
+// which the proxy drops on the way, LiveKit then reads the token the door checked.
+func passOnToken(request *httputil.ProxyRequest) {
+	token, _ := request.In.Context().Value(enteringWith{}).(string)
+	request.Out.Header.Set("Authorization", "Bearer "+token)
+	query := request.Out.URL.Query()
+	if _, ok := query["access_token"]; ok {
+		query.Del("access_token")
+		request.Out.URL.RawQuery = query.Encode()
+	}
 }
 
 // liveKitEvent is what this server reads of what LiveKit's webhook tells it.

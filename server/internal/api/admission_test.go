@@ -27,6 +27,25 @@ type fakeMediaServer struct {
 	mu      sync.Mutex
 	reached map[string]int
 	removed []string
+	// What each request that reached it carried, as LiveKit reads a token.
+	carried []carried
+}
+
+// carried is where a request to the media server had its token: its Authorization header's
+// values, and its query's access_token's.
+type carried struct {
+	header, query []string
+}
+
+// token is the one LiveKit goes by: the header's, or else the query's.
+func (c carried) token() string {
+	if len(c.header) > 0 {
+		return strings.TrimPrefix(c.header[0], "Bearer ")
+	}
+	if len(c.query) > 0 {
+		return c.query[0]
+	}
+	return ""
 }
 
 func newFakeMediaServer(t *testing.T) (*fakeMediaServer, string) {
@@ -36,6 +55,7 @@ func newFakeMediaServer(t *testing.T) (*fakeMediaServer, string) {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
 		fake.reached[r.URL.Path]++
+		fake.carried = append(fake.carried, carried{r.Header.Values("Authorization"), r.URL.Query()["access_token"]})
 		if r.URL.Path == "/twirp/livekit.RoomService/RemoveParticipant" {
 			var body struct {
 				Room     string `json:"room"`
@@ -48,6 +68,29 @@ func newFakeMediaServer(t *testing.T) (*fakeMediaServer, string) {
 	}))
 	t.Cleanup(server.Close)
 	return fake, server.URL
+}
+
+// last is what the newest request that reached it carried.
+func (f *fakeMediaServer) last() carried {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.carried) == 0 {
+		return carried{}
+	}
+	return f.carried[len(f.carried)-1]
+}
+
+// heard is how many requests reached it, and since what each of those after the first n carried.
+func (f *fakeMediaServer) heard() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.carried)
+}
+
+func (f *fakeMediaServer) since(n int) []carried {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.carried[n:])
 }
 
 func (f *fakeMediaServer) times(path string) int {
@@ -198,6 +241,107 @@ func TestARoomTurnsAwayWhoeverItIsntForThroughTheServer(t *testing.T) {
 	}
 	if status, _, _ := h.raw("GET", "/livekit/rtc", "", nil, map[string]string{"Authorization": token}); status != http.StatusForbidden {
 		t.Errorf("a token in a header without Bearer got %d", status)
+	}
+}
+
+// The door and the media server go by one token: the one the door checked is the one LiveKit
+// reads, wherever a request carries it, and a request with two isn't let through. Otherwise
+// someone taken off a conversation comes back into its call's room with the token they had
+// for it, carried past the door behind one for a room they're still in: in the query, while
+// the door reads the header, which the request then names in Connection, so that the proxy
+// drops it on the way, as it does every header Connection names.
+func TestARoomsDoorPassesOnOnlyTheTokenItChecked(t *testing.T) {
+	media, url := newFakeMediaServer(t)
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.LiveKitInternalURL, cfg.LiveKitKey, cfg.LiveKitSecret = url, "key", roomSecret
+	})
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.group(bob)
+	call := bob.roomToken("/api/groups/" + group.ID + "/call")
+	voice := owner.createChannel("voice", 0)
+	bob.joinChannel(voice.ID, false)
+	channel := bob.roomToken("/api/channels/" + voice.ID + "/voice")
+	if status, resp := owner.commit(group.ID, 1, map[string]any{"remove_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("removing bob: %d %v", status, resp)
+	}
+	if status := h.enter("/rtc", call); status != http.StatusForbidden {
+		t.Fatalf("bob coming back with the call's token got %d", status)
+	}
+
+	// Two different tokens are turned away, however they come: one in the header and one in the
+	// query, with the header named in Connection or not, two in the query, or two headers.
+	which := func(sent carried) string {
+		switch sent.token() {
+		case call:
+			return "the call's, which the door turns away"
+		case channel:
+			return "the channel's"
+		}
+		return "none"
+	}
+	reached := media.heard()
+	for name, request := range map[string]struct {
+		query   string
+		headers http.Header
+	}{
+		"dropped header": {"?access_token=" + call, http.Header{"Authorization": {"Bearer " + channel}, "Connection": {"Upgrade, Authorization"}}},
+		"lower case":     {"?access_token=" + call, http.Header{"Authorization": {"Bearer " + channel}, "Connection": {"authorization"}}},
+		"both":           {"?access_token=" + call, http.Header{"Authorization": {"Bearer " + channel}}},
+		"two in query":   {"?access_token=" + channel + "&access_token=" + call, nil},
+		"two headers":    {"", http.Header{"Authorization": {"Bearer " + channel, "Bearer " + call}}},
+		"no bearer":      {"", http.Header{"Authorization": {channel}}},
+	} {
+		for _, path := range []string{"/rtc", "/rtc/v1", "/rtc/validate", "/rtc/v1/validate"} {
+			req, err := http.NewRequest("GET", h.url+"/livekit"+path+request.query, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header = request.headers.Clone()
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("%s at %s got %d, and the media server went by %s", name, path, resp.StatusCode, which(media.last()))
+			}
+		}
+	}
+	for _, sent := range media.since(reached) {
+		if sent.token() != channel {
+			t.Fatalf("the media server went by %s", which(sent))
+		}
+	}
+
+	// One token comes through in one place, the header, wherever the request had it: in the
+	// query, as LiveKit's JavaScript SDK sends it, in the header, as its Swift and Rust SDKs
+	// do, or in both, the same.
+	for name, request := range map[string]struct {
+		query   string
+		headers http.Header
+	}{
+		"query":   {"?access_token=" + channel + "&auto_subscribe=1", nil},
+		"header":  {"?auto_subscribe=1", http.Header{"Authorization": {"Bearer " + channel}}},
+		"both":    {"?access_token=" + channel + "&auto_subscribe=1", http.Header{"Authorization": {"Bearer " + channel}}},
+		"dropped": {"?auto_subscribe=1", http.Header{"Authorization": {"Bearer " + channel}, "Connection": {"Authorization"}}},
+	} {
+		req, err := http.NewRequest("GET", h.url+"/livekit/rtc/v1"+request.query, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header = request.headers.Clone()
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("bob coming into the channel's room, the token in the %s, got %d", name, resp.StatusCode)
+		}
+		if sent := media.last(); len(sent.query) != 0 || len(sent.header) != 1 || sent.header[0] != "Bearer "+channel {
+			t.Fatalf("with the token in the %s, the media server was given %d in the header and %d in the query", name, len(sent.header), len(sent.query))
+		}
 	}
 }
 
