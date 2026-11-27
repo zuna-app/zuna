@@ -40,6 +40,8 @@ type callState struct {
 	// Whose devices are ringing, until they answer, decline or it's gone on long enough.
 	ringing  map[string]*ringing
 	declined map[string]bool
+	// Who has rung people in it, which counted once against how often they may.
+	rang map[string]bool
 }
 
 // Call is what a conversation's members hear about a call in it.
@@ -106,6 +108,22 @@ func (s *Server) ringTimedOut(groupID, userID string, n uint64) {
 	s.tellCall(groupID, view)
 }
 
+// mayRing says whether someone may ring people in a call. Calls ring for each person only so
+// often in a conversation, so that one member starting calls over and over can't keep everyone's
+// phone ringing. Once a call has rung for someone, ringing again in it is free, as it rings each
+// person again only once they've stopped being rung. Past the limit, the call goes on as it
+// would, ringing nobody. Called with the lock held.
+func (s *Server) mayRing(call *callState, groupID, userID string) bool {
+	if call.rang[userID] {
+		return true
+	}
+	if !s.ringLimiter.Allow(userID + "|" + groupID) {
+		return false
+	}
+	call.rang[userID] = true
+	return true
+}
+
 // joinCall notes that someone came into a call. The first one in starts it, and rings everyone
 // it's told to, which an app asks for only as it starts a call. Called with the lock held, it
 // says whether anything about the call changed.
@@ -113,11 +131,12 @@ func (s *Server) joinCall(groupID, userID string, ring []string) bool {
 	call := s.voice.calls[groupID]
 	changed := false
 	if call == nil {
-		call = &callState{startedBy: userID, startedAt: store.Now(), ringing: map[string]*ringing{}, declined: map[string]bool{}}
+		call = &callState{startedBy: userID, startedAt: store.Now(), ringing: map[string]*ringing{}, declined: map[string]bool{}, rang: map[string]bool{}}
 		s.voice.calls[groupID] = call
 		changed = true
-		for _, user := range ring {
-			if user != userID {
+		ring = slices.DeleteFunc(ring, func(user string) bool { return user == userID })
+		if len(ring) > 0 && s.mayRing(call, groupID, userID) {
+			for _, user := range ring {
 				s.ring(call, groupID, user)
 			}
 		}
@@ -394,10 +413,20 @@ func (s *Server) handleRing(w http.ResponseWriter, r *http.Request, sess *store.
 			here[state.UserID] = true
 		}
 	}
+	var ring []string
 	for _, user := range members {
 		if !here[user] && (len(body.Users) == 0 || slices.Contains(body.Users, user)) {
-			s.ring(call, groupID, user)
+			ring = append(ring, user)
 		}
+	}
+	// Past how often someone may ring, nothing changes, and nobody hears.
+	if len(ring) == 0 || !s.mayRing(call, groupID, sess.UserID) {
+		s.voice.mu.Unlock()
+		writeOK(w)
+		return
+	}
+	for _, user := range ring {
+		s.ring(call, groupID, user)
 	}
 	view := call.view(groupID)
 	s.voice.mu.Unlock()

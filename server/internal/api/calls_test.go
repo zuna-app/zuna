@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -74,6 +76,37 @@ func (s *socket) heard() []string {
 			return kinds
 		}
 		kinds = append(kinds, kind)
+	}
+}
+
+// callBy is the last thing heard about a conversation's call before the server dealt with a
+// ping, or what was heard before if nothing was.
+func (s *socket) callBy(groupID string, call *api.Call) *api.Call {
+	s.t.Helper()
+	s.write(map[string]any{"t": "ping"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, data, err := s.ws.Read(ctx)
+		if err != nil {
+			s.t.Fatalf("waiting for a pong: %v", err)
+		}
+		var event struct {
+			Type string `json:"t"`
+			Data struct {
+				GroupID string    `json:"group_id"`
+				Call    *api.Call `json:"call"`
+			} `json:"d"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			s.t.Fatal(err)
+		}
+		switch {
+		case event.Type == "pong":
+			return call
+		case event.Type == "call" && event.Data.GroupID == groupID:
+			call = event.Data.Call
+		}
 	}
 }
 
@@ -425,4 +458,102 @@ func TestACallWakesPhonesThroughTheirVoIPTokenOrAnAlert(t *testing.T) {
 		t.Fatalf("when the call ended: %v", ended)
 	}
 	relay.none(t)
+}
+
+// One member starting a call over and over rings the others' phones a few times in a row, and
+// then only now and then. The calls still start, as everyone in the conversation hears, and
+// only the ringing is left out. Ringing again from inside a call that rang is free.
+func TestStartingCallsOverAndOverRingsOnlySoOften(t *testing.T) {
+	var rings, ends atomic.Int64
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var push struct {
+			Type string `json:"type"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&push)
+		if push.Type == "call" {
+			rings.Add(1)
+		} else {
+			ends.Add(1)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(relay.Close)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	invite := owner.newInvite()
+	const phones = 3
+	var people []*client
+	for i := range phones {
+		person := h.register("phone"+itoa(int64(i)), invite)
+		h.mustDo("PUT", "/api/push", person.token, map[string]any{"relay": relay.URL, "handle": "phone-" + itoa(int64(i)), "call_handle": "voip-" + itoa(int64(i)), "key": bytesOf(32, 5), "registration": store.NewID()}, nil)
+		people = append(people, person)
+	}
+	mallory := h.register("mallory", invite)
+	group := owner.group(append(people, mallory)...)
+	owners := owner.connect()
+	owners.ping()
+	malloys := mallory.connect()
+	// Each push rung is waited for, so that none is missed for the call having ended first.
+	waitFor := func(counter *atomic.Int64, want int64) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); counter.Load() < want; {
+			if time.Now().After(deadline) {
+				t.Fatalf("%d pushes reached the relay, not %d", counter.Load(), want)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	const tries = 20
+	rang, pushed := 0, int64(0)
+	start := time.Now()
+	for try := range tries {
+		// Half of them start the call and ring from inside it, as ringing again does.
+		ring := try%2 == 0
+		malloys.sendVoice(group.ID, map[string]any{"ring": ring})
+		call := owners.waitForCall(group.ID)
+		if call == nil || call.StartedBy != mallory.userID {
+			t.Fatalf("try %d started %+v", try, call)
+		}
+		if !ring {
+			// Past the limit, nobody is told anything is wrong.
+			if status, body := h.do("POST", "/api/groups/"+group.ID+"/call/ring", mallory.token, map[string]any{}, nil); status != http.StatusOK {
+				t.Fatalf("ringing gave %d %v", status, body)
+			}
+			call = owners.callBy(group.ID, call)
+		}
+		if len(call.Ringing) > 0 {
+			rang++
+			pushed += phones
+			waitFor(&rings, pushed)
+		}
+		if try == 0 {
+			// Ringing someone again who declined is free, in a call that rang.
+			h.mustDo("POST", "/api/groups/"+group.ID+"/call/decline", people[0].token, map[string]any{}, nil)
+			owners.waitForCall(group.ID)
+			h.mustDo("POST", "/api/groups/"+group.ID+"/call/ring", mallory.token, map[string]any{"users": []string{people[0].userID}}, nil)
+			if again := owners.waitForCall(group.ID); !slices.Contains(again.Ringing, people[0].userID) {
+				t.Fatalf("ringing again in a call that rang rang %v", again.Ringing)
+			}
+			pushed++
+			waitFor(&rings, pushed)
+		}
+		malloys.sendVoice("", nil)
+		if owners.waitForCall(group.ID) != nil {
+			t.Fatalf("try %d's call didn't end", try)
+		}
+	}
+	elapsed := time.Since(start)
+	time.Sleep(300 * time.Millisecond)
+	t.Logf("%d calls started in %v by one member of a group with %d phones: %d rang, and %d ring pushes and %d call_end pushes reached the relay, %.0f a second", tries, elapsed.Round(time.Millisecond), phones, rang, rings.Load(), ends.Load(), float64(rings.Load()+ends.Load())/elapsed.Seconds())
+	if rang != 4 || rings.Load() != pushed {
+		t.Errorf("%d of %d calls started one after another rang, with %d pushes", rang, tries, rings.Load())
+	}
+
+	// Someone else's calls there are theirs to count, and ring everyone else in it.
+	bobs := people[1].connect()
+	bobs.sendVoice(group.ID, map[string]any{"ring": true})
+	if call := owners.waitForCall(group.ID); call == nil || call.StartedBy != people[1].userID || len(call.Ringing) != phones+1 {
+		t.Fatalf("another member's call was %+v", call)
+	}
 }

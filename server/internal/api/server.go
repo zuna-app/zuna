@@ -165,6 +165,8 @@ type Server struct {
 
 	voice        *voiceRooms
 	voiceLimiter *ratelimit.Keyed
+	// How often someone's calls ring the others in a conversation, by person and conversation.
+	ringLimiter  *ratelimit.Keyed
 	soundLimiter *ratelimit.Keyed
 	watchLimiter *ratelimit.Keyed
 	liveKit      *http.Client
@@ -259,7 +261,10 @@ func New(cfg Config, db *store.DB) *Server {
 		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
 		voice:             newVoiceRooms(),
 		voiceLimiter:      keyed(rate.Limit(1), 20),
-		soundLimiter:      keyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
+		// A call that's declined and tried again, or dropped and made again, rings a few
+		// times in a row, and one left to ring out lasts longer than it takes to ring again.
+		ringLimiter:  keyed(rate.Every(15*time.Second), 4),
+		soundLimiter: keyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
 		// The apps send four seeks a second at most, while someone drags, and answer those who come in.
 		watchLimiter: keyed(rate.Limit(8), 40),
 		liveKit:      &http.Client{Timeout: liveKitTimeout},
