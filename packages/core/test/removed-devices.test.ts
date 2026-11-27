@@ -177,3 +177,33 @@ describe("a removed device and a server that keeps it in a group", () => {
     await waitFor(() => erin.texts(key).includes("while the phone isn't listed"), "erin to read it", 60_000);
   });
 });
+
+describe("a commit made for something else", () => {
+  it("takes out whoever shouldn't hold the group's keys in that same commit (Z-49)", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const frank = await person("frank");
+    const groupId = await groupWith(dave, [erin]);
+    const session = sessionOf(dave);
+    const inTree = (userId: string) => session.treeMembers(groupId).some((member: { userId: string }) => member.userId === userId);
+    // Nothing of dave's takes erin's leaf out by itself once she's gone, but the commit that adds frank.
+    const reconcile = session.scheduleReconcile;
+    session.scheduleReconcile = () => undefined;
+    try {
+      await erin.session.leaveGroup(groupId);
+      await waitFor(async () => {
+        session.applyGroup(await session.api.group(groupId));
+        return !session.groups.get(groupId).members.some((member: { userId: string }) => member.userId === erin.userId);
+      }, "the server to say erin left");
+      expect(inTree(erin.userId)).toBe(true);
+      const epoch = session.mlsEpoch(groupId);
+      await dave.session.addMembers(groupId, [frank.userId]);
+      expect(session.mlsEpoch(groupId)).toBe(epoch + 1);
+      expect(inTree(frank.userId)).toBe(true);
+      expect(inTree(erin.userId)).toBe(false);
+      await waitFor(() => frank.session.getConversations().some((item) => item.groupId === groupId && item.ready), "frank to join");
+    } finally {
+      session.scheduleReconcile = reconcile;
+    }
+  });
+});

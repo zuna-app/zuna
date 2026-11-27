@@ -543,13 +543,16 @@ export abstract class SessionJoining extends SessionGroups {
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       await this.pullChanges(groupId);
       const plan = await build();
+      // Whoever shouldn't hold the group's keys goes in this commit too, whatever it's for, so the
+      // epoch it makes, and what's sealed for that epoch with it, reaches none of them. Each leaf once.
+      const removeLeaves = [...new Set([...(plan.removeLeaves ?? []), ...(await this.staleLeaves(groupId))])];
       const epoch = this.mlsEpoch(groupId);
       const packages = plan.keyPackages ?? [];
       const roster = plan.roster ? this.nextRoster(groupId, plan.roster) : null;
       const pending = this.mls.commitChanges(
         groupBytes,
         packages.map((item) => item.data) as unknown as any[],
-        Uint32Array.from(plan.removeLeaves ?? []),
+        Uint32Array.from(removeLeaves),
         roster,
       ) as { commit: Uint8Array; welcome: Uint8Array | null; groupInfo: Uint8Array | null };
       this.saveMls();
@@ -590,6 +593,7 @@ export abstract class SessionJoining extends SessionGroups {
       this.confirmedEpochs.set(groupId, newEpoch);
       this.noteLeaves(groupId);
       this.uploadEpochKeysSoon();
+      if (removeLeaves.length > 0) this.announceConfirmedRemovals(groupId);
       return;
     }
     throw new Error(t("errors.theConversationIsVeryBusy"));

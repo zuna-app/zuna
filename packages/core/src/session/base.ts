@@ -332,6 +332,7 @@ export abstract class SessionBase {
   protected abstract compareTokenKeys(tags: TokenKeysTag[], from: string): void;
   protected abstract checkSendKey(groupId: string, epoch: number, sendKey: string | null | undefined): void;
   protected abstract staleLeaves(groupId: string, members?: TreeMember[]): Promise<number[]>;
+  protected abstract announceConfirmedRemovals(groupId: string): void;
   protected abstract ensureTreeClean(groupId: string): Promise<void>;
   protected abstract rotateIfOld(groupId: string): Promise<void>;
   protected abstract onFrame(frame: SocketFrame): void;
