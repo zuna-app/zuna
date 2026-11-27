@@ -206,6 +206,11 @@ isn't bound by the app's AGPL, which is why the SDK, which a plugin bundles, is 
 license; how to word that so it holds is still to be settled before an outside author's plugin is
 verified.
 
+The marketplace's index can pull a plugin, a version of one, or any package by its hash. A device
+turns it off the next time it reads the index, says why under its name in Settings, and keeps it
+off while the last index it read names it, offline and after a restart too: its switch can't turn
+it on, and it can't be installed again.
+
 ## Examples
 
 `examples/plugins`: `hello` (a command, settings, a panel, a page, a header button, a message

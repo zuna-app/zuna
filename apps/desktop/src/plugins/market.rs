@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use super::manifest::{API, Manifest, parse_version};
 use super::package::{Package, sha256_hex};
-use super::store::Origin;
+use super::store::{Origin, Withdrawn};
 use super::{Plugins, trust};
 use crate::i18n::t;
 
@@ -217,9 +217,19 @@ impl Plugins {
         .detach();
     }
 
-    pub(super) fn apply_index(&mut self, index: Index, cx: &mut Context<Self>) {
+    pub(crate) fn apply_index(&mut self, index: Index, cx: &mut Context<Self>) {
         self.record.seen_serial = self.record.seen_serial.max(index.serial);
         self.record.revoked_hashes = index.revoked.iter().filter_map(|revoked| if let Revoked::Hash { sha256, .. } = revoked { Some(sha256.clone()) } else { None }).collect();
+        // And by id, kept as well, so a plugin pulled stays pulled offline and after a restart.
+        self.record.revoked_plugins = index
+            .revoked
+            .iter()
+            .filter_map(|revoked| match revoked {
+                Revoked::Plugin { id, versions: RevokedVersions::All(all), reason } if all == "*" => Some(Withdrawn { id: id.clone(), versions: None, reason: reason.clone() }),
+                Revoked::Plugin { id, versions: RevokedVersions::Some(list), reason } => Some(Withdrawn { id: id.clone(), versions: Some(list.clone()), reason: reason.clone() }),
+                _ => None,
+            })
+            .collect();
         self.save();
         // What's withdrawn is turned off wherever it came from: a verified one by id, anything by its hash.
         let installed: Vec<(String, String, String, Option<String>, Origin)> = self.record.plugins.iter().map(|plugin| (plugin.uid(), plugin.id.clone(), plugin.version.clone(), plugin.sha256.clone(), plugin.origin)).collect();

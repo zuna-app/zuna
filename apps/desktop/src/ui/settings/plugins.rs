@@ -22,6 +22,8 @@ struct Listed {
     origin: Origin,
     enabled: bool,
     running: bool,
+    /// Zuna pulled it, so its switch can't turn it on.
+    pulled: bool,
     problem: Option<String>,
     told: Vec<(String, bool)>,
     waiting: Option<String>,
@@ -45,7 +47,8 @@ fn listed(plugins: &Plugins) -> Vec<Listed> {
                 enabled: record.enabled,
                 // A plugin of themes alone runs no script, so it's on whenever it's loaded and switched on.
                 running: plugins.running(&uid) || loaded.is_some_and(|loaded| !loaded.manifest().scripted() && record.enabled && plugins.safe_mode.is_none()),
-                problem: plugins.problems.get(&uid).cloned().or_else(|| record.off_reason.clone()),
+                pulled: plugins.pulled(record).is_some(),
+                problem: plugins.problems.get(&uid).cloned().or_else(|| plugins.pulled(record)).or_else(|| record.off_reason.clone()),
                 told: loaded.map(|loaded| loaded.manifest().told()).unwrap_or_default(),
                 waiting: plugins.market.waiting.get(&uid).map(|version| version.version.clone()),
                 path: record.path.clone(),
@@ -204,6 +207,8 @@ impl SettingsView {
         };
         let (toggle_uid, remove_uid, update_uid, log_uid) = (uid.clone(), uid.clone(), uid.clone(), uid.clone());
         let enabled = item.enabled;
+        // One Zuna pulled stays off, its switch dimmed, under the line saying why.
+        let locked = item.pulled && !enabled;
         let showing_log = self.showing_log.as_deref() == Some(uid.as_str());
         div()
             .flex()
@@ -229,10 +234,12 @@ impl SettingsView {
                             .child(div().flex().items_center().gap(px(6.)).child(div().font_weight(FontWeight::MEDIUM).one_line().child(item.name.clone())).when(item.origin != Origin::Verified, |el| el.child(crate::ui::plugins::unverified_mark(cx))))
                             .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("{} · {} · {}", item.version, from, status))),
                     )
-                    .child(switch(SharedString::from(format!("plugin-on-{uid}")), enabled, cx).on_click(move |_, _, cx| {
-                        if let Some(plugins) = crate::plugins::get(cx) {
-                            plugins.update(cx, |plugins, cx| plugins.set_enabled(&toggle_uid, !enabled, cx));
-                        }
+                    .child(switch(SharedString::from(format!("plugin-on-{uid}")), enabled, cx).when(locked, |el| el.opacity(0.55).cursor_default()).when(!locked, |el| {
+                        el.on_click(move |_, _, cx| {
+                            if let Some(plugins) = crate::plugins::get(cx) {
+                                plugins.update(cx, |plugins, cx| plugins.set_enabled(&toggle_uid, !enabled, cx));
+                            }
+                        })
                     })),
             )
             .when_some(item.problem.clone(), |el, problem| el.child(div().text_size(px(12.5)).text_color(theme.red).child(problem)))
@@ -588,6 +595,22 @@ mod tests {
         app.click(cx, &format!("plugin-remove-{uid}"));
         assert!(harness.read(cx, |plugins| !plugins.loaded.contains_key(&uid) && plugins.record.find(&uid).is_none()));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[gpui::test]
+    fn a_plugin_zuna_pulled_cant_be_switched_back_on(cx: &mut TestAppContext) {
+        crate::ui::motion::set_reduced(true);
+        let harness = Harness::open(cx, "pulledplug", &[], |_| {});
+        let bytes = package(&manifest("pulledfile", &[], |_| {}), b"globalThis.__zunaDefine(() => {});");
+        let uid = harness.plugins.update(cx, |plugins, cx| plugins.install(&bytes, None, cx)).unwrap();
+        let index: crate::plugins::market::Index = serde_json::from_value(json!({ "serial": 4, "plugins": [], "revoked": [{ "sha256": crate::plugins::package::sha256_hex(&bytes), "reason": "It steals." }] })).unwrap();
+        harness.plugins.update(cx, |plugins, cx| plugins.apply_index(index, cx));
+        section(&harness, cx, "plugins");
+        harness.app.click(cx, &format!("plugin-on-{uid}"));
+        assert!(!harness.read(cx, |plugins| plugins.record.find(&uid).unwrap().enabled), "its switch doesn't turn it on");
+        // Another's switch still works.
+        harness.app.click(cx, &format!("plugin-on-{}", harness.uid));
+        assert!(!harness.read(cx, |plugins| plugins.record.find(&harness.uid).unwrap().enabled));
     }
 
     #[gpui::test]

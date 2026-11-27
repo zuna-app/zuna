@@ -1,9 +1,9 @@
 //! What's installed, and each plugin's own data.
 //!
 //! `plugins/installed.sealed` holds each plugin's id, version, hash, where it came from, what it
-//! was granted and whether it's on, with the switch for unverified plugins and the highest
-//! index serial seen, sealed with a key made from the device key, as what decides whom to trust
-//! is. A package is kept in `plugins/packages` and hashed again each time it's loaded, so one
+//! was granted and whether it's on, with the switch for unverified plugins, the highest index
+//! serial seen and what that index withdrew, sealed with a key made from the device key, as what
+//! decides whom to trust is. A package is kept in `plugins/packages` and hashed again each time it's loaded, so one
 //! swapped on disk doesn't run.
 //!
 //! `plugins.db` holds each plugin's storage and settings, every value sealed with a key made from
@@ -86,6 +86,25 @@ pub struct Record {
     pub seen_serial: u64,
     /// Packages withdrawn by their hash, as the last index said, which never load again.
     pub revoked_hashes: Vec<String>,
+    /// Verified plugins withdrawn by their id, as the last index said, kept so they stay
+    /// withdrawn after a restart and while the index can't be read.
+    pub revoked_plugins: Vec<Withdrawn>,
+}
+
+/// A plugin the marketplace's index withdrew by its id: every version of it, or those it names.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Withdrawn {
+    pub id: String,
+    /// None for every version.
+    pub versions: Option<Vec<String>>,
+    pub reason: String,
+}
+
+impl Withdrawn {
+    pub fn covers(&self, id: &str, version: &str) -> bool {
+        self.id == id && self.versions.as_ref().is_none_or(|versions| versions.iter().any(|item| item == version))
+    }
 }
 
 /// The keys plugins' data is sealed with, made from the device key, which isn't kept here.

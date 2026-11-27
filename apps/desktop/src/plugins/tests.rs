@@ -359,6 +359,11 @@ fn what_is_installed_and_kept_is_sealed() {
     std::fs::create_dir_all(&dir).unwrap();
     let keys = Keys::from_device_key(&[7u8; 32]);
     let mut record = Record { allow_unverified: true, seen_serial: 42, ..Record::default() };
+    record.revoked_plugins.push(super::store::Withdrawn { id: "bad".into(), versions: Some(vec!["1.0.0".into()]), reason: "It lies.".into() });
+    // A list written before withdrawals by id were kept still reads.
+    let older: Record = serde_json::from_value(json!({ "plugins": [], "allowUnverified": true, "seenSerial": 3, "revokedHashes": ["aa"] })).unwrap();
+    assert_eq!((older.seen_serial, older.revoked_hashes.len(), older.revoked_plugins.len()), (3, 1, 0));
+    assert!(record.revoked_plugins[0].covers("bad", "1.0.0") && !record.revoked_plugins[0].covers("bad", "1.0.1") && !record.revoked_plugins[0].covers("good", "1.0.0"));
     record.plugins.push(super::store::Installed {
         id: "hello".into(),
         origin: Origin::File,

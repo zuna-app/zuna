@@ -982,6 +982,73 @@ fn the_index_withdraws_what_it_names_and_holds_updates_that_ask_for_more(cx: &mu
 }
 
 #[gpui::test]
+fn a_pulled_plugin_stays_off_whatever_its_switch_says(cx: &mut TestAppContext) {
+    let _app = App::open(cx, &World::new("pulled"));
+    let data = fresh("pulled");
+    let plugins = plugins_in(cx, &data, false);
+    // One from a file, pulled by its package's hash, and a verified one, pulled by its id: put in
+    // the record as installing it would, as no test can sign a package.
+    let bytes = package(&manifest("hashed", &[], |_| {}), b"globalThis.__zunaDefine(() => {});");
+    let signed = super::package::Package::open(&package(&manifest("signed", &[], |_| {}), b"globalThis.__zunaDefine(() => {});")).unwrap();
+    let record = super::store::Installed {
+        id: "signed".into(),
+        origin: Origin::Verified,
+        name: "Signed".into(),
+        version: "1.0.0".into(),
+        sha256: signed.sha256.clone(),
+        path: "verified-signed-1.0.0.zunaplugin".into(),
+        granted: vec![],
+        hosts: vec![],
+        enabled: true,
+        off_reason: None,
+        installed_at: 0.,
+    };
+    let signed_uid = record.uid();
+    let inject = |plugins: &mut Plugins| {
+        plugins.loaded.insert(record.uid(), super::Loaded { record: record.clone(), package: std::sync::Arc::new(signed.clone()) });
+    };
+    let hashed = plugins.update(cx, |plugins, cx| {
+        plugins.set_allow_unverified(true, cx);
+        plugins.record.plugins.push(record.clone());
+        inject(plugins);
+        plugins.start_all(cx);
+        plugins.install(&bytes, None, cx).unwrap()
+    });
+    let index: super::market::Index = serde_json::from_value(json!({
+        "serial": 8, "plugins": [],
+        "revoked": [{ "sha256": super::package::sha256_hex(&bytes), "reason": "It steals." }, { "id": "signed", "versions": "*", "reason": "It lies." }],
+    }))
+    .unwrap();
+    plugins.update(cx, |plugins, cx| plugins.apply_index(index, cx));
+    let stays_off = |cx: &mut TestAppContext, plugins: &Entity<Plugins>, uid: &str| {
+        plugins.update(cx, |plugins, cx| plugins.set_enabled(uid, true, cx));
+        cx.read(|cx| {
+            let plugins = plugins.read(cx);
+            assert!(!plugins.running.contains_key(uid), "{uid} doesn't run");
+            assert!(!plugins.record.find(uid).unwrap().enabled, "{uid}'s switch stays off");
+            assert!(plugins.problems[uid].starts_with("Zuna pulled"), "{:?}", plugins.problems);
+        });
+    };
+    stays_off(cx, &plugins, &hashed);
+    stays_off(cx, &plugins, &signed_uid);
+
+    // After a restart, with no index read since: what it withdrew by id is still withdrawn.
+    let again = plugins_in(cx, &data, false);
+    again.update(cx, |plugins, cx| {
+        inject(plugins);
+        plugins.start_all(cx);
+    });
+    stays_off(cx, &again, &hashed);
+    stays_off(cx, &again, &signed_uid);
+    assert_eq!(cx.read(|cx| again.read(cx).problems[&signed_uid].clone()), "Zuna pulled it: It lies.");
+    // Nor does it start by any other way in, or install again.
+    again.update(cx, |plugins, cx| plugins.start(&signed_uid, cx));
+    assert!(cx.read(|cx| !again.read(cx).running.contains_key(&signed_uid)));
+    assert_eq!(again.update(cx, |plugins, cx| plugins.install(&bytes, None, cx)).unwrap_err(), "Zuna pulled this plugin because it's harmful.");
+    std::fs::remove_dir_all(&data).ok();
+}
+
+#[gpui::test]
 fn themes_come_from_plugins_that_are_on(cx: &mut TestAppContext) {
     let _app = App::open(cx, &World::new("themes"));
     let data = fresh("themes");

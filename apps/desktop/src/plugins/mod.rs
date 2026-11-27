@@ -375,10 +375,8 @@ impl Plugins {
         if package.manifest.id != record.id {
             return Err(t("plugins.load.otherPlugin").into());
         }
-        if let Some(hash) = &package.sha256 {
-            if self.record.revoked_hashes.contains(hash) {
-                return Err(t("plugins.pulled").into());
-            }
+        if let Some(pulled) = self.pulled(record) {
+            return Err(pulled);
         }
         if package.manifest.min_build > crate::platform::BUILD && crate::platform::BUILD > 0 {
             return Err(t("plugins.needsNewer").into());
@@ -390,6 +388,17 @@ impl Plugins {
             }
         }
         Ok(package)
+    }
+
+    /// Why Zuna pulled an installed plugin, if it did, as the last index read said, which the
+    /// record keeps from one run to the next: a package by its hash, wherever it came from, and a
+    /// verified plugin by its id and version.
+    pub fn pulled(&self, record: &Installed) -> Option<String> {
+        if record.sha256.as_ref().is_some_and(|hash| self.record.revoked_hashes.contains(hash)) {
+            return Some(t("plugins.pulled").into());
+        }
+        let withdrawn = self.record.revoked_plugins.iter().find(|withdrawn| record.verified() && withdrawn.covers(&record.id, &record.version))?;
+        Some(tr!("plugins.pulledBecause", reason = withdrawn.reason))
     }
 
     // --- Starting and stopping ---
@@ -441,6 +450,12 @@ impl Plugins {
             return;
         }
         let Some(loaded) = self.loaded.get(uid).cloned() else { return };
+        // A plugin Zuna pulled doesn't run, whatever its switch says.
+        if let Some(pulled) = self.pulled(&loaded.record) {
+            self.problems.insert(uid.to_string(), pulled);
+            cx.notify();
+            return;
+        }
         self.slots.insert(uid.to_string(), Slots::default());
         self.bind_commands(uid, &loaded, cx);
         let Some(source) = loaded.package.script() else {
@@ -540,8 +555,15 @@ impl Plugins {
         self.refresh_theme(cx);
     }
 
-    /// The person's switch.
+    /// The person's switch, which can't turn on a plugin Zuna pulled.
     pub fn set_enabled(&mut self, uid: &str, enabled: bool, cx: &mut Context<Self>) {
+        if enabled {
+            if let Some(pulled) = self.record.find(uid).and_then(|record| self.pulled(record)) {
+                self.problems.insert(uid.to_string(), pulled);
+                cx.notify();
+                return;
+            }
+        }
         if let Some(record) = self.record.find_mut(uid) {
             record.enabled = enabled;
             record.off_reason = None;
@@ -613,7 +635,8 @@ impl Plugins {
             return Err(t("plugins.unverifiedOffSettings").into());
         }
         let hash = package.sha256.clone().unwrap_or_default();
-        if self.record.revoked_hashes.contains(&hash) || self.market.revoked(&package) {
+        let withdrawn = verified && self.record.revoked_plugins.iter().any(|withdrawn| withdrawn.covers(&package.manifest.id, &package.manifest.version));
+        if self.record.revoked_hashes.contains(&hash) || withdrawn || self.market.revoked(&package) {
             return Err(t("plugins.pulled").into());
         }
         let origin = if verified { Origin::Verified } else { Origin::File };
