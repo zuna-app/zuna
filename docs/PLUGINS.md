@@ -28,7 +28,8 @@ script with esbuild into `dist/main.js`, checks the package as the app would, an
 
 To run one as it's written: Settings → Plugins → Advanced, turn on "Allow plugins Zuna hasn't
 checked", then "Load a folder…". The app loads it again whenever its files change, and its log
-shows what it printed and what the broker refused. Its own section in Settings appears once it
+shows what it printed and what the broker refused. A permission or a host its manifest adds then
+waits until it's loaded with "Load a folder…" again. Its own section in Settings appears once it
 has settings. A folder's plugin wears the "Unverified" mark, as a file's does, and may reach a
 server on this machine, which nothing else may.
 

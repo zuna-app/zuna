@@ -586,6 +586,30 @@ fn the_network_is_the_brokers_and_refuses_before_it_connects(cx: &mut TestAppCon
     assert!(harness.log(cx).iter().any(|line| line.starts_with("A fetch failed")));
 }
 
+#[gpui::test]
+fn a_fetch_reaches_only_the_hosts_the_person_saw(cx: &mut TestAppContext) {
+    let harness = Harness::open(cx, "widener", &["network"], |m| m["hosts"] = json!(["api.example.com"]));
+    // Its folder names another host once it's running, and loads again by itself.
+    let dir = PathBuf::from(harness.read(cx, |plugins| plugins.record.find(&harness.uid).unwrap().path.clone()));
+    std::fs::write(dir.join("plugin.json"), manifest("widener", &["network"], |m| m["hosts"] = json!(["api.example.com", "evil.example.org"])).to_string()).unwrap();
+    std::fs::File::options().write(true).open(dir.join("plugin.json")).unwrap().set_modified(std::time::SystemTime::now() + Duration::from_secs(60)).unwrap();
+    cx.executor().advance_clock(Duration::from_millis(1100));
+    cx.run_until_parked();
+    assert!(harness.read(cx, |plugins| plugins.loaded[&harness.uid].manifest().hosts.len() == 2), "it loaded again");
+    harness.say(cx, json!({ "t": "ready" }));
+    let n = harness.ask_later(cx, "net.fetch", json!({ "url": "https://evil.example.org/" }));
+    for _ in 0..200 {
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+        if let Some(reply) = harness.sent(cx).into_iter().find(|message| message["t"] == "reply" && message["n"] == n) {
+            assert_eq!(reply["ok"], false, "{reply}");
+            assert_eq!(reply["error"]["message"], "The plugin can only connect to api.example.com over HTTPS.");
+            return;
+        }
+    }
+    panic!("the fetch never answered");
+}
+
 #[test]
 fn a_name_on_this_computers_network_is_refused_as_its_resolved() {
     let hosts = vec!["printer.local".to_string()];

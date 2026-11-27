@@ -450,7 +450,9 @@ impl Plugins {
             "net.fetch" => match self.grant(uid, Permission::Network) {
                 Ok(()) => {
                     let Some(loaded) = self.loaded.get(uid) else { return Some(Err("It isn't installed.".into())) };
-                    let hosts = loaded.manifest().hosts.clone();
+                    // Only hosts the person saw as it was installed: a developer's folder loaded
+                    // again as its files change may name more, which wait until it's loaded anew.
+                    let hosts: Vec<String> = loaded.manifest().hosts.iter().filter(|host| loaded.record.hosts.contains(host)).cloned().collect();
                     let local = loaded.record.origin == Origin::Folder;
                     let (owner, request) = (uid.to_string(), args.clone());
                     cx.spawn(async move |this, cx| {
